@@ -5,6 +5,7 @@ import 'package:playnite_mobile_companion/core/database/app_database.dart';
 import 'package:playnite_mobile_companion/core/database/daos/game_dao.dart';
 import 'package:playnite_mobile_companion/core/database/daos/sync_meta_dao.dart';
 import 'package:playnite_mobile_companion/core/network/drive_api_service.dart';
+import 'package:playnite_mobile_companion/core/services/background_sync_service.dart';
 import 'package:playnite_mobile_companion/features/sync/domain/sync_models.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -64,6 +65,7 @@ class DeltaPullManager {
     int concurrency = 4,
   }) async {
     final stopwatch = Stopwatch()..start();
+    await BackgroundSyncService.acquireWakeLock();
 
     try {
       // 1. Fetch remote sync_index.json
@@ -287,6 +289,8 @@ class DeltaPullManager {
         message: 'Sync error: $e',
       ));
       return SyncReport.failure(e.toString(), durationMs: stopwatch.elapsedMilliseconds);
+    } finally {
+      await BackgroundSyncService.releaseWakeLock();
     }
   }
 }

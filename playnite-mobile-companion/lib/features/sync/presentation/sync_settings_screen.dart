@@ -7,6 +7,7 @@ import 'package:playnite_mobile_companion/core/database/app_database.dart';
 import 'package:playnite_mobile_companion/core/database/daos/game_dao.dart';
 import 'package:playnite_mobile_companion/core/database/daos/sync_meta_dao.dart';
 import 'package:playnite_mobile_companion/core/network/google_drive_api_service.dart';
+import 'package:playnite_mobile_companion/core/services/background_sync_service.dart';
 import 'package:playnite_mobile_companion/core/utils/media_url_resolver.dart';
 import 'package:playnite_mobile_companion/features/sync/data/demo_library_data.dart';
 import 'package:playnite_mobile_companion/features/sync/data/sync_config_repository.dart';
@@ -49,6 +50,9 @@ class _SyncSettingsScreenState extends State<SyncSettingsScreen> {
   bool _obscureSecret = true;
   bool _obscureRefresh = true;
 
+  bool _isIgnoringBatteryOptimizations = false;
+  bool _isCheckingBattery = false;
+
   @override
   void initState() {
     super.initState();
@@ -71,6 +75,7 @@ class _SyncSettingsScreenState extends State<SyncSettingsScreen> {
   Future<void> _loadSettings() async {
     setState(() => _isLoading = true);
     final cfg = await _configRepo.loadConfig();
+    final isIgnoringBattery = await BackgroundSyncService.isIgnoringBatteryOptimizations();
     if (mounted) {
       setState(() {
         _config = cfg;
@@ -81,9 +86,33 @@ class _SyncSettingsScreenState extends State<SyncSettingsScreen> {
         _refreshTokenController.text = cfg.googleRefreshToken;
         _tokenController.text = cfg.googleAccessToken;
         _localPathController.text = cfg.localFolderPath;
+        _isIgnoringBatteryOptimizations = isIgnoringBattery;
         _isLoading = false;
       });
     }
+  }
+
+  Future<void> _checkBatteryStatus() async {
+    final status = await BackgroundSyncService.isIgnoringBatteryOptimizations();
+    if (mounted) {
+      setState(() {
+        _isIgnoringBatteryOptimizations = status;
+      });
+    }
+  }
+
+  Future<void> _requestIgnoreBatteryOptimizations() async {
+    setState(() => _isCheckingBattery = true);
+    await BackgroundSyncService.requestIgnoreBatteryOptimizations();
+    await Future.delayed(const Duration(milliseconds: 1000));
+    await _checkBatteryStatus();
+    if (mounted) {
+      setState(() => _isCheckingBattery = false);
+    }
+  }
+
+  Future<void> _openBatterySettings() async {
+    await BackgroundSyncService.openBatteryOptimizationSettings();
   }
 
   Future<void> _saveSettings({bool showToast = true}) async {
@@ -532,7 +561,11 @@ class _SyncSettingsScreenState extends State<SyncSettingsScreen> {
             const SizedBox(height: 20),
           ],
 
-          // Section 6: Sync Action & Maintenance
+          // Section 6: Background Sync & Battery Optimization
+          _buildBackgroundSyncCard(),
+          const SizedBox(height: 20),
+
+          // Section 7: Sync Action & Maintenance
           _buildActionsSection(),
           const SizedBox(height: 40),
         ],
@@ -1304,6 +1337,127 @@ class _SyncSettingsScreenState extends State<SyncSettingsScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildBackgroundSyncCard() {
+    final isUnrestricted = _isIgnoringBatteryOptimizations;
+    final cardColor = isUnrestricted ? AppTheme.accentGreen : AppTheme.primaryLight;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Background Execution',
+          style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppTheme.textPrimary),
+        ),
+        const SizedBox(height: 8),
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: AppTheme.surface,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: cardColor.withValues(alpha: 0.3)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  CircleAvatar(
+                    radius: 16,
+                    backgroundColor: cardColor.withValues(alpha: 0.15),
+                    child: Icon(
+                      isUnrestricted ? Icons.battery_charging_full : Icons.battery_alert,
+                      size: 18,
+                      color: cardColor,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Background Sync & Battery Optimization',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                            color: AppTheme.textPrimary,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          isUnrestricted
+                              ? 'Unrestricted (Downloads continue in background)'
+                              : 'Battery Optimized (Downloads may pause out of focus)',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: cardColor,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.refresh, size: 18, color: AppTheme.textMuted),
+                    tooltip: 'Refresh Status',
+                    onPressed: _checkBatteryStatus,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Text(
+                isUnrestricted
+                    ? 'Your system allows Playnite Companion to maintain background sockets and CPU locks so large library syncs and media downloads continue smoothly when minimized or when the screen is locked.'
+                    : 'Android battery saver may terminate active network downloads or drop sockets when the app is minimized. Request unrestricted background sync to ensure reliable downloads.',
+                style: const TextStyle(fontSize: 12, color: AppTheme.textMuted, height: 1.4),
+              ),
+              const SizedBox(height: 14),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  if (!isUnrestricted)
+                    ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppTheme.primary,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                      ),
+                      icon: _isCheckingBattery
+                          ? const SizedBox(
+                              width: 14,
+                              height: 14,
+                              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                            )
+                          : const Icon(Icons.bolt, size: 16, color: Colors.white),
+                      label: const Text(
+                        'Request Unrestricted Background Sync',
+                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white),
+                      ),
+                      onPressed: _isCheckingBattery ? null : _requestIgnoreBatteryOptimizations,
+                    ),
+                  OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppTheme.textPrimary,
+                      side: const BorderSide(color: AppTheme.dividerColor),
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    ),
+                    icon: const Icon(Icons.settings_outlined, size: 15, color: AppTheme.textMuted),
+                    label: const Text(
+                      'Battery Settings',
+                      style: TextStyle(fontSize: 12, color: AppTheme.textPrimary),
+                    ),
+                    onPressed: _openBatterySettings,
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 

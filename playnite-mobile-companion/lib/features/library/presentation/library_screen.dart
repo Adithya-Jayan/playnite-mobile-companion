@@ -36,6 +36,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
   late final TaxonomyDao _taxonomyDao;
 
   List<UnifiedGamePayload> _games = [];
+  int _totalGamesCount = 0;
   FilterTaxonomies _taxonomies = const FilterTaxonomies();
   bool _isLoading = true;
 
@@ -61,11 +62,13 @@ class _LibraryScreenState extends State<LibraryScreen> {
         sort: _sortOption,
       );
       final taxonomies = await _taxonomyDao.getAvailableTaxonomies();
+      final totalCount = await _gameDao.getGamesCount();
 
       if (mounted) {
         setState(() {
           _games = games;
           _taxonomies = taxonomies;
+          _totalGamesCount = totalCount;
           _isLoading = false;
         });
       }
@@ -86,7 +89,11 @@ class _LibraryScreenState extends State<LibraryScreen> {
   }
 
   void _onResetFilters() {
-    _filterCriteria = const GameFilterCriteria();
+    if (_filterCriteria.isEmpty && _totalGamesCount > 0) {
+      _filterCriteria = const GameFilterCriteria(includeHidden: true);
+    } else {
+      _filterCriteria = const GameFilterCriteria();
+    }
     _loadLibrary();
   }
 
@@ -203,14 +210,17 @@ class _LibraryScreenState extends State<LibraryScreen> {
           IconButton(
             icon: const Icon(Icons.sync, color: AppTheme.primaryLight),
             tooltip: 'Sync with Cloud',
-            onPressed: () {
-              showDialog(
+            onPressed: () async {
+              await showDialog(
                 context: context,
                 builder: (_) => SyncDialog(
                   database: widget.database,
                   onSyncCompleted: _loadLibrary,
                 ),
               );
+              if (mounted) {
+                _loadLibrary();
+              }
             },
           ),
 
@@ -218,8 +228,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
           IconButton(
             icon: const Icon(Icons.settings),
             tooltip: 'Settings & Cloud Sync',
-            onPressed: () {
-              Navigator.of(context).push(
+            onPressed: () async {
+              await Navigator.of(context).push(
                 MaterialPageRoute(
                   builder: (_) => SyncSettingsScreen(
                     database: widget.database,
@@ -227,6 +237,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
                   ),
                 ),
               );
+              if (mounted) {
+                _loadLibrary();
+              }
             },
           ),
         ],
@@ -303,13 +316,11 @@ class _LibraryScreenState extends State<LibraryScreen> {
           Expanded(
             child: _isLoading
                 ? const Center(child: CircularProgressIndicator(color: AppTheme.primary))
-                : _games.isEmpty
-                    ? _buildEmptyState()
-                    : RefreshIndicator(
-                        color: AppTheme.primary,
-                        onRefresh: _loadLibrary,
-                        child: _buildGamesView(),
-                      ),
+                : RefreshIndicator(
+                    color: AppTheme.primary,
+                    onRefresh: _loadLibrary,
+                    child: _games.isEmpty ? _buildEmptyState() : _buildGamesView(),
+                  ),
           ),
         ],
       ),
@@ -324,6 +335,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
             // Adaptive column count based on viewport width
             final crossAxisCount = (constraints.maxWidth / 140).floor().clamp(2, 6);
             return GridView.builder(
+              physics: const AlwaysScrollableScrollPhysics(),
               padding: const EdgeInsets.all(12),
               gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                 crossAxisCount: crossAxisCount,
@@ -339,6 +351,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
 
       case ViewMode.list:
         return ListView.separated(
+          physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.symmetric(vertical: 8),
           itemCount: _games.length,
           separatorBuilder: (context, index) => const Divider(height: 1),
@@ -347,6 +360,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
 
       case ViewMode.details:
         return ListView.builder(
+          physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.symmetric(vertical: 8),
           itemCount: _games.length,
           itemBuilder: (context, index) => GameDetailsTile(game: _games[index]),
@@ -355,93 +369,158 @@ class _LibraryScreenState extends State<LibraryScreen> {
   }
 
   Widget _buildEmptyState() {
+    final hasGamesInDb = _totalGamesCount > 0;
     final isFiltered = !_filterCriteria.isEmpty;
 
-    return Center(
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              isFiltered ? Icons.search_off : Icons.videogame_asset_outlined,
-              size: 64,
-              color: isFiltered ? AppTheme.textMuted : AppTheme.primaryLight,
-            ),
-            const SizedBox(height: 16),
-            Text(
-              isFiltered ? 'No games match your criteria' : 'Welcome to Playnite Companion',
-              textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppTheme.textPrimary),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              isFiltered
-                  ? 'Try clearing some filters or searching with a different term.'
-                  : 'Your library is ready to sync! Connect your Google Drive or sync from local storage to view your Playnite collection.',
-              textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 13, color: AppTheme.textMuted, height: 1.4),
-            ),
-            const SizedBox(height: 20),
-            if (isFiltered)
-              ElevatedButton.icon(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppTheme.surfaceLight,
-                  foregroundColor: Colors.white,
-                ),
-                icon: const Icon(Icons.clear_all, size: 16, color: Colors.white),
-                label: const Text('Clear All Filters', style: TextStyle(color: Colors.white)),
-                onPressed: _onResetFilters,
-              )
-            else ...[
-              ElevatedButton.icon(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppTheme.primary,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                ),
-                icon: const Icon(Icons.settings, color: Colors.white, size: 20),
-                label: const Text(
-                  'Configure Sync & Google Drive',
-                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
-                ),
-                onPressed: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => SyncSettingsScreen(
-                        database: widget.database,
-                        onSettingsChanged: _loadLibrary,
+    return LayoutBuilder(
+      builder: (context, viewportConstraints) {
+        return SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minHeight: viewportConstraints.maxHeight),
+            child: Center(
+              child: Padding(
+                padding: const EdgeInsets.all(32),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (hasGamesInDb) ...[
+                      const Icon(
+                        Icons.search_off,
+                        size: 64,
+                        color: AppTheme.primaryLight,
                       ),
-                    ),
-                  );
-                },
-              ),
-              const SizedBox(height: 12),
-              OutlinedButton.icon(
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: Colors.white,
-                  side: const BorderSide(color: AppTheme.primary),
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                      const SizedBox(height: 16),
+                      const Text(
+                        'No games match your current filters',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppTheme.textPrimary),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'You have $_totalGamesCount games in your local library, but none match the current filter or search criteria.',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(fontSize: 13, color: AppTheme.textMuted, height: 1.4),
+                      ),
+                      const SizedBox(height: 20),
+                      ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppTheme.primary,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                        ),
+                        icon: const Icon(Icons.clear_all, size: 18, color: Colors.white),
+                        label: Text(
+                          'Reset Filters & Show All $_totalGamesCount Games',
+                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                        ),
+                        onPressed: _onResetFilters,
+                      ),
+                    ] else if (isFiltered) ...[
+                      const Icon(
+                        Icons.search_off,
+                        size: 64,
+                        color: AppTheme.textMuted,
+                      ),
+                      const SizedBox(height: 16),
+                      const Text(
+                        'No games match your criteria',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppTheme.textPrimary),
+                      ),
+                      const SizedBox(height: 8),
+                      const Text(
+                        'Try clearing some filters or searching with a different term.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(fontSize: 13, color: AppTheme.textMuted, height: 1.4),
+                      ),
+                      const SizedBox(height: 20),
+                      ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppTheme.surfaceLight,
+                          foregroundColor: Colors.white,
+                        ),
+                        icon: const Icon(Icons.clear_all, size: 16, color: Colors.white),
+                        label: const Text('Clear All Filters', style: TextStyle(color: Colors.white)),
+                        onPressed: _onResetFilters,
+                      ),
+                    ] else ...[
+                      const Icon(
+                        Icons.videogame_asset_outlined,
+                        size: 64,
+                        color: AppTheme.primaryLight,
+                      ),
+                      const SizedBox(height: 16),
+                      const Text(
+                        'Welcome to Playnite Companion',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppTheme.textPrimary),
+                      ),
+                      const SizedBox(height: 8),
+                      const Text(
+                        'Your library is ready to sync! Connect your Google Drive or sync from local storage to view your Playnite collection.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(fontSize: 13, color: AppTheme.textMuted, height: 1.4),
+                      ),
+                      const SizedBox(height: 20),
+                      ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppTheme.primary,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                        ),
+                        icon: const Icon(Icons.settings, color: Colors.white, size: 20),
+                        label: const Text(
+                          'Configure Sync & Google Drive',
+                          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+                        ),
+                        onPressed: () async {
+                          await Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => SyncSettingsScreen(
+                                database: widget.database,
+                                onSettingsChanged: _loadLibrary,
+                              ),
+                            ),
+                          );
+                          if (mounted) {
+                            _loadLibrary();
+                          }
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                      OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.white,
+                          side: const BorderSide(color: AppTheme.primary),
+                          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                        ),
+                        icon: const Icon(Icons.sync, size: 18, color: Colors.white),
+                        label: const Text(
+                          'Sync Library Now',
+                          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                        ),
+                        onPressed: () async {
+                          await showDialog(
+                            context: context,
+                            builder: (_) => SyncDialog(
+                              database: widget.database,
+                              onSyncCompleted: _loadLibrary,
+                            ),
+                          );
+                          if (mounted) {
+                            _loadLibrary();
+                          }
+                        },
+                      ),
+                    ],
+                  ],
                 ),
-                icon: const Icon(Icons.sync, size: 18, color: Colors.white),
-                label: const Text(
-                  'Sync Library Now',
-                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-                ),
-                onPressed: () {
-                  showDialog(
-                    context: context,
-                    builder: (_) => SyncDialog(
-                      database: widget.database,
-                      onSyncCompleted: _loadLibrary,
-                    ),
-                  );
-                },
               ),
-            ],
-          ],
-        ),
-      ),
+            ),
+          ),
+        );
+      },
     );
   }
 }

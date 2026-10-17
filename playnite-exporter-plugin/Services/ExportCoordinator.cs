@@ -517,6 +517,13 @@ namespace PlayniteExporterPlugin.Services
                 ct.ThrowIfCancellationRequested();
 
                 // Compute diff against previous index
+                progress?.Report(new ExportProgressReport(
+                    "Step 1/3: Comparing with Cloud Index...\r\nDiffing candidate files against previous sync index...",
+                    total,
+                    total,
+                    indeterminate: true
+                ));
+
                 var diff = hashEngine.ComputeDiff(candidateFiles, currentIndex ?? new SyncIndex());
 
                 if (!diff.HasChanges)
@@ -525,6 +532,15 @@ namespace PlayniteExporterPlugin.Services
                     progress?.Report(new ExportProgressReport("Step 1/3: Complete • No changes detected. Library is up to date.", total, total));
                     return diff;
                 }
+
+                string storageName = storageProvider.ProviderName == "GoogleDrive" ? "Google Drive" : storageProvider.ProviderName;
+                int pendingItems = diff.Added.Count + diff.Modified.Count + diff.Deleted.Count;
+                progress?.Report(new ExportProgressReport(
+                    $"Step 1/3: Complete • Connecting to {storageName}...\r\nPreparing cloud destination ({pendingItems} changes pending)...",
+                    total,
+                    total,
+                    indeterminate: true
+                ));
 
                 await storageProvider.InitializeAsync(ct).ConfigureAwait(false);
                 ct.ThrowIfCancellationRequested();

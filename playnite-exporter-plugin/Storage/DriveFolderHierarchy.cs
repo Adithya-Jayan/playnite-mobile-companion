@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Google.Apis.Drive.v3;
@@ -160,10 +161,20 @@ namespace PlayniteExporterPlugin.Storage
         /// </summary>
         public async Task PreWarmHierarchyAsync(string rootFolderName, CancellationToken ct = default)
         {
-            var standardPaths = new[]
+            // 1. Ensure top-level parent directories first so their IDs are cached
+            try
             {
-                "games",
-                "media",
+                await EnsureFolderPathAsync(rootFolderName, "games", ct).ConfigureAwait(false);
+                await EnsureFolderPathAsync(rootFolderName, "media", ct).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn(ex, "Failed pre-warming top-level directories.");
+            }
+
+            // 2. Concurrently verify all media subfolders in parallel
+            var mediaSubPaths = new[]
+            {
                 "media/covers",
                 "media/backgrounds",
                 "media/icons",
@@ -172,7 +183,7 @@ namespace PlayniteExporterPlugin.Storage
                 "media/trailers"
             };
 
-            foreach (var path in standardPaths)
+            var warmTasks = mediaSubPaths.Select(async path =>
             {
                 try
                 {
@@ -182,7 +193,9 @@ namespace PlayniteExporterPlugin.Storage
                 {
                     Logger.Warn(ex, $"Failed pre-warming directory path '{path}'.");
                 }
-            }
+            });
+
+            await Task.WhenAll(warmTasks).ConfigureAwait(false);
         }
 
         private async Task MergeAndDeleteDuplicateFolderAsync(string canonicalFolderId, string duplicateFolderId, CancellationToken ct)

@@ -29,6 +29,26 @@ class _SyncDialogState extends State<SyncDialog> {
   SyncReport? _report;
   bool _isSyncing = false;
 
+  bool _notified = false;
+
+  void _notifySyncCompleted() {
+    if (!_notified) {
+      _notified = true;
+      widget.onSyncCompleted?.call();
+    }
+  }
+
+  @override
+  void dispose() {
+    _notifySyncCompleted();
+    super.dispose();
+  }
+
+  void _onClose() {
+    _notifySyncCompleted();
+    Navigator.of(context).pop();
+  }
+
   DriveApiService _createDefaultMockService() {
     return MockDriveService(
       mockIndex: const SyncIndex(
@@ -83,8 +103,9 @@ class _SyncDialogState extends State<SyncDialog> {
           final cfg = await repo.loadConfig();
           await repo.saveConfig(cfg.copyWith(lastSyncUtc: DateTime.now().toUtc().toIso8601String()));
         } catch (_) {}
-        widget.onSyncCompleted?.call();
       }
+      // Always trigger library reload if games were committed, downloaded, or sync finished
+      widget.onSyncCompleted?.call();
     }
   }
 
@@ -279,7 +300,7 @@ class _SyncDialogState extends State<SyncDialog> {
       actions: [
         TextButton(
           style: TextButton.styleFrom(foregroundColor: AppTheme.textSecondary),
-          onPressed: _isSyncing ? null : () => Navigator.of(context).pop(),
+          onPressed: _isSyncing ? null : _onClose,
           child: const Text('Close'),
         ),
         ElevatedButton(

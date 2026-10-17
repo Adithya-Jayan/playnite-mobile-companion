@@ -187,7 +187,7 @@ class GameDao {
 
     // 1. Filter: Hidden games (exclude hidden by default unless includeHidden is true)
     if (!criteria.includeHidden) {
-      whereClauses.add('hidden = 0');
+      whereClauses.add('(hidden = 0 OR hidden IS NULL)');
     }
 
     // 2. Search Query (FTS match or LIKE fallback)
