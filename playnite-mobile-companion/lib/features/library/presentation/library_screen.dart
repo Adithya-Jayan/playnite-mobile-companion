@@ -39,6 +39,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
   int _totalGamesCount = 0;
   FilterTaxonomies _taxonomies = const FilterTaxonomies();
   bool _isLoading = true;
+  String? _loadError;
 
   ViewMode _viewMode = ViewMode.grid;
   SortOption _sortOption = SortOption.titleAsc;
@@ -55,14 +56,17 @@ class _LibraryScreenState extends State<LibraryScreen> {
   }
 
   Future<void> _loadLibrary() async {
-    setState(() => _isLoading = true);
+    setState(() {
+      _isLoading = true;
+      _loadError = null;
+    });
     try {
+      final totalCount = await _gameDao.getGamesCount();
+      final taxonomies = await _taxonomyDao.getAvailableTaxonomies();
       final games = await _gameDao.getFilteredGames(
         criteria: _filterCriteria,
         sort: _sortOption,
       );
-      final taxonomies = await _taxonomyDao.getAvailableTaxonomies();
-      final totalCount = await _gameDao.getGamesCount();
 
       if (mounted) {
         setState(() {
@@ -70,11 +74,19 @@ class _LibraryScreenState extends State<LibraryScreen> {
           _taxonomies = taxonomies;
           _totalGamesCount = totalCount;
           _isLoading = false;
+          _loadError = null;
         });
       }
-    } catch (e) {
-      debugPrint('Error loading games: $e');
-      if (mounted) setState(() => _isLoading = false);
+    } catch (e, stack) {
+      debugPrint('Error loading games: $e\n$stack');
+      final totalCount = await _gameDao.getGamesCount().catchError((_) => 0);
+      if (mounted) {
+        setState(() {
+          _totalGamesCount = totalCount;
+          _loadError = e.toString();
+          _isLoading = false;
+        });
+      }
     }
   }
 
@@ -300,7 +312,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  '${_games.length} ${_games.length == 1 ? 'game' : 'games'} found',
+                  _totalGamesCount > 0 && _games.length != _totalGamesCount
+                      ? '${_games.length} of $_totalGamesCount games'
+                      : '${_games.length} ${_games.length == 1 ? 'game' : 'games'} found',
                   style: const TextStyle(fontSize: 12, color: AppTheme.textMuted),
                 ),
                 Text(
@@ -384,7 +398,39 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    if (hasGamesInDb) ...[
+                    if (_loadError != null) ...[
+                      const Icon(
+                        Icons.error_outline,
+                        size: 64,
+                        color: Colors.redAccent,
+                      ),
+                      const SizedBox(height: 16),
+                      const Text(
+                        'Failed to Load Library',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppTheme.textPrimary),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        _loadError!,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(fontSize: 13, color: AppTheme.textMuted, height: 1.4),
+                      ),
+                      const SizedBox(height: 20),
+                      ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppTheme.primary,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                        ),
+                        icon: const Icon(Icons.refresh, size: 18, color: Colors.white),
+                        label: const Text(
+                          'Retry Loading',
+                          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                        ),
+                        onPressed: _loadLibrary,
+                      ),
+                    ] else if (hasGamesInDb) ...[
                       const Icon(
                         Icons.search_off,
                         size: 64,

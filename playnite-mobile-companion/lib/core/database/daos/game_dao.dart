@@ -157,7 +157,12 @@ class GameDao {
       limit: 1,
     );
     if (rows.isEmpty) return null;
-    return _rowToPayload(rows.first);
+    try {
+      return _rowToPayload(rows.first);
+    } catch (e) {
+      debugPrint('Error deserializing game $id: $e');
+      return null;
+    }
   }
 
   /// Retrieves games count in the local database.
@@ -303,7 +308,16 @@ class GameDao {
       offset: offset,
     );
 
-    return rows.map(_rowToPayload).toList();
+    final games = <UnifiedGamePayload>[];
+    for (final row in rows) {
+      try {
+        games.add(_rowToPayload(row));
+      } catch (e, stack) {
+        debugPrint('Warning: Skipped corrupted game row (id: ${row['id']}): $e\n$stack');
+      }
+    }
+
+    return games;
   }
 
   UnifiedGamePayload _rowToPayload(Map<String, dynamic> row) {
@@ -312,7 +326,10 @@ class GameDao {
       try {
         final decoded = jsonDecode(jsonStr);
         if (decoded is List) {
-          return decoded.whereType<Map<String, dynamic>>().map((e) => NamedItem.fromJson(e)).toList();
+          return decoded.whereType<Map>().map((e) => NamedItem(
+            id: e['id']?.toString() ?? '',
+            name: e['name']?.toString() ?? '',
+          )).toList();
         }
       } catch (_) {}
       return [];
@@ -323,7 +340,10 @@ class GameDao {
       try {
         final decoded = jsonDecode(jsonStr);
         if (decoded is List) {
-          return decoded.whereType<Map<String, dynamic>>().map((e) => LinkItem.fromJson(e)).toList();
+          return decoded.whereType<Map>().map((e) => LinkItem(
+            name: e['name']?.toString() ?? '',
+            url: e['url']?.toString() ?? '',
+          )).toList();
         }
       } catch (_) {}
       return [];
@@ -334,34 +354,35 @@ class GameDao {
       try {
         final decoded = jsonDecode(jsonStr);
         if (decoded is Map<String, dynamic>) return decoded;
+        if (decoded is Map) return decoded.cast<String, dynamic>();
       } catch (_) {}
       return {};
     }
 
     return UnifiedGamePayload(
-      id: row['id'] as String,
-      gameId: row['game_id'] as String? ?? '',
-      pluginId: row['plugin_id'] as String? ?? '',
-      name: row['name'] as String? ?? '',
-      sortingName: row['sorting_name'] as String? ?? '',
-      description: row['description'] as String?,
-      notes: row['notes'] as String?,
+      id: row['id']?.toString() ?? '',
+      gameId: row['game_id']?.toString() ?? '',
+      pluginId: row['plugin_id']?.toString() ?? '',
+      name: row['name']?.toString() ?? '',
+      sortingName: row['sorting_name']?.toString() ?? row['name']?.toString() ?? '',
+      description: row['description']?.toString(),
+      notes: row['notes']?.toString(),
       playtimeSeconds: (row['playtime_seconds'] as num?)?.toInt() ?? 0,
       playCount: (row['play_count'] as num?)?.toInt() ?? 0,
-      addedUtc: row['added_utc'] as String?,
-      modifiedUtc: row['modified_utc'] as String?,
-      lastActivityUtc: row['last_activity_utc'] as String?,
-      recentActivityUtc: row['recent_activity_utc'] as String?,
-      releaseDate: row['release_date'] as String?,
+      addedUtc: row['added_utc']?.toString(),
+      modifiedUtc: row['modified_utc']?.toString(),
+      lastActivityUtc: row['last_activity_utc']?.toString(),
+      recentActivityUtc: row['recent_activity_utc']?.toString(),
+      releaseDate: row['release_date']?.toString(),
       isInstalled: (row['is_installed'] as num?)?.toInt() == 1,
-      installDirectory: row['install_directory'] as String?,
+      installDirectory: row['install_directory']?.toString(),
       installSizeBytes: (row['install_size_bytes'] as num?)?.toInt(),
       hidden: (row['hidden'] as num?)?.toInt() == 1,
       isDuplicate: (row['is_duplicate'] as num?)?.toInt() == 1,
-      otherCopies: (row['other_copies_json'] is String && (row['other_copies_json'] as String).isNotEmpty)
+      otherCopies: (row['other_copies_json'] != null && row['other_copies_json'].toString().isNotEmpty)
           ? () {
               try {
-                final list = jsonDecode(row['other_copies_json'] as String);
+                final list = jsonDecode(row['other_copies_json'].toString());
                 if (list is List) {
                   return list.whereType<Map<String, dynamic>>().map((e) => DuplicateCopyPayload.fromJson(e)).toList();
                 }
@@ -373,34 +394,37 @@ class GameDao {
       userScore: (row['user_score'] as num?)?.toInt(),
       criticScore: (row['critic_score'] as num?)?.toInt(),
       communityScore: (row['community_score'] as num?)?.toInt(),
-      version: row['version'] as String?,
-      source: row['source_id'] != null
-          ? NamedItem(id: row['source_id'] as String, name: row['source_name'] as String? ?? '')
-          : null,
-      completionStatus: row['completion_status_id'] != null
+      version: row['version']?.toString(),
+      source: (row['source_id'] != null || row['source_name'] != null)
           ? NamedItem(
-              id: row['completion_status_id'] as String,
-              name: row['completion_status_name'] as String? ?? '',
+              id: row['source_id']?.toString() ?? '',
+              name: row['source_name']?.toString() ?? '',
             )
           : null,
-      platforms: parseJsonNamedList(row['platforms_json'] as String?),
-      genres: parseJsonNamedList(row['genres_json'] as String?),
-      categories: parseJsonNamedList(row['categories_json'] as String?),
-      tags: parseJsonNamedList(row['tags_json'] as String?),
-      developers: parseJsonNamedList(row['developers_json'] as String?),
-      publishers: parseJsonNamedList(row['publishers_json'] as String?),
-      features: parseJsonNamedList(row['features_json'] as String?),
-      links: parseJsonLinkList(row['links_json'] as String?),
+      completionStatus: (row['completion_status_id'] != null || row['completion_status_name'] != null)
+          ? NamedItem(
+              id: row['completion_status_id']?.toString() ?? '',
+              name: row['completion_status_name']?.toString() ?? '',
+            )
+          : null,
+      platforms: parseJsonNamedList(row['platforms_json']?.toString()),
+      genres: parseJsonNamedList(row['genres_json']?.toString()),
+      categories: parseJsonNamedList(row['categories_json']?.toString()),
+      tags: parseJsonNamedList(row['tags_json']?.toString()),
+      developers: parseJsonNamedList(row['developers_json']?.toString()),
+      publishers: parseJsonNamedList(row['publishers_json']?.toString()),
+      features: parseJsonNamedList(row['features_json']?.toString()),
+      links: parseJsonLinkList(row['links_json']?.toString()),
       media: MediaPayload(
-        coverDriveFileId: row['cover_drive_file_id'] as String?,
-        coverSha256: row['cover_sha256'] as String?,
-        backgroundDriveFileId: row['background_drive_file_id'] as String?,
-        backgroundSha256: row['background_sha256'] as String?,
-        logoDriveFileId: row['logo_drive_file_id'] as String?,
-        microtrailerDriveFileId: row['microtrailer_drive_file_id'] as String?,
-        trailerDriveFileId: row['trailer_drive_file_id'] as String?,
+        coverDriveFileId: row['cover_drive_file_id']?.toString(),
+        coverSha256: row['cover_sha256']?.toString(),
+        backgroundDriveFileId: row['background_drive_file_id']?.toString(),
+        backgroundSha256: row['background_sha256']?.toString(),
+        logoDriveFileId: row['logo_drive_file_id']?.toString(),
+        microtrailerDriveFileId: row['microtrailer_drive_file_id']?.toString(),
+        trailerDriveFileId: row['trailer_drive_file_id']?.toString(),
       ),
-      addons: parseJsonMap(row['addons_json'] as String?),
+      addons: parseJsonMap(row['addons_json']?.toString()),
     );
   }
 }

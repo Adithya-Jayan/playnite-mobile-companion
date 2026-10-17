@@ -209,8 +209,8 @@ class NamedItem {
   const NamedItem({required this.id, required this.name});
 
   factory NamedItem.fromJson(Map<String, dynamic> json) => NamedItem(
-    id: json['id'] as String? ?? '',
-    name: json['name'] as String? ?? '',
+    id: json['id']?.toString() ?? '',
+    name: json['name']?.toString() ?? '',
   );
 
   Map<String, dynamic> toJson() => {'id': id, 'name': name};
@@ -224,8 +224,8 @@ class LinkItem {
   const LinkItem({required this.name, required this.url});
 
   factory LinkItem.fromJson(Map<String, dynamic> json) => LinkItem(
-    name: json['name'] as String? ?? '',
-    url: json['url'] as String? ?? '',
+    name: json['name']?.toString() ?? '',
+    url: json['url']?.toString() ?? '',
   );
 
   Map<String, dynamic> toJson() => {'name': name, 'url': url};
@@ -260,13 +260,13 @@ class MediaPayload {
     final trailer = json['trailer'] as Map<String, dynamic>?;
 
     return MediaPayload(
-      coverSha256: cover?['sha256'] as String?,
-      coverDriveFileId: cover?['drive_file_id'] as String?,
-      backgroundSha256: bg?['sha256'] as String?,
-      backgroundDriveFileId: bg?['drive_file_id'] as String?,
-      logoDriveFileId: logo?['drive_file_id'] as String?,
-      microtrailerDriveFileId: micro?['drive_file_id'] as String?,
-      trailerDriveFileId: trailer?['drive_file_id'] as String?,
+      coverSha256: cover?['sha256']?.toString(),
+      coverDriveFileId: cover?['drive_file_id']?.toString(),
+      backgroundSha256: bg?['sha256']?.toString(),
+      backgroundDriveFileId: bg?['drive_file_id']?.toString(),
+      logoDriveFileId: logo?['drive_file_id']?.toString(),
+      microtrailerDriveFileId: micro?['drive_file_id']?.toString(),
+      trailerDriveFileId: trailer?['drive_file_id']?.toString(),
     );
   }
 
@@ -384,22 +384,22 @@ class UnifiedGamePayload {
     }
 
     return UnifiedGamePayload(
-      id: json['id'] as String? ?? '',
-      gameId: json['game_id'] as String? ?? '',
-      pluginId: json['plugin_id'] as String? ?? '',
-      name: json['name'] as String? ?? '',
-      sortingName: json['sorting_name'] as String? ?? json['name'] as String? ?? '',
-      description: json['description'] as String?,
-      notes: json['notes'] as String?,
+      id: json['id']?.toString() ?? '',
+      gameId: json['game_id']?.toString() ?? '',
+      pluginId: json['plugin_id']?.toString() ?? '',
+      name: json['name']?.toString() ?? '',
+      sortingName: json['sorting_name']?.toString() ?? json['name']?.toString() ?? '',
+      description: json['description']?.toString(),
+      notes: json['notes']?.toString(),
       playtimeSeconds: (json['playtime_seconds'] as num?)?.toInt() ?? 0,
       playCount: (json['play_count'] as num?)?.toInt() ?? 0,
-      addedUtc: json['added_utc'] as String?,
-      modifiedUtc: json['modified_utc'] as String?,
-      lastActivityUtc: json['last_activity_utc'] as String?,
-      recentActivityUtc: json['recent_activity_utc'] as String?,
-      releaseDate: json['release_date'] as String?,
+      addedUtc: json['added_utc']?.toString(),
+      modifiedUtc: json['modified_utc']?.toString(),
+      lastActivityUtc: json['last_activity_utc']?.toString(),
+      recentActivityUtc: json['recent_activity_utc']?.toString(),
+      releaseDate: json['release_date']?.toString(),
       isInstalled: parseBool(json['is_installed']),
-      installDirectory: json['install_directory'] as String?,
+      installDirectory: json['install_directory']?.toString(),
       installSizeBytes: (json['install_size_bytes'] as num?)?.toInt(),
       hidden: parseBool(json['hidden']),
       isDuplicate: parseBool(json['is_duplicate']),
@@ -413,10 +413,12 @@ class UnifiedGamePayload {
       userScore: (json['user_score'] as num?)?.toInt(),
       criticScore: (json['critic_score'] as num?)?.toInt(),
       communityScore: (json['community_score'] as num?)?.toInt(),
-      version: json['version'] as String?,
-      source: json['source'] != null ? NamedItem.fromJson(json['source']) : null,
-      completionStatus: json['completion_status'] != null
-          ? NamedItem.fromJson(json['completion_status'])
+      version: json['version']?.toString(),
+      source: json['source'] != null && json['source'] is Map<String, dynamic>
+          ? NamedItem.fromJson(json['source'] as Map<String, dynamic>)
+          : null,
+      completionStatus: json['completion_status'] != null && json['completion_status'] is Map<String, dynamic>
+          ? NamedItem.fromJson(json['completion_status'] as Map<String, dynamic>)
           : null,
       platforms: parseNamedList(json['platforms']),
       genres: parseNamedList(json['genres']),
@@ -637,15 +639,22 @@ class DuplicateCopyPayload {
   });
 
   factory DuplicateCopyPayload.fromJson(Map<String, dynamic> json) {
+    bool parseBool(dynamic val) {
+      if (val is bool) return val;
+      if (val is num) return val != 0;
+      if (val is String) return val.toLowerCase() == 'true' || val == '1';
+      return false;
+    }
+
     return DuplicateCopyPayload(
-      id: json['id'] as String? ?? '',
-      gameId: json['game_id'] as String? ?? '',
-      name: json['name'] as String? ?? '',
-      sourceName: json['source_name'] as String? ?? 'Playnite',
-      isInstalled: json['is_installed'] as bool? ?? false,
+      id: json['id']?.toString() ?? '',
+      gameId: json['game_id']?.toString() ?? '',
+      name: json['name']?.toString() ?? '',
+      sourceName: json['source_name']?.toString() ?? 'Playnite',
+      isInstalled: parseBool(json['is_installed']),
       playtimeSeconds: (json['playtime_seconds'] as num?)?.toInt() ?? 0,
-      installDirectory: json['install_directory'] as String?,
-      hidden: json['hidden'] as bool? ?? false,
+      installDirectory: json['install_directory']?.toString(),
+      hidden: parseBool(json['hidden']),
     );
   }
 

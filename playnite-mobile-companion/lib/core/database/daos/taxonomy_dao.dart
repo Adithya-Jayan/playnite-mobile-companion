@@ -29,13 +29,19 @@ class TaxonomyDao {
     final sourceRows = await db.rawQuery(
       "SELECT DISTINCT source_name FROM games WHERE source_name IS NOT NULL AND source_name != '' ORDER BY source_name ASC;",
     );
-    final sources = sourceRows.map((r) => r['source_name'] as String).toList();
+    final sources = sourceRows
+        .map((r) => r['source_name']?.toString() ?? '')
+        .where((s) => s.isNotEmpty)
+        .toList();
 
     // Completion Statuses
     final statusRows = await db.rawQuery(
       "SELECT DISTINCT completion_status_name FROM games WHERE completion_status_name IS NOT NULL AND completion_status_name != '' ORDER BY completion_status_name ASC;",
     );
-    final completionStatuses = statusRows.map((r) => r['completion_status_name'] as String).toList();
+    final completionStatuses = statusRows
+        .map((r) => r['completion_status_name']?.toString() ?? '')
+        .where((s) => s.isNotEmpty)
+        .toList();
 
     // Platforms, Genres, Tags extracted from JSON columns
     final platformSet = <String>{};
@@ -48,9 +54,9 @@ class TaxonomyDao {
     );
 
     for (final row in jsonRows) {
-      _extractNames(row['platforms_json'] as String?, platformSet);
-      _extractNames(row['genres_json'] as String?, genreSet);
-      _extractNames(row['tags_json'] as String?, tagSet);
+      _extractNames(row['platforms_json']?.toString(), platformSet);
+      _extractNames(row['genres_json']?.toString(), genreSet);
+      _extractNames(row['tags_json']?.toString(), tagSet);
     }
 
     final platforms = platformSet.toList()..sort();
@@ -72,8 +78,11 @@ class TaxonomyDao {
       final list = jsonDecode(jsonStr);
       if (list is List) {
         for (final item in list) {
-          if (item is Map && item['name'] != null && (item['name'] as String).isNotEmpty) {
-            targetSet.add(item['name'] as String);
+          if (item is Map && item['name'] != null) {
+            final name = item['name'].toString().trim();
+            if (name.isNotEmpty) {
+              targetSet.add(name);
+            }
           }
         }
       }
