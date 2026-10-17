@@ -81,6 +81,12 @@ class AppDatabase {
     // Ensure columns and FTS table are verified or created even on pre-existing databases
     await _ensureColumnsExist(_db!);
     await _ensureFtsTable(_db!);
+
+    // Sanitize any legacy oversized addons_json rows (e.g. games with >1,000 achievements)
+    // to prevent Android SQLite CursorWindowAllocationException (2MB limit).
+    try {
+      await _db!.execute("UPDATE games SET addons_json = '{}' WHERE length(addons_json) > 500000;");
+    } catch (_) {}
   }
 
   /// Closes database connection

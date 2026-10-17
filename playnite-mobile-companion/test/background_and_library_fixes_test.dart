@@ -189,12 +189,10 @@ void main() {
       final textFinder = find.text('Reset Filters & Show All 1 Games');
       expect(textFinder, findsOneWidget);
       final buttonFinder = find.ancestor(of: textFinder, matching: find.byWidgetPredicate((w) => w is ElevatedButton));
-      expect(buttonFinder, findsOneWidget);
-      final button = tester.widget<ElevatedButton>(buttonFinder);
-      button.onPressed?.call();
-
       await tester.runAsync(() async {
-        await Future.delayed(const Duration(milliseconds: 300));
+        final button = tester.widget<ElevatedButton>(buttonFinder);
+        button.onPressed?.call();
+        await Future.delayed(const Duration(milliseconds: 500));
       });
       await tester.pump();
 

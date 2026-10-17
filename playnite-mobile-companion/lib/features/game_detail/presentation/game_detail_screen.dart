@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:playnite_mobile_companion/core/config/app_theme.dart';
 import 'package:playnite_mobile_companion/core/utils/duration_formatter.dart';
 import 'package:playnite_mobile_companion/features/sync/domain/sync_models.dart';
+import 'package:playnite_mobile_companion/core/database/app_database.dart';
+import 'package:playnite_mobile_companion/core/database/daos/game_dao.dart';
 import 'addon_registry/addon_section_registry.dart';
 import 'widgets/external_links_card.dart';
 import 'widgets/metadata_chips_row.dart';
@@ -20,10 +22,34 @@ class GameDetailScreen extends StatefulWidget {
 class _GameDetailScreenState extends State<GameDetailScreen> {
   bool _isDescriptionExpanded = false;
   DuplicateCopyPayload? _selectedCopy;
+  late Map<String, dynamic> _addons;
+
+  @override
+  void initState() {
+    super.initState();
+    _addons = widget.game.addons;
+    if (_addons.isEmpty) {
+      _loadAddons();
+    }
+  }
+
+  Future<void> _loadAddons() async {
+    try {
+      if (AppDatabase.instance.isOpen) {
+        final dao = GameDao(AppDatabase.instance);
+        final loaded = await dao.getGameAddons(widget.game.id);
+        if (mounted && loaded.isNotEmpty) {
+          setState(() => _addons = loaded);
+        }
+      }
+    } catch (e) {
+      debugPrint('Error loading addons on demand: $e');
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    final game = widget.game;
+    final game = _addons.isNotEmpty ? widget.game.copyWith(addons: _addons) : widget.game;
     final developer = game.developers.isNotEmpty ? game.developers.first.name : null;
     final publisher = game.publishers.isNotEmpty ? game.publishers.first.name : null;
 

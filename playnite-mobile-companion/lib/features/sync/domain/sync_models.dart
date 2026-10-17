@@ -359,6 +359,86 @@ class UnifiedGamePayload {
     this.addons = const {},
   });
 
+  UnifiedGamePayload copyWith({
+    String? id,
+    String? gameId,
+    String? pluginId,
+    String? name,
+    String? sortingName,
+    String? description,
+    String? notes,
+    int? playtimeSeconds,
+    int? playCount,
+    String? addedUtc,
+    String? modifiedUtc,
+    String? lastActivityUtc,
+    String? recentActivityUtc,
+    String? releaseDate,
+    bool? isInstalled,
+    String? installDirectory,
+    int? installSizeBytes,
+    bool? hidden,
+    bool? isDuplicate,
+    List<DuplicateCopyPayload>? otherCopies,
+    bool? favorite,
+    int? userScore,
+    int? criticScore,
+    int? communityScore,
+    String? version,
+    NamedItem? source,
+    NamedItem? completionStatus,
+    List<NamedItem>? platforms,
+    List<NamedItem>? genres,
+    List<NamedItem>? categories,
+    List<NamedItem>? tags,
+    List<NamedItem>? developers,
+    List<NamedItem>? publishers,
+    List<NamedItem>? features,
+    List<LinkItem>? links,
+    MediaPayload? media,
+    Map<String, dynamic>? addons,
+  }) {
+    return UnifiedGamePayload(
+      id: id ?? this.id,
+      gameId: gameId ?? this.gameId,
+      pluginId: pluginId ?? this.pluginId,
+      name: name ?? this.name,
+      sortingName: sortingName ?? this.sortingName,
+      description: description ?? this.description,
+      notes: notes ?? this.notes,
+      playtimeSeconds: playtimeSeconds ?? this.playtimeSeconds,
+      playCount: playCount ?? this.playCount,
+      addedUtc: addedUtc ?? this.addedUtc,
+      modifiedUtc: modifiedUtc ?? this.modifiedUtc,
+      lastActivityUtc: lastActivityUtc ?? this.lastActivityUtc,
+      recentActivityUtc: recentActivityUtc ?? this.recentActivityUtc,
+      releaseDate: releaseDate ?? this.releaseDate,
+      isInstalled: isInstalled ?? this.isInstalled,
+      installDirectory: installDirectory ?? this.installDirectory,
+      installSizeBytes: installSizeBytes ?? this.installSizeBytes,
+      hidden: hidden ?? this.hidden,
+      isDuplicate: isDuplicate ?? this.isDuplicate,
+      otherCopies: otherCopies ?? this.otherCopies,
+      favorite: favorite ?? this.favorite,
+      userScore: userScore ?? this.userScore,
+      criticScore: criticScore ?? this.criticScore,
+      communityScore: communityScore ?? this.communityScore,
+      version: version ?? this.version,
+      source: source ?? this.source,
+      completionStatus: completionStatus ?? this.completionStatus,
+      platforms: platforms ?? this.platforms,
+      genres: genres ?? this.genres,
+      categories: categories ?? this.categories,
+      tags: tags ?? this.tags,
+      developers: developers ?? this.developers,
+      publishers: publishers ?? this.publishers,
+      features: features ?? this.features,
+      links: links ?? this.links,
+      media: media ?? this.media,
+      addons: addons ?? this.addons,
+    );
+  }
+
   factory UnifiedGamePayload.fromJson(Map<String, dynamic> json) {
     bool parseBool(dynamic val) {
       if (val is bool) return val;
@@ -479,8 +559,37 @@ class UnifiedGamePayload {
       'publishers_json': jsonEncode(publishers.map((e) => e.toJson()).toList()),
       'features_json': jsonEncode(features.map((e) => e.toJson()).toList()),
       'links_json': jsonEncode(links.map((e) => e.toJson()).toList()),
-      'addons_json': jsonEncode(addons),
+      'addons_json': _safeAddonsJson(addons),
     };
+  }
+
+  static String _safeAddonsJson(Map<String, dynamic> rawAddons) {
+    if (rawAddons.isEmpty) return '{}';
+    try {
+      final encoded = jsonEncode(rawAddons);
+      // Safe threshold: Keep under 300 KB to guarantee fit in any SQLite cursor window
+      if (encoded.length < 300 * 1024) return encoded;
+
+      // If oversized (e.g. 1000+ achievements or thousands of session logs),
+      // keep metadata/counters while truncating large nested item arrays to top 50
+      final sanitized = <String, dynamic>{};
+      rawAddons.forEach((key, value) {
+        if (value is Map<String, dynamic>) {
+          final copy = Map<String, dynamic>.from(value);
+          copy.forEach((subKey, subValue) {
+            if (subValue is List && subValue.length > 50) {
+              copy[subKey] = subValue.sublist(0, 50);
+            }
+          });
+          sanitized[key] = copy;
+        } else {
+          sanitized[key] = value;
+        }
+      });
+      return jsonEncode(sanitized);
+    } catch (_) {
+      return '{}';
+    }
   }
   Map<String, dynamic> toJson() => {
     'id': id,

@@ -1,11 +1,9 @@
-import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:playnite_mobile_companion/core/database/app_database.dart';
 import 'package:playnite_mobile_companion/core/database/daos/game_dao.dart';
 import 'package:playnite_mobile_companion/core/database/daos/taxonomy_dao.dart';
 import 'package:playnite_mobile_companion/features/library/domain/game_filter_criteria.dart';
 import 'package:playnite_mobile_companion/features/library/domain/sort_options.dart';
-import 'package:playnite_mobile_companion/features/sync/domain/sync_models.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 void main() {
@@ -158,6 +156,34 @@ void main() {
       expect(taxonomies.platforms, containsAll(['123', 'PC']));
       expect(taxonomies.genres, contains('Action'));
       expect(taxonomies.tags, contains('Singleplayer'));
+    });
+
+    test('5. getFilteredGames omits addons_json from cursor window to prevent Android CursorWindowAllocationException', () async {
+      // Insert a game with non-empty addons_json
+      await database.db.insert('games', {
+        'id': 'big-game-1',
+        'game_id': 'app-big',
+        'plugin_id': 'steam',
+        'name': 'Massive Game',
+        'sorting_name': 'Massive Game',
+        'hidden': 0,
+        'addons_json': '{"success_story": {"unlocked": 50, "total": 100}}',
+      });
+
+      final games = await gameDao.getFilteredGames(
+        criteria: const GameFilterCriteria(),
+        sort: SortOption.titleAsc,
+      );
+
+      expect(games.length, equals(1));
+      expect(games.first.name, equals('Massive Game'));
+      // In library browsing, addons is empty map to guarantee lightning-fast queries and prevent cursor overflow
+      expect(games.first.addons, isEmpty);
+
+      // But addons can be loaded on-demand for GameDetailScreen
+      final addons = await gameDao.getGameAddons('big-game-1');
+      expect(addons['success_story'], isNotNull);
+      expect(addons['success_story']['total'], equals(100));
     });
   });
 }

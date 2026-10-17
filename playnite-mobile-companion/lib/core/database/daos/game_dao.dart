@@ -148,21 +148,81 @@ class GameDao {
     await batch.commit(noResult: true);
   }
 
+  List<String>? _cachedSafeColumns;
+
+  /// Dynamically queries existing table columns excluding addons_json to protect against CursorWindow overflows in batch queries.
+  Future<List<String>> _getSafeLibraryColumns() async {
+    if (_cachedSafeColumns != null) return _cachedSafeColumns!;
+    try {
+      final info = await database.db.rawQuery('PRAGMA table_info(games);');
+      final cols = info
+          .map((r) => r['name']?.toString() ?? '')
+          .where((c) => c.isNotEmpty && c != 'addons_json')
+          .toList();
+      if (cols.isNotEmpty) {
+        _cachedSafeColumns = cols;
+        return cols;
+      }
+    } catch (_) {}
+    return [
+      'id', 'game_id', 'plugin_id', 'name', 'sorting_name',
+      'playtime_seconds', 'hidden', 'is_installed', 'favorite'
+    ];
+  }
+
   /// Retrieves a single game by its internal Playnite ID.
   Future<UnifiedGamePayload?> getGameById(String id) async {
-    final rows = await database.db.query(
-      'games',
-      where: 'id = ?',
-      whereArgs: [id],
-      limit: 1,
-    );
+    List<Map<String, dynamic>> rows;
+    try {
+      rows = await database.db.query(
+        'games',
+        where: 'id = ?',
+        whereArgs: [id],
+        limit: 1,
+      );
+    } catch (e) {
+      debugPrint('Cursor window error querying full game $id: $e, falling back to safe columns');
+      final safeCols = await _getSafeLibraryColumns();
+      rows = await database.db.query(
+        'games',
+        columns: safeCols,
+        where: 'id = ?',
+        whereArgs: [id],
+        limit: 1,
+      );
+    }
     if (rows.isEmpty) return null;
     try {
       return _rowToPayload(rows.first);
     } catch (e) {
-      debugPrint('Error deserializing game $id: $e');
-      return null;
+      debugPrint('Error deserializing game $id with full addons: $e');
+      final safeRow = Map<String, dynamic>.from(rows.first)..remove('addons_json');
+      try {
+        return _rowToPayload(safeRow);
+      } catch (_) {
+        return null;
+      }
     }
+  }
+
+  /// Retrieves raw addons JSON map for a specific game on demand.
+  Future<Map<String, dynamic>> getGameAddons(String id) async {
+    try {
+      final rows = await database.db.query(
+        'games',
+        columns: ['addons_json'],
+        where: 'id = ?',
+        whereArgs: [id],
+        limit: 1,
+      );
+      if (rows.isNotEmpty && rows.first['addons_json'] != null) {
+        final decoded = jsonDecode(rows.first['addons_json'].toString());
+        if (decoded is Map<String, dynamic>) return decoded;
+      }
+    } catch (e) {
+      debugPrint('Error loading addons for $id: $e');
+    }
+    return {};
   }
 
   /// Retrieves games count in the local database.
@@ -180,13 +240,8 @@ class GameDao {
     return rows.map((r) => r['id'] as String).toList();
   }
 
-  /// High-performance multi-criteria library query supporting instant search and sorting.
-  Future<List<UnifiedGamePayload>> getFilteredGames({
-    required GameFilterCriteria criteria,
-    required SortOption sort,
-    int? limit,
-    int? offset,
-  }) async {
+  /// Builds SQL WHERE clauses and arguments for filtering games.
+  Future<({List<String> whereClauses, List<dynamic> whereArgs})> _buildFilterWhere(GameFilterCriteria criteria) async {
     final whereClauses = <String>[];
     final whereArgs = <dynamic>[];
 
@@ -296,11 +351,41 @@ class GameDao {
       whereClauses.add('(${tagSubClauses.join(' OR ')})');
     }
 
+    return (whereClauses: whereClauses, whereArgs: whereArgs);
+  }
+
+  /// Returns count of games matching current filter criteria.
+  Future<int> getFilteredGamesCount({
+    required GameFilterCriteria criteria,
+  }) async {
+    final (:whereClauses, :whereArgs) = await _buildFilterWhere(criteria);
+    final result = await database.db.query(
+      'games',
+      columns: ['COUNT(*) as count'],
+      where: whereClauses.isNotEmpty ? whereClauses.join(' AND ') : null,
+      whereArgs: whereArgs.isNotEmpty ? whereArgs : null,
+    );
+    if (result.isNotEmpty && result.first['count'] is num) {
+      return (result.first['count'] as num).toInt();
+    }
+    return 0;
+  }
+
+  /// High-performance multi-criteria library query supporting instant search and sorting.
+  Future<List<UnifiedGamePayload>> getFilteredGames({
+    required GameFilterCriteria criteria,
+    required SortOption sort,
+    int? limit,
+    int? offset,
+  }) async {
+    final (:whereClauses, :whereArgs) = await _buildFilterWhere(criteria);
     final whereString = whereClauses.isNotEmpty ? whereClauses.join(' AND ') : null;
     final orderBy = sort.toSqlOrderBy();
+    final safeColumns = await _getSafeLibraryColumns();
 
     final rows = await database.db.query(
       'games',
+      columns: safeColumns,
       where: whereString,
       whereArgs: whereArgs.isNotEmpty ? whereArgs : null,
       orderBy: orderBy,

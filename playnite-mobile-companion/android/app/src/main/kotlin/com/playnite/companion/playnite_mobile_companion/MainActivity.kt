@@ -14,6 +14,15 @@ class MainActivity : FlutterActivity() {
     private val channelName = "com.playnite.companion/background_sync"
     private var wakeLock: PowerManager.WakeLock? = null
 
+    override fun onCreate(savedInstanceState: android.os.Bundle?) {
+        super.onCreate(savedInstanceState)
+        try {
+            val field = android.database.CursorWindow::class.java.getDeclaredField("sCursorWindowSize")
+            field.isAccessible = true
+            field.set(null, 50 * 1024 * 1024) // 50 MB buffer
+        } catch (_: Exception) {}
+    }
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 

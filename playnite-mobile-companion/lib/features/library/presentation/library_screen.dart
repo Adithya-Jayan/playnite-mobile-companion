@@ -35,10 +35,16 @@ class _LibraryScreenState extends State<LibraryScreen> {
   late final GameDao _gameDao;
   late final TaxonomyDao _taxonomyDao;
 
+  static const int _pageSize = 60;
+  final ScrollController _scrollController = ScrollController();
+
   List<UnifiedGamePayload> _games = [];
   int _totalGamesCount = 0;
+  int _filteredGamesCount = 0;
   FilterTaxonomies _taxonomies = const FilterTaxonomies();
   bool _isLoading = true;
+  bool _isLoadingMore = false;
+  bool _hasMore = true;
   String? _loadError;
 
   ViewMode _viewMode = ViewMode.grid;
@@ -52,27 +58,55 @@ class _LibraryScreenState extends State<LibraryScreen> {
     super.initState();
     _gameDao = GameDao(widget.database);
     _taxonomyDao = TaxonomyDao(widget.database);
+    _scrollController.addListener(_onScroll);
     _loadLibrary();
+  }
+
+  @override
+  void dispose() {
+    _scrollController.removeListener(_onScroll);
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _onScroll() {
+    if (_scrollController.hasClients &&
+        _scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 400) {
+      if (!_isLoading && !_isLoadingMore && _hasMore) {
+        _loadMore();
+      }
+    }
   }
 
   Future<void> _loadLibrary() async {
     setState(() {
       _isLoading = true;
+      _isLoadingMore = false;
       _loadError = null;
     });
     try {
       final totalCount = await _gameDao.getGamesCount();
       final taxonomies = await _taxonomyDao.getAvailableTaxonomies();
-      final games = await _gameDao.getFilteredGames(
+      final int filteredCount;
+      if (_filterCriteria.isEmpty) {
+        filteredCount = totalCount;
+      } else {
+        filteredCount = await _gameDao.getFilteredGamesCount(criteria: _filterCriteria);
+      }
+      final firstBatch = await _gameDao.getFilteredGames(
         criteria: _filterCriteria,
         sort: _sortOption,
+        limit: _pageSize,
+        offset: 0,
       );
 
       if (mounted) {
         setState(() {
-          _games = games;
+          _games = firstBatch;
           _taxonomies = taxonomies;
           _totalGamesCount = totalCount;
+          _filteredGamesCount = filteredCount;
+          _hasMore = firstBatch.length < filteredCount;
           _isLoading = false;
           _loadError = null;
         });
@@ -90,17 +124,57 @@ class _LibraryScreenState extends State<LibraryScreen> {
     }
   }
 
+  Future<void> _loadMore() async {
+    if (_isLoadingMore || !_hasMore) return;
+    setState(() {
+      _isLoadingMore = true;
+    });
+
+    try {
+      final nextBatch = await _gameDao.getFilteredGames(
+        criteria: _filterCriteria,
+        sort: _sortOption,
+        limit: _pageSize,
+        offset: _games.length,
+      );
+
+      if (mounted) {
+        setState(() {
+          _games.addAll(nextBatch);
+          _hasMore = nextBatch.isNotEmpty && _games.length < _filteredGamesCount;
+          _isLoadingMore = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading more games: $e');
+      if (mounted) {
+        setState(() {
+          _isLoadingMore = false;
+        });
+      }
+    }
+  }
+
   void _onSearchQueryChanged(String query) {
+    if (_scrollController.hasClients) {
+      _scrollController.jumpTo(0);
+    }
     _filterCriteria = _filterCriteria.copyWith(searchQuery: query);
     _loadLibrary();
   }
 
   void _onApplyFilters(GameFilterCriteria criteria) {
+    if (_scrollController.hasClients) {
+      _scrollController.jumpTo(0);
+    }
     _filterCriteria = criteria;
     _loadLibrary();
   }
 
   void _onResetFilters() {
+    if (_scrollController.hasClients) {
+      _scrollController.jumpTo(0);
+    }
     if (_filterCriteria.isEmpty && _totalGamesCount > 0) {
       _filterCriteria = const GameFilterCriteria(includeHidden: true);
     } else {
@@ -312,9 +386,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  _totalGamesCount > 0 && _games.length != _totalGamesCount
-                      ? '${_games.length} of $_totalGamesCount games'
-                      : '${_games.length} ${_games.length == 1 ? 'game' : 'games'} found',
+                  _summaryHeaderText(),
                   style: const TextStyle(fontSize: 12, color: AppTheme.textMuted),
                 ),
                 Text(
@@ -341,6 +413,23 @@ class _LibraryScreenState extends State<LibraryScreen> {
     );
   }
 
+  String _summaryHeaderText() {
+    if (_totalGamesCount == 0) return '0 games';
+    final hasFilters = !_filterCriteria.isEmpty;
+    if (hasFilters) {
+      if (_filteredGamesCount == 0) return '0 of $_totalGamesCount games match';
+      if (_games.length < _filteredGamesCount) {
+        return 'Showing ${_games.length} of $_filteredGamesCount matching games';
+      }
+      return '$_filteredGamesCount matching ${_filteredGamesCount == 1 ? 'game' : 'games'}';
+    } else {
+      if (_games.length < _totalGamesCount) {
+        return 'Showing ${_games.length} of $_totalGamesCount games';
+      }
+      return '$_totalGamesCount ${_totalGamesCount == 1 ? 'game' : 'games'}';
+    }
+  }
+
   Widget _buildGamesView() {
     switch (_viewMode) {
       case ViewMode.grid:
@@ -349,6 +438,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
             // Adaptive column count based on viewport width
             final crossAxisCount = (constraints.maxWidth / 140).floor().clamp(2, 6);
             return GridView.builder(
+              controller: _scrollController,
               physics: const AlwaysScrollableScrollPhysics(),
               padding: const EdgeInsets.all(12),
               gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
@@ -357,27 +447,59 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 crossAxisSpacing: 10,
                 mainAxisSpacing: 10,
               ),
-              itemCount: _games.length,
-              itemBuilder: (context, index) => GameCardGrid(game: _games[index]),
+              itemCount: _games.length + (_isLoadingMore ? 1 : 0),
+              itemBuilder: (context, index) {
+                if (index >= _games.length) {
+                  return const Center(
+                    child: Padding(
+                      padding: EdgeInsets.all(16.0),
+                      child: CircularProgressIndicator(color: AppTheme.primary, strokeWidth: 2),
+                    ),
+                  );
+                }
+                return GameCardGrid(game: _games[index]);
+              },
             );
           },
         );
 
       case ViewMode.list:
         return ListView.separated(
+          controller: _scrollController,
           physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.symmetric(vertical: 8),
-          itemCount: _games.length,
+          itemCount: _games.length + (_isLoadingMore ? 1 : 0),
           separatorBuilder: (context, index) => const Divider(height: 1),
-          itemBuilder: (context, index) => GameListTile(game: _games[index]),
+          itemBuilder: (context, index) {
+            if (index >= _games.length) {
+              return const Center(
+                child: Padding(
+                  padding: EdgeInsets.all(16.0),
+                  child: CircularProgressIndicator(color: AppTheme.primary, strokeWidth: 2),
+                ),
+              );
+            }
+            return GameListTile(game: _games[index]);
+          },
         );
 
       case ViewMode.details:
         return ListView.builder(
+          controller: _scrollController,
           physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.symmetric(vertical: 8),
-          itemCount: _games.length,
-          itemBuilder: (context, index) => GameDetailsTile(game: _games[index]),
+          itemCount: _games.length + (_isLoadingMore ? 1 : 0),
+          itemBuilder: (context, index) {
+            if (index >= _games.length) {
+              return const Center(
+                child: Padding(
+                  padding: EdgeInsets.all(16.0),
+                  child: CircularProgressIndicator(color: AppTheme.primary, strokeWidth: 2),
+                ),
+              );
+            }
+            return GameDetailsTile(game: _games[index]);
+          },
         );
     }
   }
