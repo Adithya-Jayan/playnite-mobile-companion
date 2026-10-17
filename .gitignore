@@ -1,0 +1,70 @@
+# ==========================================
+# Playnite Mobile Delta Sync - .gitignore
+# ==========================================
+
+# Build outputs and distributions
+dist/
+build/
+bin/
+obj/
+**/bin/
+**/obj/
+**/build/
+**/dist/
+
+# Visual Studio & IDE files
+.vs/
+.vscode/
+.idea/
+*.user
+*.userprefs
+*.suo
+*.DotSettings.user
+*.sln.docstates
+TestResults/
+[Dd]ebug/
+[Rr]elease/
+
+# Flutter / Dart
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+**/ios/Flutter/Generated.xcconfig
+**/ios/Flutter/flutter_export_environment.sh
+
+# Android build artifacts & local properties
+**/android/.gradle/
+**/android/local.properties
+**/android/app/build/
+**/android/captures/
+**/android/gradlew
+**/android/gradlew.bat
+
+# Sensitive data, credentials, and OAuth tokens
+*.TokenResponse-user
+token.json
+tokens.json
+credentials.json
+client_secret*.json
+*.keystore
+*.jks
+*.p8
+*.p12
+*.pem
+*.key
+*.mobileprovision
+.env
+.env.*
+google-services.json
+GoogleService-Info.plist
+
+# Operating System & Temporary files
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.log
+*.tmp
+*.bak

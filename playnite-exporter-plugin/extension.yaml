@@ -1,0 +1,10 @@
+Id: MobileDeltaSyncExporter_d3b07384-d113-4c90-951b-10f88a91a92a
+Name: Mobile Delta Sync Exporter
+Author: Playnite Mobile Team
+Version: 1.0.0
+Module: PlayniteExporterPlugin.dll
+Type: GenericPlugin
+Icon: icon.png
+Links:
+  - Name: GitHub
+    Url: https://github.com/playnite-delta-sync
