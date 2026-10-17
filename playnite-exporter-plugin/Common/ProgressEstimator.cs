@@ -15,6 +15,7 @@ namespace PlayniteExporterPlugin.Common
         private readonly Stopwatch stopwatch = new();
         private readonly int totalItems;
         private readonly object lockObj = new();
+        private double smoothedEtaSeconds = -1;
         private double smoothedRate = 0;
         private long lastReportTicks = 0;
         private int lastCompleted = 0;
@@ -36,36 +37,55 @@ namespace PlayniteExporterPlugin.Common
             {
                 etaText = "Estimating ETA...";
             }
+            else if (remainingItems == 0)
+            {
+                etaText = "Finishing...";
+            }
             else
             {
-                double currentRate;
                 lock (lockObj)
                 {
                     double overallRate = completed / elapsed.TotalSeconds;
 
-                    // Calculate recent rate over last interval if applicable
+                    // Rolling rate window over at least 2.5 seconds to bridge multi-threaded burst intervals
                     var nowTicks = stopwatch.ElapsedMilliseconds;
                     var intervalMs = nowTicks - lastReportTicks;
-                    if (intervalMs >= 1000 && completed > lastCompleted)
+                    if (intervalMs >= 2500 && completed > lastCompleted)
                     {
-                        double recentRate = (double)(completed - lastCompleted) / (intervalMs / 1000.0);
-                        smoothedRate = (smoothedRate <= 0) ? recentRate : (smoothedRate * 0.7) + (recentRate * 0.3);
+                        double windowRate = (double)(completed - lastCompleted) / (intervalMs / 1000.0);
+                        smoothedRate = (smoothedRate <= 0) ? windowRate : (smoothedRate * 0.7) + (windowRate * 0.3);
                         lastReportTicks = nowTicks;
                         lastCompleted = completed;
                     }
 
-                    currentRate = smoothedRate > 0 ? (smoothedRate * 0.6 + overallRate * 0.4) : overallRate;
+                    // Balance between cumulative average rate (which settles) and recent window rate
+                    // As more items finish, cumulative rate carries more weight
+                    double progressWeight = Math.Min(0.85, (double)completed / totalItems);
+                    double effectiveRate = (smoothedRate > 0)
+                        ? (overallRate * (0.5 + progressWeight * 0.4)) + (smoothedRate * (0.5 - progressWeight * 0.4))
+                        : overallRate;
+
+                    if (effectiveRate > 0.01)
+                    {
+                        double rawEta = remainingItems / effectiveRate;
+
+                        // Low-pass exponential moving average filter directly on the ETA seconds:
+                        // Damps out burst spikes from parallel network I/O and creates a calm countdown
+                        if (smoothedEtaSeconds < 0)
+                        {
+                            smoothedEtaSeconds = rawEta;
+                        }
+                        else
+                        {
+                            smoothedEtaSeconds = (smoothedEtaSeconds * 0.85) + (rawEta * 0.15);
+                        }
+                    }
                 }
 
-                if (currentRate > 0.01 && remainingItems > 0)
+                if (smoothedEtaSeconds > 0)
                 {
-                    double remainingSeconds = remainingItems / currentRate;
-                    var etaSpan = TimeSpan.FromSeconds(remainingSeconds);
+                    var etaSpan = TimeSpan.FromSeconds(smoothedEtaSeconds);
                     etaText = $"ETA: {FormatTimeSpan(etaSpan)}";
-                }
-                else if (remainingItems == 0)
-                {
-                    etaText = "Finishing...";
                 }
                 else
                 {
@@ -87,8 +107,14 @@ namespace PlayniteExporterPlugin.Common
             }
             if (ts.TotalHours < 1)
             {
-                var mins = (int)ts.TotalMinutes;
-                var secs = ts.Seconds;
+                var totalSecs = (int)Math.Round(ts.TotalSeconds);
+                // Quantize to 5-second intervals when between 1m and 10m to prevent visual thrashing
+                if (totalSecs < 600)
+                {
+                    totalSecs = (int)(Math.Round(totalSecs / 5.0) * 5);
+                }
+                var mins = totalSecs / 60;
+                var secs = totalSecs % 60;
                 return secs > 0 ? $"{mins}m {secs}s" : $"{mins}m";
             }
             var hours = (int)ts.TotalHours;
