@@ -126,48 +126,138 @@ namespace PlayniteExporterPlugin.Storage
 
                 if (!string.IsNullOrEmpty(existingFileId))
                 {
-                    var updateReq = driveService!.Files.Update(fileMetadata, existingFileId, stream, mimeType);
-                    updateReq.Fields = "id, name, size, md5Checksum";
-                    if (progress != null)
+                    try
                     {
-                        updateReq.ProgressChanged += p =>
+                        var updateReq = driveService!.Files.Update(fileMetadata, existingFileId, stream, mimeType);
+                        updateReq.Fields = "id"; // Only request 'id' to avoid server responsePreparationFailure
+                        if (progress != null)
                         {
-                            if (p.Status == UploadStatus.Uploading)
+                            updateReq.ProgressChanged += p =>
                             {
-                                progress.Report(p.BytesSent);
+                                if (p.Status == UploadStatus.Uploading)
+                                {
+                                    progress.Report(p.BytesSent);
+                                }
+                            };
+                        }
+                        var uploadResult = await updateReq.UploadAsync(ct).ConfigureAwait(false);
+                        if (uploadResult.Status == UploadStatus.Failed)
+                        {
+                            if (IsResponsePreparationSuccess(uploadResult.Exception))
+                            {
+                                var recoveredId = await FindExistingFileIdInFolderAsync(parentFolderId, fileName, ct).ConfigureAwait(false);
+                                if (!string.IsNullOrEmpty(recoveredId))
+                                {
+                                    Logger.Warn($"Google Drive update returned responsePreparationFailure for '{fileName}', but confirmed operation succeeded. Recovered file ID: {recoveredId}");
+                                    return recoveredId!;
+                                }
+                                return existingFileId!;
                             }
-                        };
+
+                            if (uploadResult.Exception is GoogleApiException gEx &&
+                                (gEx.HttpStatusCode == HttpStatusCode.Gone || gEx.HttpStatusCode == HttpStatusCode.NotFound))
+                            {
+                                Logger.Warn($"Target file ID '{existingFileId}' for '{fileName}' is Gone/NotFound. Falling back to fresh creation.");
+                                return await CreateFreshFileAsync(parentFolderId, fileMetadata, stream, mimeType, progress, ct).ConfigureAwait(false);
+                            }
+
+                            throw uploadResult.Exception ?? new InvalidOperationException($"Upload failed for {fileName}");
+                        }
+                        return updateReq.ResponseBody?.Id ?? existingFileId!;
                     }
-                    var uploadResult = await updateReq.UploadAsync(ct).ConfigureAwait(false);
-                    if (uploadResult.Status == UploadStatus.Failed)
+                    catch (GoogleApiException ex) when (ex.HttpStatusCode == HttpStatusCode.Gone || ex.HttpStatusCode == HttpStatusCode.NotFound)
                     {
-                        throw uploadResult.Exception ?? new InvalidOperationException($"Upload failed for {fileName}");
+                        Logger.Warn($"Target file ID '{existingFileId}' for '{fileName}' threw {ex.HttpStatusCode}. Falling back to fresh creation.");
+                        return await CreateFreshFileAsync(parentFolderId, fileMetadata, stream, mimeType, progress, ct).ConfigureAwait(false);
                     }
-                    return updateReq.ResponseBody?.Id ?? existingFileId!;
                 }
                 else
                 {
-                    fileMetadata.Parents = new List<string> { parentFolderId };
-                    var createReq = driveService!.Files.Create(fileMetadata, stream, mimeType);
-                    createReq.Fields = "id, name, size, md5Checksum";
-                    if (progress != null)
-                    {
-                        createReq.ProgressChanged += p =>
-                        {
-                            if (p.Status == UploadStatus.Uploading)
-                            {
-                                progress.Report(p.BytesSent);
-                            }
-                        };
-                    }
-                    var uploadResult = await createReq.UploadAsync(ct).ConfigureAwait(false);
-                    if (uploadResult.Status == UploadStatus.Failed)
-                    {
-                        throw uploadResult.Exception ?? new InvalidOperationException($"Upload failed for {fileName}");
-                    }
-                    return createReq.ResponseBody?.Id ?? throw new InvalidOperationException($"Did not receive ID for created file {fileName}");
+                    return await CreateFreshFileAsync(parentFolderId, fileMetadata, stream, mimeType, progress, ct).ConfigureAwait(false);
                 }
             }).ConfigureAwait(false);
+        }
+
+        private async Task<string> CreateFreshFileAsync(
+            string parentFolderId,
+            Google.Apis.Drive.v3.Data.File fileMetadata,
+            Stream stream,
+            string mimeType,
+            IProgress<long>? progress,
+            CancellationToken ct)
+        {
+            if (stream.CanSeek)
+            {
+                stream.Position = 0;
+            }
+
+            fileMetadata.Parents = new List<string> { parentFolderId };
+            var createReq = driveService!.Files.Create(fileMetadata, stream, mimeType);
+            createReq.Fields = "id"; // Only request 'id' to avoid server responsePreparationFailure
+            if (progress != null)
+            {
+                createReq.ProgressChanged += p =>
+                {
+                    if (p.Status == UploadStatus.Uploading)
+                    {
+                        progress.Report(p.BytesSent);
+                    }
+                };
+            }
+            var uploadResult = await createReq.UploadAsync(ct).ConfigureAwait(false);
+            if (uploadResult.Status == UploadStatus.Failed)
+            {
+                if (IsResponsePreparationSuccess(uploadResult.Exception))
+                {
+                    var recoveredId = await FindExistingFileIdInFolderAsync(parentFolderId, fileMetadata.Name, ct).ConfigureAwait(false);
+                    if (!string.IsNullOrEmpty(recoveredId))
+                    {
+                        Logger.Warn($"Google Drive create returned responsePreparationFailure for '{fileMetadata.Name}', but confirmed operation succeeded. Recovered file ID: {recoveredId}");
+                        return recoveredId!;
+                    }
+                }
+
+                throw uploadResult.Exception ?? new InvalidOperationException($"Upload failed for {fileMetadata.Name}");
+            }
+            return createReq.ResponseBody?.Id ?? throw new InvalidOperationException($"Did not receive ID for created file {fileMetadata.Name}");
+        }
+
+        private static bool IsResponsePreparationSuccess(Exception? ex)
+        {
+            if (ex == null) return false;
+            var msg = ex.Message ?? "";
+            if (msg.IndexOf("The operation was successful", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                msg.IndexOf("responsePreparationFailure", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                return true;
+            }
+            if (ex.InnerException != null)
+            {
+                return IsResponsePreparationSuccess(ex.InnerException);
+            }
+            return false;
+        }
+
+        private async Task<string?> FindExistingFileIdInFolderAsync(string parentFolderId, string fileName, CancellationToken ct)
+        {
+            try
+            {
+                var escapedName = fileName.Replace("\\", "\\\\").Replace("'", "\\'");
+                var query = $"name = '{escapedName}' and '{parentFolderId}' in parents and trashed = false";
+                var listReq = driveService!.Files.List();
+                listReq.Q = query;
+                listReq.Fields = "files(id, name)";
+                var res = await listReq.ExecuteAsync(ct).ConfigureAwait(false);
+                if (res.Files != null && res.Files.Count > 0)
+                {
+                    return res.Files[0].Id;
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn(ex, $"Failed searching for '{fileName}' in parent folder {parentFolderId}");
+            }
+            return null;
         }
 
         public async Task<bool> FileExistsAsync(string relativePath, CancellationToken ct = default)
@@ -227,9 +317,9 @@ namespace PlayniteExporterPlugin.Storage
                         var delReq = driveService!.Files.Delete(targetId);
                         await delReq.ExecuteAsync(ct).ConfigureAwait(false);
                     }
-                    catch (GoogleApiException ex) when (ex.HttpStatusCode == HttpStatusCode.NotFound)
+                    catch (GoogleApiException ex) when (ex.HttpStatusCode == HttpStatusCode.NotFound || ex.HttpStatusCode == HttpStatusCode.Gone)
                     {
-                        // File already gone
+                        // File already gone or trashed - treat as success
                     }
                 }).ConfigureAwait(false);
             }

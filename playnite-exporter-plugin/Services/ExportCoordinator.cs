@@ -684,6 +684,11 @@ namespace PlayniteExporterPlugin.Services
                     ? mEntry.DriveFileId
                     : null;
 
+                if (string.IsNullOrEmpty(existingManifestId))
+                {
+                    existingManifestId = await storageProvider.GetFileIdAsync("manifest.json", ct).ConfigureAwait(false);
+                }
+
                 using (var ms = new MemoryStream(Encoding.UTF8.GetBytes(manifestJson)))
                 {
                     var manifestFileId = await storageProvider.UploadFileAsync(
@@ -801,6 +806,11 @@ namespace PlayniteExporterPlugin.Services
             if (currentIndex.Entries.TryGetValue("sync_index.json", out var cachedEntry))
             {
                 existingIndexId = cachedEntry.DriveFileId;
+            }
+
+            if (string.IsNullOrEmpty(existingIndexId))
+            {
+                existingIndexId = await storageProvider.GetFileIdAsync("sync_index.json", ct).ConfigureAwait(false);
             }
 
             using (var ms = new MemoryStream(Encoding.UTF8.GetBytes(indexJson)))
