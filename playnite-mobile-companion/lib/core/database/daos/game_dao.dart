@@ -24,8 +24,8 @@ class GameDao {
       final row = payload.toDatabaseRow();
       batch.insert('games', row, conflictAlgorithm: ConflictAlgorithm.replace);
 
-      // 2. Update FTS5 virtual table
-      try {
+      // 2. Update FTS virtual table (only if FTS table is available)
+      if (database.isFtsSupported) {
         final devText = payload.developers.map((e) => e.name).join(' ');
         final pubText = payload.publishers.map((e) => e.name).join(' ');
         final genText = payload.genres.map((e) => e.name).join(' ');
@@ -42,9 +42,6 @@ class GameDao {
           'genres': genText,
           'tags': tagText,
         });
-      } catch (e) {
-        // Safe fallback if FTS5 is not enabled in environment
-        debugPrint('FTS5 indexing note: $e');
       }
 
       // 3. Unpack SuccessStory (achievements)
@@ -139,9 +136,9 @@ class GameDao {
 
     for (final id in gameIds) {
       batch.delete('games', where: 'id = ?', whereArgs: [id]);
-      try {
+      if (database.isFtsSupported) {
         batch.delete('games_fts', where: 'id = ?', whereArgs: [id]);
-      } catch (_) {}
+      }
       batch.delete('achievements', where: 'game_id = ?', whereArgs: [id]);
       batch.delete('play_sessions', where: 'game_id = ?', whereArgs: [id]);
       batch.delete('hltb_data', where: 'game_id = ?', whereArgs: [id]);
@@ -188,27 +185,36 @@ class GameDao {
     final whereClauses = <String>[];
     final whereArgs = <dynamic>[];
 
-    // 1. Search Query (FTS5 match or LIKE fallback)
+    // 1. Search Query (FTS match or LIKE fallback)
     if (criteria.searchQuery.trim().isNotEmpty) {
       final sanitized = criteria.searchQuery.replaceAll("'", "''").trim();
-      try {
-        // Attempt FTS5 query
-        final ftsRows = await database.db.rawQuery(
-          'SELECT id FROM games_fts WHERE games_fts MATCH ?;',
-          ['"$sanitized*"'],
-        );
-        final matchIds = ftsRows.map((r) => r['id'] as String).toList();
-        if (matchIds.isNotEmpty) {
-          final placeholders = List.filled(matchIds.length, '?').join(',');
-          whereClauses.add('id IN ($placeholders)');
-          whereArgs.addAll(matchIds);
-        } else {
-          // If FTS returned 0, fallback to LIKE across name and sorting_name
-          whereClauses.add('(name LIKE ? OR sorting_name LIKE ?)');
-          whereArgs.addAll(['%$sanitized%', '%$sanitized%']);
+      bool ftsSuccess = false;
+
+      if (database.isFtsSupported) {
+        try {
+          // Attempt FTS query
+          final ftsRows = await database.db.rawQuery(
+            'SELECT id FROM games_fts WHERE games_fts MATCH ?;',
+            ['"$sanitized*"'],
+          );
+          final matchIds = ftsRows.map((r) => r['id'] as String).toList();
+          if (matchIds.isNotEmpty) {
+            final placeholders = List.filled(matchIds.length, '?').join(',');
+            whereClauses.add('id IN ($placeholders)');
+            whereArgs.addAll(matchIds);
+          } else {
+            // If FTS returned 0, fallback to LIKE across name and sorting_name
+            whereClauses.add('(name LIKE ? OR sorting_name LIKE ?)');
+            whereArgs.addAll(['%$sanitized%', '%$sanitized%']);
+          }
+          ftsSuccess = true;
+        } catch (e) {
+          debugPrint('FTS query error, falling back to LIKE: $e');
         }
-      } catch (e) {
-        // FTS not supported or errored, fallback to standard LIKE
+      }
+
+      if (!ftsSuccess) {
+        // Standard LIKE across name and sorting_name
         whereClauses.add('(name LIKE ? OR sorting_name LIKE ?)');
         whereArgs.addAll(['%$sanitized%', '%$sanitized%']);
       }
