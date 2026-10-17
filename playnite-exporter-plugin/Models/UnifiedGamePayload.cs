@@ -63,6 +63,12 @@ namespace PlayniteExporterPlugin.Models
         [JsonProperty("hidden")]
         public bool Hidden { get; set; }
 
+        [JsonProperty("is_duplicate")]
+        public bool IsDuplicate { get; set; }
+
+        [JsonProperty("other_copies")]
+        public List<DuplicateCopyPayload> OtherCopies { get; set; } = new();
+
         [JsonProperty("favorite")]
         public bool Favorite { get; set; }
 
@@ -152,5 +158,32 @@ namespace PlayniteExporterPlugin.Models
 
         [JsonProperty("url")]
         public string Url { get; set; } = string.Empty;
+    }
+
+    public class DuplicateCopyPayload
+    {
+        [JsonProperty("id")]
+        public Guid Id { get; set; }
+
+        [JsonProperty("game_id")]
+        public string GameId { get; set; } = string.Empty;
+
+        [JsonProperty("name")]
+        public string Name { get; set; } = string.Empty;
+
+        [JsonProperty("source_name")]
+        public string SourceName { get; set; } = string.Empty;
+
+        [JsonProperty("is_installed")]
+        public bool IsInstalled { get; set; }
+
+        [JsonProperty("playtime_seconds")]
+        public long PlaytimeSeconds { get; set; }
+
+        [JsonProperty("install_directory")]
+        public string? InstallDirectory { get; set; }
+
+        [JsonProperty("hidden")]
+        public bool Hidden { get; set; }
     }
 }

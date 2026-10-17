@@ -147,7 +147,7 @@ class _SyncDialogState extends State<SyncDialog> {
                     ),
                     const SizedBox(width: 8),
                     Text(
-                      _getPhaseStepLabel(_progress.phase),
+                      _progress.stepText ?? _getPhaseStepLabel(_progress.phase),
                       style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppTheme.primaryLight),
                     ),
                   ],
@@ -168,7 +168,7 @@ class _SyncDialogState extends State<SyncDialog> {
                     const SizedBox(width: 4),
                     Expanded(
                       child: Text(
-                        'File: ${_progress.currentItem}',
+                        'Item: ${_progress.currentItem}',
                         style: const TextStyle(fontSize: 11, color: AppTheme.textMuted),
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -176,7 +176,21 @@ class _SyncDialogState extends State<SyncDialog> {
                   ],
                 ),
               ],
-              const SizedBox(height: 12),
+
+              if (_progress.etaText != null && _progress.etaText!.isNotEmpty) ...[
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    const Icon(Icons.timer_outlined, size: 13, color: AppTheme.accentGreen),
+                    const SizedBox(width: 4),
+                    Text(
+                      _progress.etaText!,
+                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppTheme.accentGreen),
+                    ),
+                  ],
+                ),
+              ],
+              const SizedBox(height: 10),
 
               ClipRRect(
                 borderRadius: BorderRadius.circular(4),

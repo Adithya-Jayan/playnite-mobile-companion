@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:playnite_mobile_companion/core/config/app_theme.dart';
+import 'package:playnite_mobile_companion/core/utils/duration_formatter.dart';
 import 'package:playnite_mobile_companion/features/sync/domain/sync_models.dart';
 import 'addon_registry/addon_section_registry.dart';
 import 'widgets/external_links_card.dart';
@@ -18,6 +19,7 @@ class GameDetailScreen extends StatefulWidget {
 
 class _GameDetailScreenState extends State<GameDetailScreen> {
   bool _isDescriptionExpanded = false;
+  DuplicateCopyPayload? _selectedCopy;
 
   @override
   Widget build(BuildContext context) {
@@ -93,6 +95,9 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
 
                 // Metadata badges (Platform, Source, Genres, Status)
                 MetadataChipsRow(game: game),
+
+                // Multi-Store copies switcher (DuplicateHider)
+                if (game.otherCopies.isNotEmpty) _buildStoreCopiesSwitcher(game),
 
                 // Playtime & Sessions Summary
                 PlayTimeCard(game: game),
@@ -189,6 +194,121 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
               notes,
               style: const TextStyle(fontSize: 13, height: 1.4, color: AppTheme.textSecondary),
             ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStoreCopiesSwitcher(UnifiedGamePayload game) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: AppTheme.surface,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: AppTheme.primary.withValues(alpha: 0.3)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.copy_all, size: 16, color: AppTheme.primaryLight),
+                const SizedBox(width: 6),
+                const Text(
+                  'Multi-Store Copies (DuplicateHider)',
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppTheme.textPrimary),
+                ),
+                const Spacer(),
+                Text(
+                  '${game.otherCopies.length + 1} stores owned',
+                  style: const TextStyle(fontSize: 11, color: AppTheme.textMuted),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 6,
+              children: [
+                // Primary / Default Copy
+                ChoiceChip(
+                  label: Text('${game.source?.name ?? "Primary"}${game.isInstalled ? " (Installed)" : ""}'),
+                  selected: _selectedCopy == null,
+                  onSelected: (selected) {
+                    if (selected) setState(() => _selectedCopy = null);
+                  },
+                  selectedColor: AppTheme.primary,
+                  labelStyle: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: _selectedCopy == null ? Colors.white : AppTheme.textSecondary,
+                  ),
+                ),
+                // Alternate Copies
+                ...game.otherCopies.map((copy) {
+                  final isSelected = _selectedCopy?.id == copy.id;
+                  return ChoiceChip(
+                    label: Text('${copy.sourceName}${copy.isInstalled ? " (Installed)" : ""}'),
+                    selected: isSelected,
+                    onSelected: (selected) {
+                      setState(() => _selectedCopy = selected ? copy : null);
+                    },
+                    selectedColor: AppTheme.primary,
+                    labelStyle: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: isSelected ? Colors.white : AppTheme.textSecondary,
+                    ),
+                  );
+                }),
+              ],
+            ),
+            if (_selectedCopy != null) ...[
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: AppTheme.surfaceLight,
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Store: ${_selectedCopy!.sourceName}',
+                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppTheme.textPrimary),
+                        ),
+                        Text(
+                          'Playtime: ${DurationFormatter.formatSecondsToHoursMinutes(_selectedCopy!.playtimeSeconds)}',
+                          style: const TextStyle(fontSize: 11, color: AppTheme.textMuted),
+                        ),
+                      ],
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: _selectedCopy!.isInstalled ? AppTheme.accentGreen.withValues(alpha: 0.2) : Colors.black26,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        _selectedCopy!.isInstalled ? 'Installed' : 'Cloud Library',
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                          color: _selectedCopy!.isInstalled ? AppTheme.accentGreen : AppTheme.textMuted,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ],
         ),
       ),

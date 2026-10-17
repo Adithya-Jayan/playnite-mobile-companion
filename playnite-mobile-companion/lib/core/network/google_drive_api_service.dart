@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../../features/sync/domain/sync_models.dart';
 import '../utils/media_url_resolver.dart';
@@ -84,19 +85,43 @@ class GoogleDriveApiService implements DriveApiService {
   @override
   Future<String> downloadFileText(String fileIdOrPath) async {
     final url = MediaUrlResolver.getDriveMediaStreamUrl(fileIdOrPath);
-    var response = await client.get(Uri.parse(url), headers: _authHeaders);
+    final uri = Uri.parse(url);
 
-    if (response.statusCode == 401 && await refreshAccessToken()) {
-      response = await client.get(Uri.parse(url), headers: _authHeaders);
-    }
+    const maxRetries = 3;
+    for (int attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        var response = await client
+            .get(uri, headers: _authHeaders)
+            .timeout(const Duration(seconds: 30));
 
-    if (response.statusCode >= 200 && response.statusCode < 300) {
-      return utf8.decode(response.bodyBytes);
-    } else if (response.statusCode == 401) {
-      throw StateError('Google Drive Authorization Expired (HTTP 401). Please re-authenticate in Settings.');
-    } else {
-      throw StateError('Failed to download file "$fileIdOrPath": HTTP ${response.statusCode}');
+        if (response.statusCode == 401 && await refreshAccessToken()) {
+          response = await client
+              .get(uri, headers: _authHeaders)
+              .timeout(const Duration(seconds: 30));
+        }
+
+        if (response.statusCode >= 200 && response.statusCode < 300) {
+          return utf8.decode(response.bodyBytes);
+        } else if (response.statusCode == 401) {
+          throw StateError('Google Drive Authorization Expired (HTTP 401). Please re-authenticate in Settings.');
+        } else if (response.statusCode == 429 || response.statusCode >= 500) {
+          if (attempt == maxRetries) {
+            throw StateError('Google Drive error HTTP ${response.statusCode} for "$fileIdOrPath" after $maxRetries attempts.');
+          }
+          await Future.delayed(Duration(milliseconds: 500 * attempt));
+          continue;
+        } else {
+          throw StateError('Failed to download file "$fileIdOrPath": HTTP ${response.statusCode}');
+        }
+      } catch (e) {
+        if (attempt == maxRetries) {
+          rethrow;
+        }
+        debugPrint('Download attempt $attempt failed for $fileIdOrPath: $e. Retrying in ${600 * attempt}ms...');
+        await Future.delayed(Duration(milliseconds: 600 * attempt));
+      }
     }
+    throw StateError('Download failed for "$fileIdOrPath" after $maxRetries attempts.');
   }
 
   @override

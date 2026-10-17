@@ -67,11 +67,19 @@ class AppDatabase {
         await _createSchema(db);
       },
       onUpgrade: (db, oldVersion, newVersion) async {
-        // Reserved for future version migrations
+        if (oldVersion < 2) {
+          try {
+            await db.execute('ALTER TABLE games ADD COLUMN is_duplicate INTEGER NOT NULL DEFAULT 0;');
+          } catch (_) {}
+          try {
+            await db.execute("ALTER TABLE games ADD COLUMN other_copies_json TEXT NOT NULL DEFAULT '[]';");
+          } catch (_) {}
+        }
       },
     );
 
-    // Ensure FTS table is verified or created even on pre-existing databases
+    // Ensure columns and FTS table are verified or created even on pre-existing databases
+    await _ensureColumnsExist(_db!);
     await _ensureFtsTable(_db!);
   }
 
@@ -121,6 +129,8 @@ class AppDatabase {
         install_directory TEXT,
         install_size_bytes INTEGER,
         hidden INTEGER NOT NULL DEFAULT 0,
+        is_duplicate INTEGER NOT NULL DEFAULT 0,
+        other_copies_json TEXT NOT NULL DEFAULT '[]',
         favorite INTEGER NOT NULL DEFAULT 0,
         user_score INTEGER,
         critic_score INTEGER,
@@ -246,6 +256,16 @@ class AppDatabase {
       );
     ''');
     await db.execute('CREATE INDEX IF NOT EXISTS idx_dlc_items_game_id ON dlc_items(game_id);');
+  }
+
+  /// Verifies or creates newly introduced columns on pre-existing databases
+  Future<void> _ensureColumnsExist(DatabaseExecutor db) async {
+    try {
+      await db.execute('ALTER TABLE games ADD COLUMN is_duplicate INTEGER NOT NULL DEFAULT 0;');
+    } catch (_) {}
+    try {
+      await db.execute("ALTER TABLE games ADD COLUMN other_copies_json TEXT NOT NULL DEFAULT '[]';");
+    } catch (_) {}
   }
 
   /// Verifies or creates the FTS table with FTS5 or FTS4 fallback, updating [isFtsSupported].

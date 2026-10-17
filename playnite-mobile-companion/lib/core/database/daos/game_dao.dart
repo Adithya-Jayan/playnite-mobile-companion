@@ -185,7 +185,12 @@ class GameDao {
     final whereClauses = <String>[];
     final whereArgs = <dynamic>[];
 
-    // 1. Search Query (FTS match or LIKE fallback)
+    // 1. Filter: Hidden games (exclude hidden by default unless includeHidden is true)
+    if (!criteria.includeHidden) {
+      whereClauses.add('hidden = 0');
+    }
+
+    // 2. Search Query (FTS match or LIKE fallback)
     if (criteria.searchQuery.trim().isNotEmpty) {
       final sanitized = criteria.searchQuery.replaceAll("'", "''").trim();
       bool ftsSuccess = false;
@@ -352,6 +357,18 @@ class GameDao {
       installDirectory: row['install_directory'] as String?,
       installSizeBytes: (row['install_size_bytes'] as num?)?.toInt(),
       hidden: (row['hidden'] as num?)?.toInt() == 1,
+      isDuplicate: (row['is_duplicate'] as num?)?.toInt() == 1,
+      otherCopies: (row['other_copies_json'] is String && (row['other_copies_json'] as String).isNotEmpty)
+          ? () {
+              try {
+                final list = jsonDecode(row['other_copies_json'] as String);
+                if (list is List) {
+                  return list.whereType<Map<String, dynamic>>().map((e) => DuplicateCopyPayload.fromJson(e)).toList();
+                }
+              } catch (_) {}
+              return <DuplicateCopyPayload>[];
+            }()
+          : const [],
       favorite: (row['favorite'] as num?)?.toInt() == 1,
       userScore: (row['user_score'] as num?)?.toInt(),
       criticScore: (row['critic_score'] as num?)?.toInt(),

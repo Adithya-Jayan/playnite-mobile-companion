@@ -91,6 +91,9 @@ namespace PlayniteExporterPlugin.Services
             // Addons
             var addons = await addonRegistry.ExtractAllAsync(game, userDataDir);
 
+            // Duplicate copies & DuplicateHider resolution
+            var (isDuplicate, otherCopies) = ResolveDuplicateCopies(game);
+
             var payload = new UnifiedGamePayload
             {
                 SchemaVersion = "1.0.0",
@@ -112,6 +115,8 @@ namespace PlayniteExporterPlugin.Services
                 InstallDirectory = game.InstallDirectory,
                 InstallSizeBytes = (long?)game.InstallSize,
                 Hidden = game.Hidden,
+                IsDuplicate = isDuplicate,
+                OtherCopies = otherCopies,
                 Favorite = game.Favorite,
                 Version = game.Version,
                 UserScore = game.UserScore,
@@ -226,6 +231,123 @@ namespace PlayniteExporterPlugin.Services
                 }
             }
             return list;
+        }
+
+        private static readonly Guid DuplicateHiderHiddenTagId = Guid.Parse("db1b6850-b7ff-45fd-bde7-72b5747ec132");
+        private static readonly Guid DuplicateHiderRevealedTagId = Guid.Parse("4584ccb9-1a4a-48b1-a1c7-4921bbcceaf8");
+
+        private (bool IsDuplicate, List<DuplicateCopyPayload> OtherCopies) ResolveDuplicateCopies(Game game)
+        {
+            var otherCopies = new List<DuplicateCopyPayload>();
+            bool isDuplicate = false;
+
+            // 1. Check DuplicateHider plugin's standard hidden tag ID
+            if (game.TagIds != null && game.TagIds.Contains(DuplicateHiderHiddenTagId))
+            {
+                isDuplicate = true;
+            }
+
+            // 2. Query DuplicateHider via reflection if active in Playnite's runtime
+            try
+            {
+                Type? dhType = null;
+                foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+                {
+                    dhType = asm.GetType("DuplicateHider.DuplicateHiderPlugin");
+                    if (dhType != null) break;
+                }
+
+                if (dhType != null)
+                {
+                    var instanceProp = dhType.GetProperty("Instance", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
+                    var instance = instanceProp?.GetValue(null);
+                    if (instance != null)
+                    {
+                        var getCopiesMethod = dhType.GetMethod("GetOtherCopies", new[] { typeof(Game) });
+                        if (getCopiesMethod != null)
+                        {
+                            var copiesObj = getCopiesMethod.Invoke(instance, new object[] { game }) as System.Collections.IEnumerable;
+                            if (copiesObj != null)
+                            {
+                                foreach (var item in copiesObj)
+                                {
+                                    if (item is Game copyGame && copyGame.Id != game.Id)
+                                    {
+                                        string sourceName = "Playnite";
+                                        if (copyGame.SourceId != Guid.Empty && api.Database?.Sources != null)
+                                        {
+                                            var s = api.Database.Sources.Get(copyGame.SourceId);
+                                            if (s != null) sourceName = s.Name ?? "Playnite";
+                                        }
+
+                                        otherCopies.Add(new DuplicateCopyPayload
+                                        {
+                                            Id = copyGame.Id,
+                                            GameId = copyGame.GameId ?? string.Empty,
+                                            Name = copyGame.Name ?? string.Empty,
+                                            SourceName = sourceName,
+                                            IsInstalled = copyGame.IsInstalled,
+                                            PlaytimeSeconds = (long)copyGame.Playtime,
+                                            InstallDirectory = copyGame.InstallDirectory,
+                                            Hidden = copyGame.Hidden
+                                        });
+
+                                        if (game.Hidden && !copyGame.Hidden)
+                                        {
+                                            isDuplicate = true;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Debug($"DuplicateHider reflection resolution skipped: {ex.Message}");
+            }
+
+            // 3. Fallback: match by normalized game name across database
+            if (otherCopies.Count == 0 && api.Database?.Games != null)
+            {
+                var cleanName = (game.Name ?? "").Trim().ToLowerInvariant();
+                if (cleanName.Length > 2)
+                {
+                    var matches = api.Database.Games
+                        .Where(g => g.Id != game.Id && (g.Name ?? "").Trim().ToLowerInvariant() == cleanName)
+                        .ToList();
+
+                    foreach (var match in matches)
+                    {
+                        string sourceName = "Playnite";
+                        if (match.SourceId != Guid.Empty && api.Database.Sources != null)
+                        {
+                            var s = api.Database.Sources.Get(match.SourceId);
+                            if (s != null) sourceName = s.Name ?? "Playnite";
+                        }
+
+                        otherCopies.Add(new DuplicateCopyPayload
+                        {
+                            Id = match.Id,
+                            GameId = match.GameId ?? string.Empty,
+                            Name = match.Name ?? string.Empty,
+                            SourceName = sourceName,
+                            IsInstalled = match.IsInstalled,
+                            PlaytimeSeconds = (long)match.Playtime,
+                            InstallDirectory = match.InstallDirectory,
+                            Hidden = match.Hidden
+                        });
+
+                        if (game.Hidden && !match.Hidden)
+                        {
+                            isDuplicate = true;
+                        }
+                    }
+                }
+            }
+
+            return (isDuplicate, otherCopies);
         }
     }
 }

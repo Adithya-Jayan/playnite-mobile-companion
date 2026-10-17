@@ -28,6 +28,7 @@ class _FilterDrawerState extends State<FilterDrawer> {
   late Set<String> _completionStatuses;
   late bool? _isInstalled;
   late bool? _isFavorite;
+  late bool _includeHidden;
   double _minScore = 0;
 
   @override
@@ -39,6 +40,7 @@ class _FilterDrawerState extends State<FilterDrawer> {
     _completionStatuses = Set.from(widget.currentCriteria.completionStatuses);
     _isInstalled = widget.currentCriteria.isInstalled;
     _isFavorite = widget.currentCriteria.isFavorite;
+    _includeHidden = widget.currentCriteria.includeHidden;
     _minScore = (widget.currentCriteria.minScore ?? 0).toDouble();
   }
 
@@ -95,6 +97,16 @@ class _FilterDrawerState extends State<FilterDrawer> {
                     value: _isFavorite == true,
                     onChanged: (val) {
                       setState(() => _isFavorite = val ? true : null);
+                    },
+                  ),
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Show Hidden Games', style: TextStyle(fontSize: 14, color: AppTheme.textPrimary)),
+                    subtitle: const Text('Includes manually hidden & NSFW games', style: TextStyle(fontSize: 11, color: AppTheme.textMuted)),
+                    activeThumbColor: Colors.amberAccent,
+                    value: _includeHidden,
+                    onChanged: (val) {
+                      setState(() => _includeHidden = val);
                     },
                   ),
                   const Divider(),
@@ -222,6 +234,7 @@ class _FilterDrawerState extends State<FilterDrawer> {
                       completionStatuses: _completionStatuses,
                       isInstalled: _isInstalled,
                       isFavorite: _isFavorite,
+                      includeHidden: _includeHidden,
                       minScore: _minScore > 0 ? _minScore.toInt() : null,
                       clearInstalled: _isInstalled == null,
                       clearFavorite: _isFavorite == null,

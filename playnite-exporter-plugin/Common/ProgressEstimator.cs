@@ -26,7 +26,7 @@ namespace PlayniteExporterPlugin.Common
             stopwatch.Start();
         }
 
-        public string Format(int completed, string description)
+        public string Format(int completed, string description, string stepPrefix = "")
         {
             var elapsed = stopwatch.Elapsed;
             double percent = Math.Min(100.0, Math.Max(0.0, (double)completed / totalItems * 100.0));
@@ -94,9 +94,10 @@ namespace PlayniteExporterPlugin.Common
             }
 
             // Two-line layout:
-            // Line 1: ETA & progress percentage
+            // Line 1: [Step X/Y: Description] • ETA & progress percentage
             // Line 2: Current item description
-            return $"{etaText} • {percent:F0}% ({completed}/{totalItems})\r\n{description}";
+            string prefixPart = string.IsNullOrWhiteSpace(stepPrefix) ? "" : $"{stepPrefix} • ";
+            return $"{prefixPart}{etaText} • {percent:F0}% ({completed}/{totalItems})\r\n{description}";
         }
 
         private static string FormatTimeSpan(TimeSpan ts)

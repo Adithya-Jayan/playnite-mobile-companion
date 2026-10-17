@@ -30,5 +30,5 @@ class AppConstants {
 
   // Database
   static const String databaseFileName = 'playnite_companion.db';
-  static const int databaseVersion = 1;
+  static const int databaseVersion = 2;
 }

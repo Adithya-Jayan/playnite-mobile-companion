@@ -152,7 +152,7 @@ namespace PlayniteExporterPlugin.Tests
             // Verify required progress messages
             Assert.True(reports.Count > 0, "Expected progress reports to be generated");
             Assert.Contains(reports, r => r.Text.Contains("Checking") && r.CurrentProgressValue == 0);
-            Assert.Contains(reports, r => r.Text == "No changes detected. Library is up to date.");
+            Assert.Contains(reports, r => r.Text.Contains("No changes detected. Library is up to date."));
         }
 
         [Fact]

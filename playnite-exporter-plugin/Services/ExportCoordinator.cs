@@ -367,7 +367,7 @@ namespace PlayniteExporterPlugin.Services
                 var scanEstimator = new ProgressEstimator(total);
 
                 // Step 0: Ensure progress is reported immediately at step 0
-                progress?.Report(new ExportProgressReport(scanEstimator.Format(0, $"Checking library games (0/{total})..."), 0, total));
+                progress?.Report(new ExportProgressReport(scanEstimator.Format(0, $"Checking library games (0/{total})...", "Step 1/3: Analyzing Library"), 0, total));
 
                 var candidateFiles = new Dictionary<string, PlannedUpload>(StringComparer.OrdinalIgnoreCase);
                 var concurrencyLimit = Math.Max(1, Math.Min(settings.MaxParallelUploads, 8));
@@ -509,7 +509,7 @@ namespace PlayniteExporterPlugin.Services
                     // Ensure progress is reported immediately at step 0, 1, 2... and smoothly throughout
                     if (scanned <= 10 || scanned % Math.Max(1, total / 50) == 0 || scanned == total)
                     {
-                        var scanReport = scanEstimator.Format(scanned, $"Checking game {scanned}/{total}: {game.Name}");
+                        var scanReport = scanEstimator.Format(scanned, $"Checking game {scanned}/{total}: {game.Name}", "Step 1/3: Analyzing Library");
                         progress?.Report(new ExportProgressReport(scanReport, scanned, total));
                     }
                 }
@@ -522,7 +522,7 @@ namespace PlayniteExporterPlugin.Services
                 if (!diff.HasChanges)
                 {
                     Logger.Info("SyncIncrementalLibraryAsync: Entire library is up to date (0 changes).");
-                    progress?.Report(new ExportProgressReport("No changes detected. Library is up to date.", total, total));
+                    progress?.Report(new ExportProgressReport("Step 1/3: Complete • No changes detected. Library is up to date.", total, total));
                     return diff;
                 }
 
@@ -559,7 +559,8 @@ namespace PlayniteExporterPlugin.Services
 
                         var reportText = uploadEstimator.Format(
                             overall,
-                            $"Uploading game {currentGames}/{dirtyCount}: {gameName} ({overall}/{totalUploads})"
+                            $"Uploading game {currentGames}/{dirtyCount}: {gameName} ({overall}/{totalUploads})",
+                            "Step 2/3: Uploading Payloads"
                         );
 
                         progress?.Report(new ExportProgressReport(
@@ -617,7 +618,8 @@ namespace PlayniteExporterPlugin.Services
 
                         var reportText = uploadEstimator.Format(
                             overall,
-                            $"Uploading media {currentMedia}/{mediaCount}: {fileName} ({overall}/{totalUploads})"
+                            $"Uploading media {currentMedia}/{mediaCount}: {fileName} ({overall}/{totalUploads})",
+                            "Step 2/3: Uploading Media"
                         );
 
                         progress?.Report(new ExportProgressReport(
@@ -667,7 +669,8 @@ namespace PlayniteExporterPlugin.Services
                 var manifestProgress = Interlocked.Increment(ref uploadsDone);
                 var manifestReportText = uploadEstimator.Format(
                     manifestProgress,
-                    $"Uploading manifest.json ({manifestProgress}/{totalUploads})"
+                    $"Uploading manifest.json ({manifestProgress}/{totalUploads})",
+                    "Step 2/3: Uploading Manifest"
                 );
                 progress?.Report(new ExportProgressReport(
                     manifestReportText,
@@ -716,7 +719,7 @@ namespace PlayniteExporterPlugin.Services
                 if (settings.EnableOrphanPruning && diff.Deleted.Count > 0)
                 {
                     var pruneEstimator = new ProgressEstimator(diff.Deleted.Count);
-                    progress?.Report(new ExportProgressReport(pruneEstimator.Format(0, $"Pruning {diff.Deleted.Count} orphaned items..."), 0, diff.Deleted.Count));
+                    progress?.Report(new ExportProgressReport(pruneEstimator.Format(0, $"Pruning {diff.Deleted.Count} orphaned items...", "Step 2/3: Pruning Orphans"), 0, diff.Deleted.Count));
                     int pruned = 0;
                     foreach (var del in diff.Deleted)
                     {
@@ -734,18 +737,18 @@ namespace PlayniteExporterPlugin.Services
                             Logger.Warn(ex, $"Failed pruning orphan file {del.RelativePath}");
                         }
                         pruned++;
-                        var pruneReport = pruneEstimator.Format(pruned, $"Pruning orphan {pruned}/{diff.Deleted.Count}: {Path.GetFileName(del.RelativePath)}");
+                        var pruneReport = pruneEstimator.Format(pruned, $"Pruning orphan {pruned}/{diff.Deleted.Count}: {Path.GetFileName(del.RelativePath)}", "Step 2/3: Pruning Orphans");
                         progress?.Report(new ExportProgressReport(pruneReport, pruned, diff.Deleted.Count));
                     }
                 }
 
                 // Phase 4: Finalizing atomic index:
                 string destName = storageProvider.ProviderName == "GoogleDrive" ? "Google Drive" : storageProvider.ProviderName;
-                progress?.Report(new ExportProgressReport($"Committing sync_index.json to {destName}...", totalUploads, totalUploads, indeterminate: false));
+                progress?.Report(new ExportProgressReport($"Step 3/3: Finalizing Sync • 100%\r\nCommitting sync_index.json to {destName}...", totalUploads, totalUploads, indeterminate: false));
                 await CommitSyncIndexAsync(ct).ConfigureAwait(false);
 
                 settings.LastSyncUtc = DateTime.UtcNow;
-                progress?.Report(new ExportProgressReport("Sync successfully completed!", totalUploads, totalUploads, indeterminate: false));
+                progress?.Report(new ExportProgressReport("Step 3/3: Complete • 100%\r\nSync successfully completed!", totalUploads, totalUploads, indeterminate: false));
                 return diff;
             }
             finally

@@ -161,6 +161,8 @@ class SyncProgress {
   final int totalBytes;
   final String message;
   final String? currentItem;
+  final String? etaText;
+  final String? stepText;
 
   const SyncProgress({
     this.phase = SyncPhase.idle,
@@ -170,6 +172,8 @@ class SyncProgress {
     this.totalBytes = 0,
     this.message = '',
     this.currentItem,
+    this.etaText,
+    this.stepText,
   });
 
   SyncProgress copyWith({
@@ -180,6 +184,8 @@ class SyncProgress {
     int? totalBytes,
     String? message,
     String? currentItem,
+    String? etaText,
+    String? stepText,
   }) {
     return SyncProgress(
       phase: phase ?? this.phase,
@@ -189,6 +195,8 @@ class SyncProgress {
       totalBytes: totalBytes ?? this.totalBytes,
       message: message ?? this.message,
       currentItem: currentItem ?? this.currentItem,
+      etaText: etaText ?? this.etaText,
+      stepText: stepText ?? this.stepText,
     );
   }
 }
@@ -291,6 +299,8 @@ class UnifiedGamePayload {
   final String? installDirectory;
   final int? installSizeBytes;
   final bool hidden;
+  final bool isDuplicate;
+  final List<DuplicateCopyPayload> otherCopies;
   final bool favorite;
   final int? userScore;
   final int? criticScore;
@@ -328,6 +338,8 @@ class UnifiedGamePayload {
     this.installDirectory,
     this.installSizeBytes,
     this.hidden = false,
+    this.isDuplicate = false,
+    this.otherCopies = const [],
     this.favorite = false,
     this.userScore,
     this.criticScore,
@@ -390,6 +402,13 @@ class UnifiedGamePayload {
       installDirectory: json['install_directory'] as String?,
       installSizeBytes: (json['install_size_bytes'] as num?)?.toInt(),
       hidden: parseBool(json['hidden']),
+      isDuplicate: parseBool(json['is_duplicate']),
+      otherCopies: (json['other_copies'] is List)
+          ? (json['other_copies'] as List)
+              .whereType<Map<String, dynamic>>()
+              .map((e) => DuplicateCopyPayload.fromJson(e))
+              .toList()
+          : const [],
       favorite: parseBool(json['favorite']),
       userScore: (json['user_score'] as num?)?.toInt(),
       criticScore: (json['critic_score'] as num?)?.toInt(),
@@ -432,6 +451,8 @@ class UnifiedGamePayload {
       'install_directory': installDirectory,
       'install_size_bytes': installSizeBytes,
       'hidden': hidden ? 1 : 0,
+      'is_duplicate': isDuplicate ? 1 : 0,
+      'other_copies_json': jsonEncode(otherCopies.map((e) => e.toJson()).toList()),
       'favorite': favorite ? 1 : 0,
       'user_score': userScore,
       'critic_score': criticScore,
@@ -592,4 +613,50 @@ class SyncConfiguration {
       lastSyncUtc: json['last_sync_utc'] as String?,
     );
   }
+}
+
+class DuplicateCopyPayload {
+  final String id;
+  final String gameId;
+  final String name;
+  final String sourceName;
+  final bool isInstalled;
+  final int playtimeSeconds;
+  final String? installDirectory;
+  final bool hidden;
+
+  const DuplicateCopyPayload({
+    required this.id,
+    this.gameId = '',
+    required this.name,
+    this.sourceName = 'Playnite',
+    this.isInstalled = false,
+    this.playtimeSeconds = 0,
+    this.installDirectory,
+    this.hidden = false,
+  });
+
+  factory DuplicateCopyPayload.fromJson(Map<String, dynamic> json) {
+    return DuplicateCopyPayload(
+      id: json['id'] as String? ?? '',
+      gameId: json['game_id'] as String? ?? '',
+      name: json['name'] as String? ?? '',
+      sourceName: json['source_name'] as String? ?? 'Playnite',
+      isInstalled: json['is_installed'] as bool? ?? false,
+      playtimeSeconds: (json['playtime_seconds'] as num?)?.toInt() ?? 0,
+      installDirectory: json['install_directory'] as String?,
+      hidden: json['hidden'] as bool? ?? false,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'game_id': gameId,
+    'name': name,
+    'source_name': sourceName,
+    'is_installed': isInstalled,
+    'playtime_seconds': playtimeSeconds,
+    'install_directory': installDirectory,
+    'hidden': hidden,
+  };
 }

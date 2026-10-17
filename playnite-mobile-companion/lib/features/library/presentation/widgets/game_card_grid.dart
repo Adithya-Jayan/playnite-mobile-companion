@@ -133,6 +133,50 @@ class GameCardGrid extends StatelessWidget {
                     child: const Icon(Icons.check, color: Colors.white, size: 10),
                   ),
                 ),
+
+              // Multi-Store Copy Badge (DuplicateHider)
+              if (game.otherCopies.isNotEmpty)
+                Positioned(
+                  top: 6,
+                  left: game.isInstalled ? 26 : 6,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1.5),
+                    decoration: BoxDecoration(
+                      color: Colors.black87,
+                      borderRadius: BorderRadius.circular(3),
+                      border: Border.all(color: AppTheme.primaryLight, width: 0.8),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.copy_all, color: AppTheme.primaryLight, size: 9),
+                        const SizedBox(width: 2),
+                        Text(
+                          '+${game.otherCopies.length}',
+                          style: const TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: AppTheme.primaryLight),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+
+              // Truly Hidden / NSFW Game Badge
+              if (game.hidden && !game.isDuplicate)
+                Positioned(
+                  top: 6,
+                  right: game.favorite ? 28 : 6,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1.5),
+                    decoration: BoxDecoration(
+                      color: Colors.amber.shade900.withValues(alpha: 0.9),
+                      borderRadius: BorderRadius.circular(3),
+                    ),
+                    child: const Text(
+                      'HIDDEN',
+                      style: TextStyle(fontSize: 8, fontWeight: FontWeight.bold, color: Colors.white),
+                    ),
+                  ),
+                ),
             ],
           ),
         ),

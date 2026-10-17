@@ -8,6 +8,7 @@ class GameFilterCriteria {
   final Set<String> completionStatuses;
   final bool? isInstalled;
   final bool? isFavorite;
+  final bool includeHidden;
   final int? minScore;
   final int? maxScore;
 
@@ -20,6 +21,7 @@ class GameFilterCriteria {
     this.completionStatuses = const {},
     this.isInstalled,
     this.isFavorite,
+    this.includeHidden = false,
     this.minScore,
     this.maxScore,
   });
@@ -33,6 +35,7 @@ class GameFilterCriteria {
       completionStatuses.isEmpty &&
       isInstalled == null &&
       isFavorite == null &&
+      !includeHidden &&
       minScore == null &&
       maxScore == null;
 
@@ -46,6 +49,7 @@ class GameFilterCriteria {
     count += completionStatuses.length;
     if (isInstalled != null) count++;
     if (isFavorite != null) count++;
+    if (includeHidden) count++;
     if (minScore != null || maxScore != null) count++;
     return count;
   }
@@ -59,6 +63,7 @@ class GameFilterCriteria {
     Set<String>? completionStatuses,
     bool? isInstalled,
     bool? isFavorite,
+    bool? includeHidden,
     int? minScore,
     int? maxScore,
     bool clearInstalled = false,
@@ -74,6 +79,7 @@ class GameFilterCriteria {
       completionStatuses: completionStatuses ?? this.completionStatuses,
       isInstalled: clearInstalled ? null : (isInstalled ?? this.isInstalled),
       isFavorite: clearFavorite ? null : (isFavorite ?? this.isFavorite),
+      includeHidden: includeHidden ?? this.includeHidden,
       minScore: clearScores ? null : (minScore ?? this.minScore),
       maxScore: clearScores ? null : (maxScore ?? this.maxScore),
     );

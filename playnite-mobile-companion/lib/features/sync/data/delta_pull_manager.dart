@@ -73,6 +73,7 @@ class DeltaPullManager {
         total: 1,
         currentItem: 'sync_index.json',
         message: 'Fetching remote sync index...',
+        stepText: 'Step 1/3: Checking Cloud Index',
       ));
       final remoteIndex = await driveService.fetchSyncIndex();
 
@@ -83,6 +84,7 @@ class DeltaPullManager {
         total: 1,
         currentItem: 'sync_index.json',
         message: 'Diffing library state...',
+        stepText: 'Step 1/3: Analyzing Library Changes',
       ));
       final localEntries = await syncMetaDao.getAllEntriesMap();
       final diff = computeDiff(remoteIndex, localEntries);
@@ -95,23 +97,32 @@ class DeltaPullManager {
           current: 0,
           total: 0,
           message: 'Library is completely up-to-date (0 changes).',
+          stepText: 'Step 1/3: Complete',
         ));
         return SyncReport.noOp(durationMs: stopwatch.elapsedMilliseconds);
       }
 
-      // 3. Download changed JSON payloads in parallel
+      // 3. Download changed JSON payloads with bounded concurrency and checkpoint commits
       onProgress?.call(SyncProgress(
         phase: SyncPhase.downloadingPayloads,
         current: 0,
         total: diff.toDownload.length,
         totalBytes: diff.totalDownloadBytes,
         message: 'Pulling delta: ${diff.toDownload.length} payloads (${diff.totalDownloadBytes} bytes)...',
+        stepText: 'Step 2/3: Downloading Payloads',
       ));
 
       final downloadedGames = <UnifiedGamePayload>[];
+      final pendingGamesToCommit = <UnifiedGamePayload>[];
+      final pendingEntriesToCommit = <IndexEntry>[];
+      const commitBatchSize = 25;
+
       Map<String, dynamic>? downloadedManifest;
       var bytesDownloaded = 0;
       var completedCount = 0;
+
+      final downloadStopwatch = Stopwatch()..start();
+      double smoothedEtaSeconds = -1;
 
       // Process downloads with bounded concurrency
       for (var i = 0; i < diff.toDownload.length; i += concurrency) {
@@ -139,6 +150,37 @@ class DeltaPullManager {
           completedCount++;
           bytesDownloaded += entry.sizeBytes;
 
+          // Calculate smoothed ETA
+          final elapsedSecs = downloadStopwatch.elapsedMilliseconds / 1000.0;
+          if (completedCount >= 3 && elapsedSecs >= 1.5) {
+            final rate = completedCount / elapsedSecs;
+            final remaining = diff.toDownload.length - completedCount;
+            if (rate > 0.01) {
+              final rawEta = remaining / rate;
+              if (smoothedEtaSeconds < 0) {
+                smoothedEtaSeconds = rawEta;
+              } else {
+                smoothedEtaSeconds = (smoothedEtaSeconds * 0.85) + (rawEta * 0.15);
+              }
+            }
+          }
+
+          String? etaText;
+          if (completedCount < 3 || elapsedSecs < 1.5) {
+            etaText = 'Estimating ETA...';
+          } else if (completedCount >= diff.toDownload.length) {
+            etaText = 'Finishing...';
+          } else if (smoothedEtaSeconds > 0) {
+            final secs = smoothedEtaSeconds.round();
+            if (secs < 60) {
+              etaText = 'ETA: ${secs}s';
+            } else {
+              final mins = secs ~/ 60;
+              final rem = secs % 60;
+              etaText = rem > 0 ? 'ETA: ${mins}m ${rem}s' : 'ETA: ${mins}m';
+            }
+          }
+
           onProgress?.call(SyncProgress(
             phase: SyncPhase.downloadingPayloads,
             current: completedCount,
@@ -147,34 +189,55 @@ class DeltaPullManager {
             totalBytes: diff.totalDownloadBytes,
             message: 'Downloading $completedCount/${diff.toDownload.length} games ($itemName)...',
             currentItem: itemName,
+            etaText: etaText,
+            stepText: 'Step 2/3: Downloading Payloads',
           ));
 
-          return payload;
+          return (entry, payload);
         });
 
         final results = await Future.wait(chunkFutures);
-        for (final item in results) {
-          if (item != null) downloadedGames.add(item);
+        for (final tuple in results) {
+          pendingEntriesToCommit.add(tuple.$1);
+          if (tuple.$2 != null) {
+            downloadedGames.add(tuple.$2!);
+            pendingGamesToCommit.add(tuple.$2!);
+          }
+        }
+
+        // Checkpoint commit: save batch of games to SQLite so interrupted sync can resume cleanly!
+        if (pendingEntriesToCommit.length >= commitBatchSize || (i + concurrency >= diff.toDownload.length)) {
+          if (pendingGamesToCommit.isNotEmpty || pendingEntriesToCommit.isNotEmpty) {
+            final batchGames = List<UnifiedGamePayload>.from(pendingGamesToCommit);
+            final batchEntries = List<IndexEntry>.from(pendingEntriesToCommit);
+            pendingGamesToCommit.clear();
+            pendingEntriesToCommit.clear();
+
+            await database.db.transaction((txn) async {
+              if (batchGames.isNotEmpty) {
+                await gameDao.batchUpsertGames(batchGames, txn: txn);
+              }
+              if (batchEntries.isNotEmpty) {
+                await syncMetaDao.batchUpsertEntries(batchEntries, txn: txn);
+              }
+            });
+          }
         }
       }
 
-      // 4. Commit updates inside an atomic SQLite transaction
+      // 4. Finalize database state (orphan deletions and manifest)
       onProgress?.call(SyncProgress(
         phase: SyncPhase.committingDatabase,
         current: downloadedGames.length,
         total: diff.toDownload.length,
         bytesDownloaded: bytesDownloaded,
         totalBytes: diff.totalDownloadBytes,
-        message: 'Committing transaction to local database...',
+        message: 'Finalizing database transaction...',
         currentItem: 'SQLite Database',
+        stepText: 'Step 3/3: Saving to Local Database',
       ));
 
       await database.db.transaction((txn) async {
-        // Upsert games & child tables
-        if (downloadedGames.isNotEmpty) {
-          await gameDao.batchUpsertGames(downloadedGames, txn: txn);
-        }
-
         // Cascade delete removed games
         if (diff.toDelete.isNotEmpty) {
           final deletedIds = diff.toDelete
@@ -196,9 +259,6 @@ class DeltaPullManager {
             conflictAlgorithm: ConflictAlgorithm.replace,
           );
         }
-
-        // Upsert updated sync_entries records
-        await syncMetaDao.batchUpsertEntries(diff.toDownload, txn: txn);
       });
 
       stopwatch.stop();
@@ -209,6 +269,7 @@ class DeltaPullManager {
         bytesDownloaded: bytesDownloaded,
         totalBytes: diff.totalDownloadBytes,
         message: 'Delta sync successfully completed in ${stopwatch.elapsedMilliseconds} ms.',
+        stepText: 'Step 3/3: Complete',
       ));
 
       return SyncReport(
