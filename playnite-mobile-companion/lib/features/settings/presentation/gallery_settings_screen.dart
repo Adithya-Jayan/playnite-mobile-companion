@@ -23,6 +23,7 @@ class GallerySettingsScreen extends StatefulWidget {
 class _GallerySettingsScreenState extends State<GallerySettingsScreen> {
   late final GallerySettingsRepository _repo;
   GallerySettings _settings = const GallerySettings();
+  MediaTierSizes _tierSizes = const MediaTierSizes();
   bool _isLoading = true;
   int _cachedCount = 0;
   int _cachedBytes = 0;
@@ -37,9 +38,11 @@ class _GallerySettingsScreenState extends State<GallerySettingsScreen> {
 
   Future<void> _loadSettings() async {
     final s = await _repo.loadSettings();
+    final sizes = await _repo.loadMediaTierSizes();
     if (mounted) {
       setState(() {
         _settings = s;
+        _tierSizes = sizes;
         _isLoading = false;
       });
     }
@@ -127,10 +130,24 @@ class _GallerySettingsScreenState extends State<GallerySettingsScreen> {
     }
   }
 
+  String _getCoversAndFanartsSizeLabel() {
+    if (_tierSizes.coversAndFanartsBytes != null && _tierSizes.coversAndFanartsBytes! > 0) {
+      return '~${DurationFormatter.formatBytes(_tierSizes.coversAndFanartsBytes!)}';
+    }
+    return '~1.28 GB est.';
+  }
+
+  String _getCompleteOfflineSizeLabel() {
+    if (_tierSizes.completeOfflineBytes != null && _tierSizes.completeOfflineBytes! > 0) {
+      return '~${DurationFormatter.formatBytes(_tierSizes.completeOfflineBytes!)}';
+    }
+    return '~3.5 GB est.';
+  }
+
   void _promptSyncForOfflineMedia(MediaStorageTier tier) {
     final label = tier == MediaStorageTier.completeOffline
-        ? 'Complete Offline with Videos (~3.5 GB)'
-        : 'Full Offline Covers & Fanarts (~1.28 GB)';
+        ? 'Complete Offline with Videos (${_getCompleteOfflineSizeLabel()})'
+        : 'Full Offline Covers & Fanarts (${_getCoversAndFanartsSizeLabel()})';
 
     showDialog(
       context: context,
@@ -159,8 +176,12 @@ class _GallerySettingsScreenState extends State<GallerySettingsScreen> {
               Navigator.of(ctx).pop();
               showDialog(
                 context: context,
+                barrierDismissible: false,
                 builder: (_) => SyncDialog(database: widget.database),
-              ).then((_) => _loadCacheMetrics());
+              ).then((_) {
+                _loadCacheMetrics();
+                _loadSettings();
+              });
             },
             child: const Text('Sync Now', style: TextStyle(color: Colors.white)),
           ),
@@ -187,9 +208,9 @@ class _GallerySettingsScreenState extends State<GallerySettingsScreen> {
       case MediaStorageTier.cacheOnly:
         return 'Cache Only (On-demand as you browse library - Default)';
       case MediaStorageTier.coversAndFanarts:
-        return 'Full Offline Covers & Fanarts (~1.28 GB)';
+        return 'Full Offline Covers & Fanarts (${_getCoversAndFanartsSizeLabel()})';
       case MediaStorageTier.completeOffline:
-        return 'Complete Offline with Videos (~3.5 GB)';
+        return 'Complete Offline with Videos (${_getCompleteOfflineSizeLabel()})';
     }
   }
 
@@ -375,18 +396,18 @@ class _GallerySettingsScreenState extends State<GallerySettingsScreen> {
                             value: _settings.mediaStorageTier,
                             dropdownColor: AppTheme.surfaceLight,
                             underline: const SizedBox.shrink(),
-                            items: const [
-                              DropdownMenuItem(
+                            items: [
+                              const DropdownMenuItem(
                                 value: MediaStorageTier.cacheOnly,
                                 child: Text('Cache Only (On-demand)'),
                               ),
                               DropdownMenuItem(
                                 value: MediaStorageTier.coversAndFanarts,
-                                child: Text('Covers & Fanarts (~1.28 GB)'),
+                                child: Text('Covers & Fanarts (${_getCoversAndFanartsSizeLabel()})'),
                               ),
                               DropdownMenuItem(
                                 value: MediaStorageTier.completeOffline,
-                                child: Text('Full with Videos (~3.5 GB)'),
+                                child: Text('Full with Videos (${_getCompleteOfflineSizeLabel()})'),
                               ),
                             ],
                             onChanged: (val) {

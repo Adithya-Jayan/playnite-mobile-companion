@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:playnite_mobile_companion/core/database/app_database.dart';
 import 'package:playnite_mobile_companion/core/database/daos/game_dao.dart';
@@ -19,6 +20,10 @@ class DeltaPullManager {
   final AppDatabase database;
   late final GameDao gameDao;
   late final SyncMetaDao syncMetaDao;
+
+  bool _isCancelled = false;
+  void cancel() => _isCancelled = true;
+  bool get isCancelled => _isCancelled;
 
   DeltaPullManager({
     required this.driveService,
@@ -119,10 +124,11 @@ class DeltaPullManager {
   /// Executes an atomic, incremental delta pull with rollback safety.
   Future<SyncReport> executeDeltaPull({
     SyncProgressCallback? onProgress,
-    int concurrency = 4,
+    int concurrency = 8,
     MediaStorageTier? mediaTier,
   }) async {
     final stopwatch = Stopwatch()..start();
+    _isCancelled = false;
     await BackgroundSyncService.acquireWakeLock();
 
     try {
@@ -140,6 +146,7 @@ class DeltaPullManager {
         stepText: 'Step 1/3: Checking Cloud Index',
       ));
       final remoteIndex = await driveService.fetchSyncIndex();
+      await _recordMediaTierSizes(remoteIndex);
 
       // 2. Query local sync metadata & compute diff
       onProgress?.call(const SyncProgress(
@@ -189,168 +196,228 @@ class DeltaPullManager {
       final downloadStopwatch = Stopwatch()..start();
       double smoothedEtaSeconds = -1;
 
-      // Process downloads with bounded concurrency
-      for (var i = 0; i < diff.toDownload.length; i += concurrency) {
-        final end = (i + concurrency < diff.toDownload.length) ? i + concurrency : diff.toDownload.length;
-        final chunk = diff.toDownload.sublist(i, end);
+      // Process downloads using a continuous worker pool for maximum network throughput
+      var nextIndex = 0;
+      final totalItems = diff.toDownload.length;
+      final poolConcurrency = math.min(concurrency, totalItems);
 
-        final chunkFutures = chunk.map((entry) async {
+      Future<void> worker() async {
+        while (!_isCancelled) {
+          if (nextIndex >= totalItems) {
+            break;
+          }
+          final index = nextIndex++;
+          final entry = diff.toDownload[index];
           final fileIdentifier = entry.driveFileId.isNotEmpty ? entry.driveFileId : entry.relativePath;
           final isMetadataOrManifest = entry.category == 'manifest' || entry.category == 'game_metadata';
 
           UnifiedGamePayload? payload;
           String itemName = entry.relativePath.split('/').last;
 
-          if (isMetadataOrManifest) {
-            final jsonText = await driveService.downloadFileText(fileIdentifier);
-            final dynamic parsed = jsonDecode(jsonText);
+          try {
+            if (isMetadataOrManifest) {
+              final jsonText = await driveService.downloadFileText(fileIdentifier);
+              final dynamic parsed = jsonDecode(jsonText);
 
-            if (entry.category == 'manifest' && parsed is Map<String, dynamic>) {
-              downloadedManifest = parsed;
-              itemName = 'manifest.json';
-            } else if (parsed is Map<String, dynamic>) {
-              final rawPayload = UnifiedGamePayload.fromJson(parsed);
+              if (entry.category == 'manifest' && parsed is Map<String, dynamic>) {
+                downloadedManifest = parsed;
+                itemName = 'manifest.json';
+              } else if (parsed is Map<String, dynamic>) {
+                final rawPayload = UnifiedGamePayload.fromJson(parsed);
 
-              // Resolve Drive File IDs from remoteIndex.entries for all media pointers
-              final media = rawPayload.media;
-              String? resolveMediaId(String? relPath, String? sha256, String? existingId) {
-                if (existingId != null && existingId.isNotEmpty) {
-                  return existingId;
-                }
-                if (relPath != null && relPath.isNotEmpty) {
-                  final match = remoteIndex.entries[relPath];
-                  if (match != null && match.driveFileId.isNotEmpty) {
-                    return match.driveFileId;
+                // Resolve Drive File IDs from remoteIndex.entries for all media pointers
+                final media = rawPayload.media;
+                String? resolveMediaId(String? relPath, String? sha256, String? existingId) {
+                  if (existingId != null && existingId.isNotEmpty) {
+                    return existingId;
                   }
-                }
-                if (sha256 != null && sha256.isNotEmpty) {
-                  final match = remoteIndex.entries.values.firstWhere(
-                    (e) => e.sha256 == sha256 && e.driveFileId.isNotEmpty,
-                    orElse: () => const IndexEntry(
-                      relativePath: '',
-                      sha256: '',
-                      sizeBytes: 0,
-                      modifiedUtc: '',
-                      driveFileId: '',
-                      mimeType: '',
-                      category: '',
-                    ),
-                  );
-                  if (match.driveFileId.isNotEmpty) {
-                    return match.driveFileId;
+                  if (relPath != null && relPath.isNotEmpty) {
+                    final match = remoteIndex.entries[relPath];
+                    if (match != null && match.driveFileId.isNotEmpty) {
+                      return match.driveFileId;
+                    }
                   }
+                  if (sha256 != null && sha256.isNotEmpty) {
+                    final match = remoteIndex.entries.values.firstWhere(
+                      (e) => e.sha256 == sha256 && e.driveFileId.isNotEmpty,
+                      orElse: () => const IndexEntry(
+                        relativePath: '',
+                        sha256: '',
+                        sizeBytes: 0,
+                        modifiedUtc: '',
+                        driveFileId: '',
+                        mimeType: '',
+                        category: '',
+                      ),
+                    );
+                    if (match.driveFileId.isNotEmpty) {
+                      return match.driveFileId;
+                    }
+                  }
+                  return relPath;
                 }
-                return relPath;
+
+                final resolvedMedia = media.copyWith(
+                  coverDriveFileId: resolveMediaId(media.coverRelativePath, media.coverSha256, media.coverDriveFileId),
+                  backgroundDriveFileId: resolveMediaId(media.backgroundRelativePath, media.backgroundSha256, media.backgroundDriveFileId),
+                  iconDriveFileId: resolveMediaId(media.iconRelativePath, media.iconSha256, media.iconDriveFileId),
+                  logoDriveFileId: remoteIndex.entries['media/logos/${rawPayload.id}.png']?.driveFileId ??
+                      media.logoDriveFileId,
+                  microtrailerDriveFileId: remoteIndex.entries['media/microtrailers/${rawPayload.id}.mp4']?.driveFileId ??
+                      media.microtrailerDriveFileId,
+                  trailerDriveFileId: remoteIndex.entries['media/trailers/${rawPayload.id}.mp4']?.driveFileId ??
+                      media.trailerDriveFileId,
+                );
+
+                payload = rawPayload.copyWith(media: resolvedMedia);
+                if (payload.name.isNotEmpty) {
+                  itemName = payload.name;
+                }
               }
-
-              final resolvedMedia = media.copyWith(
-                coverDriveFileId: resolveMediaId(media.coverRelativePath, media.coverSha256, media.coverDriveFileId),
-                backgroundDriveFileId: resolveMediaId(media.backgroundRelativePath, media.backgroundSha256, media.backgroundDriveFileId),
-                iconDriveFileId: resolveMediaId(media.iconRelativePath, media.iconSha256, media.iconDriveFileId),
-                logoDriveFileId: remoteIndex.entries['media/logos/${rawPayload.id}.png']?.driveFileId ??
-                    media.logoDriveFileId,
-                microtrailerDriveFileId: remoteIndex.entries['media/microtrailers/${rawPayload.id}.mp4']?.driveFileId ??
-                    media.microtrailerDriveFileId,
-                trailerDriveFileId: remoteIndex.entries['media/trailers/${rawPayload.id}.mp4']?.driveFileId ??
-                    media.trailerDriveFileId,
-              );
-
-              payload = rawPayload.copyWith(media: resolvedMedia);
-              if (payload.name.isNotEmpty) {
-                itemName = payload.name;
-              }
-            }
-          } else {
-            // Binary media payload (cover, background, icon, logo, microtrailer, trailer)
-            final bytes = await driveService.downloadFileBytes(fileIdentifier);
-            if (bytes.isNotEmpty) {
-              final aliases = <String>[entry.relativePath];
-              if (entry.driveFileId.isNotEmpty) aliases.add(entry.driveFileId);
-              if (entry.sha256.isNotEmpty) aliases.add(entry.sha256);
-              await PlayniteImageLoader.instance.saveToCache(
-                keyOrMediaId: entry.driveFileId.isNotEmpty ? entry.driveFileId : entry.relativePath,
-                bytes: bytes,
-                aliases: aliases,
-              );
-            }
-          }
-
-          completedCount++;
-          bytesDownloaded += entry.sizeBytes;
-
-          // Calculate smoothed ETA
-          final elapsedSecs = downloadStopwatch.elapsedMilliseconds / 1000.0;
-          if (completedCount >= 3 && elapsedSecs >= 1.5) {
-            final rate = completedCount / elapsedSecs;
-            final remaining = diff.toDownload.length - completedCount;
-            if (rate > 0.01) {
-              final rawEta = remaining / rate;
-              if (smoothedEtaSeconds < 0) {
-                smoothedEtaSeconds = rawEta;
-              } else {
-                smoothedEtaSeconds = (smoothedEtaSeconds * 0.85) + (rawEta * 0.15);
-              }
-            }
-          }
-
-          String? etaText;
-          if (completedCount < 3 || elapsedSecs < 1.5) {
-            etaText = 'Estimating ETA...';
-          } else if (completedCount >= diff.toDownload.length) {
-            etaText = 'Finishing...';
-          } else if (smoothedEtaSeconds > 0) {
-            final secs = smoothedEtaSeconds.round();
-            if (secs < 60) {
-              etaText = 'ETA: ${secs}s';
             } else {
-              final mins = secs ~/ 60;
-              final rem = secs % 60;
-              etaText = rem > 0 ? 'ETA: ${mins}m ${rem}s' : 'ETA: ${mins}m';
+              // Binary media payload (cover, background, icon, logo, microtrailer, trailer)
+              final bytes = await driveService.downloadFileBytes(fileIdentifier);
+              if (bytes.isNotEmpty) {
+                final aliases = <String>[entry.relativePath];
+                if (entry.driveFileId.isNotEmpty) aliases.add(entry.driveFileId);
+                if (entry.sha256.isNotEmpty) aliases.add(entry.sha256);
+                await PlayniteImageLoader.instance.saveToCache(
+                  keyOrMediaId: entry.driveFileId.isNotEmpty ? entry.driveFileId : entry.relativePath,
+                  bytes: bytes,
+                  aliases: aliases,
+                );
+              }
             }
+
+            completedCount++;
+            bytesDownloaded += entry.sizeBytes;
+            pendingEntriesToCommit.add(entry);
+            if (payload != null) {
+              downloadedGames.add(payload);
+              pendingGamesToCommit.add(payload);
+            }
+
+            // Calculate smoothed ETA
+            final elapsedSecs = downloadStopwatch.elapsedMilliseconds / 1000.0;
+            if (completedCount >= 3 && elapsedSecs >= 1.5) {
+              final rate = completedCount / elapsedSecs;
+              final remaining = totalItems - completedCount;
+              if (rate > 0.01) {
+                final rawEta = remaining / rate;
+                if (smoothedEtaSeconds < 0) {
+                  smoothedEtaSeconds = rawEta;
+                } else {
+                  smoothedEtaSeconds = (smoothedEtaSeconds * 0.85) + (rawEta * 0.15);
+                }
+              }
+            }
+
+            String? etaText;
+            if (completedCount < 3 || elapsedSecs < 1.5) {
+              etaText = 'Estimating ETA...';
+            } else if (completedCount >= totalItems) {
+              etaText = 'Finishing...';
+            } else if (smoothedEtaSeconds > 0) {
+              final secs = smoothedEtaSeconds.round();
+              if (secs < 60) {
+                etaText = 'ETA: ${secs}s';
+              } else {
+                final mins = secs ~/ 60;
+                final rem = secs % 60;
+                etaText = rem > 0 ? 'ETA: ${mins}m ${rem}s' : 'ETA: ${mins}m';
+              }
+            }
+
+            onProgress?.call(SyncProgress(
+              phase: SyncPhase.downloadingPayloads,
+              current: completedCount,
+              total: totalItems,
+              bytesDownloaded: bytesDownloaded,
+              totalBytes: diff.totalDownloadBytes,
+              message: 'Downloading $completedCount/$totalItems items ($itemName)...',
+              currentItem: itemName,
+              etaText: etaText,
+              stepText: 'Step 2/3: Downloading Payloads & Offline Media',
+            ));
+
+            // Checkpoint commit: save batch of games to SQLite so interrupted/resumed sync works seamlessly!
+            if (pendingEntriesToCommit.length >= commitBatchSize) {
+              final batchGames = List<UnifiedGamePayload>.from(pendingGamesToCommit);
+              final batchEntries = List<IndexEntry>.from(pendingEntriesToCommit);
+              pendingGamesToCommit.clear();
+              pendingEntriesToCommit.clear();
+
+              await database.db.transaction((txn) async {
+                if (batchGames.isNotEmpty) {
+                  await gameDao.batchUpsertGames(batchGames, txn: txn);
+                }
+                if (batchEntries.isNotEmpty) {
+                  await syncMetaDao.batchUpsertEntries(batchEntries, txn: txn);
+                }
+              });
+            }
+          } catch (e) {
+            if (_isCancelled) break;
+            rethrow;
           }
+        }
+      }
 
-          onProgress?.call(SyncProgress(
-            phase: SyncPhase.downloadingPayloads,
-            current: completedCount,
-            total: diff.toDownload.length,
-            bytesDownloaded: bytesDownloaded,
-            totalBytes: diff.totalDownloadBytes,
-            message: 'Downloading $completedCount/${diff.toDownload.length} items ($itemName)...',
-            currentItem: itemName,
-            etaText: etaText,
-            stepText: 'Step 2/3: Downloading Payloads & Offline Media',
-          ));
+      final workers = List.generate(poolConcurrency, (_) => worker());
+      await Future.wait(workers);
 
-          return (entry, payload);
+      // Handle user cancellation
+      if (_isCancelled) {
+        if (pendingGamesToCommit.isNotEmpty || pendingEntriesToCommit.isNotEmpty) {
+          final batchGames = List<UnifiedGamePayload>.from(pendingGamesToCommit);
+          final batchEntries = List<IndexEntry>.from(pendingEntriesToCommit);
+          pendingGamesToCommit.clear();
+          pendingEntriesToCommit.clear();
+
+          await database.db.transaction((txn) async {
+            if (batchGames.isNotEmpty) {
+              await gameDao.batchUpsertGames(batchGames, txn: txn);
+            }
+            if (batchEntries.isNotEmpty) {
+              await syncMetaDao.batchUpsertEntries(batchEntries, txn: txn);
+            }
+          });
+        }
+        await _backfillMediaDriveFileIds(remoteIndex);
+        stopwatch.stop();
+
+        onProgress?.call(SyncProgress(
+          phase: SyncPhase.idle,
+          current: completedCount,
+          total: totalItems,
+          bytesDownloaded: bytesDownloaded,
+          totalBytes: diff.totalDownloadBytes,
+          message: 'Sync cancelled by user. $completedCount items saved.',
+          stepText: 'Sync Cancelled',
+        ));
+
+        return SyncReport.cancelled(
+          downloadedCount: completedCount,
+          bytesTransferred: bytesDownloaded,
+          durationMs: stopwatch.elapsedMilliseconds,
+        );
+      }
+
+      // Final checkpoint commit for any remaining items in queue
+      if (pendingGamesToCommit.isNotEmpty || pendingEntriesToCommit.isNotEmpty) {
+        final batchGames = List<UnifiedGamePayload>.from(pendingGamesToCommit);
+        final batchEntries = List<IndexEntry>.from(pendingEntriesToCommit);
+        pendingGamesToCommit.clear();
+        pendingEntriesToCommit.clear();
+
+        await database.db.transaction((txn) async {
+          if (batchGames.isNotEmpty) {
+            await gameDao.batchUpsertGames(batchGames, txn: txn);
+          }
+          if (batchEntries.isNotEmpty) {
+            await syncMetaDao.batchUpsertEntries(batchEntries, txn: txn);
+          }
         });
-
-        final results = await Future.wait(chunkFutures);
-        for (final tuple in results) {
-          pendingEntriesToCommit.add(tuple.$1);
-          if (tuple.$2 != null) {
-            downloadedGames.add(tuple.$2!);
-            pendingGamesToCommit.add(tuple.$2!);
-          }
-        }
-
-        // Checkpoint commit: save batch of games to SQLite so interrupted sync can resume cleanly!
-        if (pendingEntriesToCommit.length >= commitBatchSize || (i + concurrency >= diff.toDownload.length)) {
-          if (pendingGamesToCommit.isNotEmpty || pendingEntriesToCommit.isNotEmpty) {
-            final batchGames = List<UnifiedGamePayload>.from(pendingGamesToCommit);
-            final batchEntries = List<IndexEntry>.from(pendingEntriesToCommit);
-            pendingGamesToCommit.clear();
-            pendingEntriesToCommit.clear();
-
-            await database.db.transaction((txn) async {
-              if (batchGames.isNotEmpty) {
-                await gameDao.batchUpsertGames(batchGames, txn: txn);
-              }
-              if (batchEntries.isNotEmpty) {
-                await syncMetaDao.batchUpsertEntries(batchEntries, txn: txn);
-              }
-            });
-          }
-        }
       }
 
       // 4. Finalize database state (orphan deletions and manifest)
@@ -489,4 +556,52 @@ class DeltaPullManager {
       debugPrint('Media backfill warning: $e');
     }
   }
+
+  /// Automatically aggregates and records total byte sizes for offline media tiers into manifest_meta.
+  Future<void> _recordMediaTierSizes(SyncIndex remoteIndex) async {
+    try {
+      int coversAndFanartsBytes = 0;
+      int completeOfflineBytes = 0;
+
+      for (final entry in remoteIndex.entries.values) {
+        final cat = entry.category.toLowerCase();
+        final path = entry.relativePath.toLowerCase();
+        final isVideo = entry.mimeType.startsWith('video/') ||
+            path.endsWith('.mp4') ||
+            path.endsWith('.webm') ||
+            path.endsWith('.mkv');
+        final isMedia = cat == 'cover' ||
+            cat == 'background' ||
+            cat == 'icon' ||
+            cat == 'logo' ||
+            cat == 'media' ||
+            cat == 'achievement_icon' ||
+            isVideo ||
+            path.startsWith('media/');
+
+        if (isMedia) {
+          completeOfflineBytes += entry.sizeBytes;
+          if (!isVideo) {
+            coversAndFanartsBytes += entry.sizeBytes;
+          }
+        }
+      }
+
+      await database.db.insert(
+        'manifest_meta',
+        {
+          'key': 'media_tier_sizes',
+          'value_json': jsonEncode({
+            'covers_and_fanarts_bytes': coversAndFanartsBytes,
+            'complete_offline_bytes': completeOfflineBytes,
+          }),
+          'updated_utc': DateTime.now().toUtc().toIso8601String(),
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    } catch (e) {
+      debugPrint('Media tier sizes record warning: $e');
+    }
+  }
 }
+

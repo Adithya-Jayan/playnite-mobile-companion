@@ -109,6 +109,7 @@ class PullDiff {
 /// Final summary report returned after delta pull execution.
 class SyncReport {
   final bool isSuccess;
+  final bool isCancelled;
   final int downloadedCount;
   final int deletedCount;
   final int bytesTransferred;
@@ -117,6 +118,7 @@ class SyncReport {
 
   const SyncReport({
     required this.isSuccess,
+    this.isCancelled = false,
     required this.downloadedCount,
     required this.deletedCount,
     required this.bytesTransferred,
@@ -139,6 +141,20 @@ class SyncReport {
     bytesTransferred: 0,
     durationMs: durationMs,
     errorMessage: message,
+  );
+
+  factory SyncReport.cancelled({
+    required int downloadedCount,
+    required int bytesTransferred,
+    int durationMs = 0,
+  }) => SyncReport(
+    isSuccess: false,
+    isCancelled: true,
+    downloadedCount: downloadedCount,
+    deletedCount: 0,
+    bytesTransferred: bytesTransferred,
+    durationMs: durationMs,
+    errorMessage: 'Sync cancelled by user.',
   );
 }
 

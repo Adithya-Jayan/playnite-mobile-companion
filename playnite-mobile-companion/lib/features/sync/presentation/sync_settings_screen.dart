@@ -494,6 +494,7 @@ class _SyncSettingsScreenState extends State<SyncSettingsScreen> {
     final driveService = _configRepo.createDriveService(_config);
     showDialog(
       context: context,
+      barrierDismissible: false,
       builder: (_) => SyncDialog(
         database: widget.database,
         driveService: driveService,

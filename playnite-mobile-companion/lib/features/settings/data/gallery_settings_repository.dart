@@ -93,10 +93,26 @@ class GallerySettings {
   }
 }
 
-/// Repository for persisting GallerySettings into SQLite manifest_meta.
+/// Aggregated byte sizes of media tiers computed dynamically from sync metadata.
+class MediaTierSizes {
+  final int? coversAndFanartsBytes;
+  final int? completeOfflineBytes;
+
+  const MediaTierSizes({
+    this.coversAndFanartsBytes,
+    this.completeOfflineBytes,
+  });
+
+  bool get hasData =>
+      (coversAndFanartsBytes != null && coversAndFanartsBytes! > 0) ||
+      (completeOfflineBytes != null && completeOfflineBytes! > 0);
+}
+
+/// Repository for persisting GallerySettings and calculated media tier metrics into SQLite manifest_meta.
 class GallerySettingsRepository {
   final AppDatabase database;
   static const String _settingsKey = 'gallery_settings';
+  static const String _tierSizesKey = 'media_tier_sizes';
 
   GallerySettingsRepository(this.database);
 
@@ -136,4 +152,50 @@ class GallerySettingsRepository {
       rethrow;
     }
   }
+
+  Future<MediaTierSizes> loadMediaTierSizes() async {
+    try {
+      final results = await database.db.query(
+        'manifest_meta',
+        where: 'key = ?',
+        whereArgs: [_tierSizesKey],
+        limit: 1,
+      );
+
+      if (results.isNotEmpty) {
+        final jsonText = results.first['value_json'] as String;
+        final json = jsonDecode(jsonText) as Map<String, dynamic>;
+        return MediaTierSizes(
+          coversAndFanartsBytes: (json['covers_and_fanarts_bytes'] as num?)?.toInt(),
+          completeOfflineBytes: (json['complete_offline_bytes'] as num?)?.toInt(),
+        );
+      }
+    } catch (e) {
+      debugPrint('Error loading media tier sizes: $e');
+    }
+    return const MediaTierSizes();
+  }
+
+  Future<void> saveMediaTierSizes({
+    required int coversAndFanartsBytes,
+    required int completeOfflineBytes,
+  }) async {
+    try {
+      await database.db.insert(
+        'manifest_meta',
+        {
+          'key': _tierSizesKey,
+          'value_json': jsonEncode({
+            'covers_and_fanarts_bytes': coversAndFanartsBytes,
+            'complete_offline_bytes': completeOfflineBytes,
+          }),
+          'updated_utc': DateTime.now().toUtc().toIso8601String(),
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    } catch (e) {
+      debugPrint('Error saving media tier sizes: $e');
+    }
+  }
 }
+

@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:playnite_mobile_companion/core/database/app_database.dart';
@@ -564,5 +565,84 @@ void main() {
         returnsNormally,
       );
     });
+
+    test('DeltaPullManager records dynamic media tier sizes into manifest_meta and repository loads them', () async {
+      final mockDrive = MockDriveService();
+      // Configure remote index with specific known byte sizes
+      mockDrive.mockIndex = SyncIndex(
+        version: '1.0.0',
+        generator: 'test',
+        generatedAtUtc: '2026-10-18T12:00:00Z',
+        libraryId: 'test-lib',
+        totalGames: 1,
+        totalEntries: 4,
+        totalSizeBytes: 3056000,
+        entries: {
+          'manifest.json': const IndexEntry(
+            relativePath: 'manifest.json',
+            sha256: 'sha-m',
+            sizeBytes: 1000,
+            modifiedUtc: '2026-10-18T12:00:00Z',
+            driveFileId: 'id-m',
+            mimeType: 'application/json',
+            category: 'manifest',
+          ),
+          'games/g1.json': const IndexEntry(
+            relativePath: 'games/g1.json',
+            sha256: 'sha-g1',
+            sizeBytes: 5000,
+            modifiedUtc: '2026-10-18T12:00:00Z',
+            driveFileId: 'id-g1',
+            mimeType: 'application/json',
+            category: 'game_metadata',
+          ),
+          'media/covers/cover1.jpg': const IndexEntry(
+            relativePath: 'media/covers/cover1.jpg',
+            sha256: 'sha-c1',
+            sizeBytes: 500000, // 500 KB image
+            modifiedUtc: '2026-10-18T12:00:00Z',
+            driveFileId: 'id-c1',
+            mimeType: 'image/jpeg',
+            category: 'cover',
+          ),
+          'media/microtrailers/g1.mp4': const IndexEntry(
+            relativePath: 'media/microtrailers/g1.mp4',
+            sha256: 'sha-v1',
+            sizeBytes: 2550000, // ~2.55 MB video
+            modifiedUtc: '2026-10-18T12:00:00Z',
+            driveFileId: 'id-v1',
+            mimeType: 'video/mp4',
+            category: 'microtrailer',
+          ),
+        },
+      );
+
+      mockDrive.mockFiles['id-m'] = jsonEncode({'libraryId': 'test-lib'});
+      mockDrive.mockFiles['id-g1'] = jsonEncode({
+        'id': 'g1',
+        'gameId': 'g1',
+        'name': 'Game 1',
+        'sortingName': 'Game 1',
+        'media': {},
+      });
+
+      final pullManager = DeltaPullManager(
+        driveService: mockDrive,
+        database: database,
+      );
+
+      final report = await pullManager.executeDeltaPull();
+      expect(report.isSuccess, isTrue);
+
+      final repo = GallerySettingsRepository(database);
+      final tierSizes = await repo.loadMediaTierSizes();
+
+      expect(tierSizes.hasData, isTrue);
+      // coversAndFanarts should ONLY include image media (cover = 500000 bytes)
+      expect(tierSizes.coversAndFanartsBytes, equals(500000));
+      // completeOffline should include both image and video (500000 + 2550000 = 3050000 bytes)
+      expect(tierSizes.completeOfflineBytes, equals(3050000));
+    });
   });
 }
+

@@ -388,6 +388,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
             onPressed: () async {
               await showDialog(
                 context: context,
+                barrierDismissible: false,
                 builder: (_) => SyncDialog(
                   database: widget.database,
                   onSyncCompleted: _loadLibrary,
@@ -925,6 +926,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                         onPressed: () async {
                           await showDialog(
                             context: context,
+                            barrierDismissible: false,
                             builder: (_) => SyncDialog(
                               database: widget.database,
                               onSyncCompleted: _loadLibrary,

@@ -28,6 +28,8 @@ class _SyncDialogState extends State<SyncDialog> {
   SyncProgress _progress = const SyncProgress(phase: SyncPhase.idle);
   SyncReport? _report;
   bool _isSyncing = false;
+  bool _isCancelling = false;
+  DeltaPullManager? _pullManager;
 
   bool _notified = false;
 
@@ -35,6 +37,13 @@ class _SyncDialogState extends State<SyncDialog> {
     if (!_notified) {
       _notified = true;
       widget.onSyncCompleted?.call();
+    }
+  }
+
+  void _cancelSync() {
+    if (_isSyncing && !_isCancelling) {
+      setState(() => _isCancelling = true);
+      _pullManager?.cancel();
     }
   }
 
@@ -67,6 +76,7 @@ class _SyncDialogState extends State<SyncDialog> {
   Future<void> _startSync() async {
     setState(() {
       _isSyncing = true;
+      _isCancelling = false;
       _report = null;
     });
 
@@ -85,6 +95,7 @@ class _SyncDialogState extends State<SyncDialog> {
       driveService: service,
       database: widget.database,
     );
+    _pullManager = pullManager;
 
     final report = await pullManager.executeDeltaPull(
       onProgress: (p) {
@@ -95,6 +106,7 @@ class _SyncDialogState extends State<SyncDialog> {
     if (mounted) {
       setState(() {
         _isSyncing = false;
+        _isCancelling = false;
         _report = report;
       });
       if (report.isSuccess) {
@@ -130,7 +142,14 @@ class _SyncDialogState extends State<SyncDialog> {
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
+    return PopScope(
+      canPop: !_isSyncing,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) {
+          _notifySyncCompleted();
+        }
+      },
+      child: AlertDialog(
       title: const Row(
         children: [
           Icon(Icons.sync, color: AppTheme.primaryLight),
@@ -272,6 +291,27 @@ class _SyncDialogState extends State<SyncDialog> {
                     ],
                   ),
                 )
+              else if (_report!.isCancelled)
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.amber.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.amber.withValues(alpha: 0.3)),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.pause_circle_outline, color: Colors.amber, size: 20),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Sync paused by user. ${_report!.downloadedCount} items were saved to your library.',
+                          style: const TextStyle(fontSize: 12, color: Colors.amber),
+                        ),
+                      ),
+                    ],
+                  ),
+                )
               else
                 Container(
                   padding: const EdgeInsets.all(12),
@@ -298,7 +338,16 @@ class _SyncDialogState extends State<SyncDialog> {
         ),
       ),
       actions: [
-        if (_report != null && _report!.isSuccess)
+        if (_isSyncing)
+          TextButton(
+            style: TextButton.styleFrom(foregroundColor: AppTheme.accentRed),
+            onPressed: _isCancelling ? null : _cancelSync,
+            child: Text(
+              _isCancelling ? 'Cancelling...' : 'Cancel Sync',
+              style: const TextStyle(fontWeight: FontWeight.bold),
+            ),
+          )
+        else if (_report != null && _report!.isSuccess)
           ElevatedButton(
             style: ElevatedButton.styleFrom(
               backgroundColor: AppTheme.accentGreen,
@@ -310,7 +359,7 @@ class _SyncDialogState extends State<SyncDialog> {
         else ...[
           TextButton(
             style: TextButton.styleFrom(foregroundColor: AppTheme.textSecondary),
-            onPressed: _isSyncing ? null : _onClose,
+            onPressed: _onClose,
             child: const Text('Close'),
           ),
           ElevatedButton(
@@ -318,14 +367,17 @@ class _SyncDialogState extends State<SyncDialog> {
               backgroundColor: AppTheme.primary,
               foregroundColor: Colors.white,
             ),
-            onPressed: _isSyncing ? null : _startSync,
+            onPressed: _startSync,
             child: Text(
-              _report == null ? 'Start Sync' : 'Try Again',
+              _report == null
+                  ? 'Start Sync'
+                  : (_report!.isCancelled ? 'Resume Sync' : 'Try Again'),
               style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
             ),
           ),
         ],
       ],
-    );
+    ),
+  );
   }
 }
