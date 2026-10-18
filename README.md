@@ -17,7 +17,7 @@ An offline-first mobile companion system for **[Playnite](https://github.com/Jos
 **Playnite Mobile Companion** connects your desktop Playnite library to your mobile device with an offline-first design:
 
 - **Offline-First Browsing:** The companion app downloads your library into a local SQLite database (with FTS5 search) on your Android device. Once synced, you can browse, filter, and inspect your full collection completely offline.
-- **Incremental Delta Synchronization ($O(\Delta)$):** After the initial export, modifying metadata or completing a play session updates only the changed game payloads and newly added media assets, rather than requiring full library re-exports.
+- **Incremental Delta Synchronization:** After the initial export, modifying metadata or completing a play session updates only the changed game payloads and newly added media assets, rather than requiring full library re-exports.
 - **Personal Storage Independence:** Uses your personal Google Drive (with least-privilege `drive.file` scope) or a local shared folder as the synchronization intermediary. No third-party accounts, subscription services, or proprietary relay servers are required.
 - **Rich Addon Integration:** Aggregates metadata from popular Playnite extensions including SuccessStory, HowLongToBeat, GameActivity, and ExtraMetadataLoader.
 
@@ -91,7 +91,7 @@ flowchart LR
         SQLite --> UI
     end
 
-    Exporter -- "Delta Push (O(Δ))" --> Storage
+    Exporter -- "Delta Push (Incremental)" --> Storage
     Storage -- "Incremental Pull" --> MobileApp
 ```
 

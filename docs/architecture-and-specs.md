@@ -9,7 +9,7 @@ This document details the architectural invariants, network protocols, data cont
 2. [Data Storage Topology](#2-data-storage-topology)
 3. [The Delta-Sync Protocol](#3-the-delta-sync-protocol)
    - [Desktop Push: Two-Phase Atomic Commit](#desktop-push-two-phase-atomic-commit)
-   - [Mobile Pull: O(Delta) Network Efficiency](#mobile-pull-odelta-network-efficiency)
+   - [Mobile Pull: Incremental Delta Network Efficiency](#mobile-pull-incremental-delta-network-efficiency)
 4. [Supported Playnite Addons & Extraction Pipeline](#4-supported-playnite-addons--extraction-pipeline)
 5. [Deterministic Serialization & Hashing](#5-deterministic-serialization--hashing)
 6. [Mobile Storage & SQLite Schema](#6-mobile-storage--sqlite-schema)
@@ -18,7 +18,7 @@ This document details the architectural invariants, network protocols, data cont
 
 ## 1. Core Design Principles
 
-1. **Strict $O(\Delta)$ Efficiency:** Modifying a single game's playtime or closing a session touches **only** that game's JSON payload (`games/{game_id}.json`) and the central `sync_index.json`, avoiding full-library re-exports.
+1. **Strict Incremental Delta Efficiency:** Modifying a single game's playtime or closing a session touches **only** that game's JSON payload (`games/{game_id}.json`) and the central `sync_index.json`, avoiding full-library re-exports.
 2. **Read-Only Non-Invasive Scope:** The mobile companion is strictly a viewer, tracker, and statistics dashboard. It contains no game launchers, no execution binaries, and does not require direct store logins.
 3. **Least-Privilege Security:** Cloud sync uses Google's `drive.file` OAuth scope, restricting all access strictly to the dedicated application directory (`PlayniteSync`).
 4. **Dynamic Addon Fault-Tolerance:** Whitelisted Playnite addons are extracted inside isolated try-catch error boundaries. Missing, disabled, or corrupted addons degrade gracefully without failing library export.
@@ -84,7 +84,7 @@ sequenceDiagram
 
 ---
 
-### Mobile Pull: $O(\Delta)$ Network Efficiency
+### Mobile Pull: Incremental Delta Network Efficiency
 When the mobile companion triggers a synchronization:
 
 1. **Index Fetch:** The client requests `sync_index.json` (~95 KB for 1,500 games).

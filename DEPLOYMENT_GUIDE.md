@@ -260,7 +260,7 @@ Under Plugin Settings:
 - [x] **Auto-sync on library updated:**  
   Triggers a full incremental library diff when Playnite finishes updating games from Steam, Epic, GOG, or manual edits.
 - [x] **Auto-sync on game exit:**  
-  Triggers an instant $O(1)$ fast-path update when a game session concludes. Only the target game's playtime, sessions, and `sync_index.json` are written to storage.
+  Triggers an instant fast-path delta update when a game session concludes. Only the target game's playtime, sessions, and `sync_index.json` are written to storage.
 - [x] **Enable orphan pruning:**  
   When a game is removed or uninstalled from Playnite, deletes its remote JSON from storage and cleans the root index.
 - **Media Settings:**
