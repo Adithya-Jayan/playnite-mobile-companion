@@ -72,6 +72,12 @@ class TestConfigurableDriveService implements DriveApiService {
   }
 
   @override
+  Future<List<int>> downloadFileBytes(String fileIdOrPath) async {
+    final text = await downloadFileText(fileIdOrPath);
+    return utf8.encode(text);
+  }
+
+  @override
   Future<Map<String, dynamic>> fetchManifest({String? fileId}) async {
     if (simulateNetworkFailure) {
       throw const SocketException('Simulated network failure: connection refused');

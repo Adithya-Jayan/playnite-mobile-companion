@@ -23,21 +23,27 @@ class LocalFolderDriveService implements DriveApiService {
   }
 
   @override
-  Future<String> downloadFileText(String fileIdOrPath) async {
+  Future<List<int>> downloadFileBytes(String fileIdOrPath) async {
     // Clean Windows/POSIX backslashes
     final normalized = fileIdOrPath.replaceAll('\\', '/');
     var file = File('$basePath/$normalized');
     if (await file.exists()) {
-      return file.readAsString();
+      return file.readAsBytes();
     }
 
     // Try relative or direct file
     file = File(normalized);
     if (await file.exists()) {
-      return file.readAsString();
+      return file.readAsBytes();
     }
 
     throw StateError('Local sync file not found: "$fileIdOrPath" (checked in "$basePath")');
+  }
+
+  @override
+  Future<String> downloadFileText(String fileIdOrPath) async {
+    final bytes = await downloadFileBytes(fileIdOrPath);
+    return utf8.decode(bytes);
   }
 
   @override

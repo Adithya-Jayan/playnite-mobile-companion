@@ -9,7 +9,10 @@ import 'package:playnite_mobile_companion/features/library/domain/library_prefer
 import 'package:playnite_mobile_companion/features/library/domain/sort_options.dart';
 import 'package:playnite_mobile_companion/features/settings/data/gallery_settings_repository.dart';
 import 'package:playnite_mobile_companion/core/database/daos/stats_dao.dart';
+import 'package:playnite_mobile_companion/core/database/daos/sync_meta_dao.dart';
 import 'package:playnite_mobile_companion/features/stats/presentation/widgets/recent_activity_timeline.dart';
+import 'package:playnite_mobile_companion/core/network/mock_drive_service.dart';
+import 'package:playnite_mobile_companion/features/sync/data/delta_pull_manager.dart';
 import 'package:playnite_mobile_companion/features/sync/domain/sync_models.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -437,6 +440,129 @@ void main() {
 
       expect(alphaY < bravoY, isTrue);
       expect(bravoY < zebraY, isTrue);
+    });
+  });
+
+  group('Phase 4 Sprint: Media Storage Tiers & Delta Pull Tests', () {
+    test('computeDiff respects MediaStorageTier settings and skips/includes media accordingly', () {
+      final pullManager = DeltaPullManager(
+        driveService: MockDriveService(),
+        database: database,
+      );
+
+      final remoteIndex = SyncIndex(
+        version: '1.0.0',
+        generator: 'test',
+        generatedAtUtc: '2026-10-18T12:00:00Z',
+        libraryId: 'test-lib',
+        totalGames: 1,
+        totalEntries: 5,
+        totalSizeBytes: 35000000,
+        entries: {
+          'manifest.json': const IndexEntry(
+            relativePath: 'manifest.json',
+            sha256: 'sha-manifest',
+            sizeBytes: 1000,
+            modifiedUtc: '2026-10-18T12:00:00Z',
+            driveFileId: 'id-manifest',
+            mimeType: 'application/json',
+            category: 'manifest',
+          ),
+          'games/g1.json': const IndexEntry(
+            relativePath: 'games/g1.json',
+            sha256: 'sha-g1',
+            sizeBytes: 5000,
+            modifiedUtc: '2026-10-18T12:00:00Z',
+            driveFileId: 'id-g1',
+            mimeType: 'application/json',
+            category: 'game_metadata',
+          ),
+          'media/covers/cover1.jpg': const IndexEntry(
+            relativePath: 'media/covers/cover1.jpg',
+            sha256: 'sha-cover1',
+            sizeBytes: 50000,
+            modifiedUtc: '2026-10-18T12:00:00Z',
+            driveFileId: 'id-cover1',
+            mimeType: 'image/jpeg',
+            category: 'cover',
+          ),
+          'media/backgrounds/bg1.jpg': const IndexEntry(
+            relativePath: 'media/backgrounds/bg1.jpg',
+            sha256: 'sha-bg1',
+            sizeBytes: 250000,
+            modifiedUtc: '2026-10-18T12:00:00Z',
+            driveFileId: 'id-bg1',
+            mimeType: 'image/jpeg',
+            category: 'background',
+          ),
+          'media/microtrailers/g1.mp4': const IndexEntry(
+            relativePath: 'media/microtrailers/g1.mp4',
+            sha256: 'sha-vid1',
+            sizeBytes: 2500000,
+            modifiedUtc: '2026-10-18T12:00:00Z',
+            driveFileId: 'id-vid1',
+            mimeType: 'video/mp4',
+            category: 'microtrailer',
+          ),
+        },
+      );
+
+      final emptyLocal = <String, LocalSyncEntry>{};
+
+      // 1. Cache Only: Only manifest and game metadata
+      final cacheOnlyDiff = pullManager.computeDiff(
+        remoteIndex,
+        emptyLocal,
+        mediaTier: MediaStorageTier.cacheOnly,
+      );
+      expect(cacheOnlyDiff.toDownload.length, equals(2));
+      expect(cacheOnlyDiff.toDownload.map((e) => e.relativePath).toSet(), equals({'manifest.json', 'games/g1.json'}));
+
+      // 2. Covers & Fanarts: Manifest, game metadata, cover, background (videos excluded)
+      final coversDiff = pullManager.computeDiff(
+        remoteIndex,
+        emptyLocal,
+        mediaTier: MediaStorageTier.coversAndFanarts,
+      );
+      expect(coversDiff.toDownload.length, equals(4));
+      expect(coversDiff.toDownload.map((e) => e.relativePath).toSet(), containsAll({'manifest.json', 'games/g1.json', 'media/covers/cover1.jpg', 'media/backgrounds/bg1.jpg'}));
+      expect(coversDiff.toDownload.map((e) => e.relativePath).contains('media/microtrailers/g1.mp4'), isFalse);
+
+      // 3. Complete Offline with Videos: All entries included
+      final completeDiff = pullManager.computeDiff(
+        remoteIndex,
+        emptyLocal,
+        mediaTier: MediaStorageTier.completeOffline,
+      );
+      expect(completeDiff.toDownload.length, equals(5));
+      expect(completeDiff.toDownload.map((e) => e.relativePath).toSet(), containsAll({'manifest.json', 'games/g1.json', 'media/covers/cover1.jpg', 'media/backgrounds/bg1.jpg', 'media/microtrailers/g1.mp4'}));
+    });
+
+    test('PlayniteImageLoader prioritizes Detail View requests and saves to cache', () async {
+      await PlayniteImageLoader.instance.init();
+
+      // Test saveToCache
+      final sampleBytes = [1, 2, 3, 4, 5];
+      await PlayniteImageLoader.instance.saveToCache(
+        keyOrMediaId: 'test_drive_file_id',
+        bytes: sampleBytes,
+        aliases: ['media/covers/test_cover.jpg'],
+      );
+
+      // Verify file is retrievable synchronously
+      final fileByDriveId = PlayniteImageLoader.instance.getCachedFileSync('test_drive_file_id');
+      final fileByRelPath = PlayniteImageLoader.instance.getCachedFileSync('media/covers/test_cover.jpg');
+
+      expect(fileByDriveId, isNotNull);
+      expect(fileByRelPath, isNotNull);
+      expect(fileByDriveId!.existsSync(), isTrue);
+      expect(fileByRelPath!.existsSync(), isTrue);
+
+      // Test prioritizeDetailView does not crash
+      expect(
+        () => PlayniteImageLoader.instance.prioritizeDetailView(['test_drive_file_id', 'test_bg_id']),
+        returnsNormally,
+      );
     });
   });
 }

@@ -7,6 +7,7 @@ import 'drive_api_service.dart';
 class MockDriveService implements DriveApiService {
   SyncIndex? mockIndex;
   final Map<String, String> mockFiles = {};
+  final Map<String, List<int>> mockBinaryFiles = {};
 
   int totalGetRequests = 0;
   int gamePayloadRequests = 0;
@@ -16,6 +17,10 @@ class MockDriveService implements DriveApiService {
 
   void setFile(String pathOrFileId, String content) {
     mockFiles[pathOrFileId] = content;
+  }
+
+  void setBinaryFile(String pathOrFileId, List<int> bytes) {
+    mockBinaryFiles[pathOrFileId] = bytes;
   }
 
   void resetMetrics() {
@@ -36,7 +41,7 @@ class MockDriveService implements DriveApiService {
   }
 
   @override
-  Future<String> downloadFileText(String fileIdOrPath) async {
+  Future<List<int>> downloadFileBytes(String fileIdOrPath) async {
     totalGetRequests++;
     requestedPaths.add(fileIdOrPath);
 
@@ -44,16 +49,28 @@ class MockDriveService implements DriveApiService {
       gamePayloadRequests++;
     }
 
-    if (mockFiles.containsKey(fileIdOrPath)) {
-      return mockFiles[fileIdOrPath]!;
+    if (mockBinaryFiles.containsKey(fileIdOrPath)) {
+      return mockBinaryFiles[fileIdOrPath]!;
     }
 
-    // Also check if lookup was by driveFileId
-    for (final entry in mockFiles.entries) {
+    if (mockFiles.containsKey(fileIdOrPath)) {
+      return utf8.encode(mockFiles[fileIdOrPath]!);
+    }
+
+    for (final entry in mockBinaryFiles.entries) {
       if (entry.key == fileIdOrPath) return entry.value;
+    }
+    for (final entry in mockFiles.entries) {
+      if (entry.key == fileIdOrPath) return utf8.encode(entry.value);
     }
 
     throw StateError('MockDriveService: File not found for identifier "$fileIdOrPath"');
+  }
+
+  @override
+  Future<String> downloadFileText(String fileIdOrPath) async {
+    final bytes = await downloadFileBytes(fileIdOrPath);
+    return utf8.decode(bytes);
   }
 
   @override

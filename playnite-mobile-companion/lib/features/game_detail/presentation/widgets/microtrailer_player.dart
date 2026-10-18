@@ -201,21 +201,27 @@ class _MicrotrailerPlayerState extends State<MicrotrailerPlayer> {
       child: Stack(
         fit: StackFit.expand,
         children: [
-          // Background media: Video or Static Image or Fallback Gradient
-          if (_isInitialized && _controller != null && !_hasError)
-            FittedBox(
-              fit: BoxFit.cover,
-              clipBehavior: Clip.hardEdge,
-              child: SizedBox(
-                width: _controller!.value.size.width > 0 ? _controller!.value.size.width : 16,
-                height: _controller!.value.size.height > 0 ? _controller!.value.size.height : 9,
-                child: VideoPlayer(_controller!),
-              ),
-            )
-          else if (widget.backgroundDriveFileId != null && widget.backgroundDriveFileId!.isNotEmpty)
+          // Base layer: Static Background Fanart or Gradient (always visible during loading & streaming)
+          if (widget.backgroundDriveFileId != null && widget.backgroundDriveFileId!.isNotEmpty)
             _buildBackgroundImage(widget.backgroundDriveFileId!)
           else
             _buildFallbackGradient(),
+
+          // Video Layer: Smoothly cross-fades over the background fanart once frames are playing
+          if (_isInitialized && _controller != null && !_hasError)
+            AnimatedOpacity(
+              opacity: _controller!.value.isPlaying ? 1.0 : 0.0,
+              duration: const Duration(milliseconds: 300),
+              child: FittedBox(
+                fit: BoxFit.cover,
+                clipBehavior: Clip.hardEdge,
+                child: SizedBox(
+                  width: _controller!.value.size.width > 0 ? _controller!.value.size.width : 16,
+                  height: _controller!.value.size.height > 0 ? _controller!.value.size.height : 9,
+                  child: VideoPlayer(_controller!),
+                ),
+              ),
+            ),
 
           // Dark gradient vignette overlay
           Container(
@@ -277,42 +283,10 @@ class _MicrotrailerPlayerState extends State<MicrotrailerPlayer> {
                           ),
                         ),
 
-                        // Top right Mute toggle & stream badge
-                        Positioned(
-                          top: 12,
-                          right: 12,
-                          child: GestureDetector(
-                            onTap: _toggleMute,
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                              decoration: BoxDecoration(
-                                color: Colors.black.withValues(alpha: 0.65),
-                                borderRadius: BorderRadius.circular(4),
-                                border: Border.all(color: Colors.white24, width: 0.8),
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(
-                                    _isMuted ? Icons.volume_off : Icons.volume_up,
-                                    size: 15,
-                                    color: _isMuted ? Colors.white70 : AppTheme.primaryLight,
-                                  ),
-                                  const SizedBox(width: 5),
-                                  Text(
-                                    _isMuted ? 'MUTED' : 'AUDIO',
-                                    style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.white),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
-
-                        // Bottom Scrub Bar & Timestamps
+                        // Bottom Scrub Bar, Duration & Mute Controls (safe from status bar)
                         if (_showScrubBar)
                           Positioned(
-                            bottom: 6,
+                            bottom: 8,
                             left: 12,
                             right: 12,
                             child: Row(
@@ -321,7 +295,7 @@ class _MicrotrailerPlayerState extends State<MicrotrailerPlayer> {
                                   _formatDuration(_controller!.value.position),
                                   style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
                                 ),
-                                const SizedBox(width: 8),
+                                const SizedBox(width: 6),
                                 Expanded(
                                   child: SliderTheme(
                                     data: SliderTheme.of(context).copyWith(
@@ -345,10 +319,38 @@ class _MicrotrailerPlayerState extends State<MicrotrailerPlayer> {
                                     ),
                                   ),
                                 ),
-                                const SizedBox(width: 8),
+                                const SizedBox(width: 6),
                                 Text(
                                   _formatDuration(_controller!.value.duration),
                                   style: const TextStyle(color: Colors.white70, fontSize: 11),
+                                ),
+                                const SizedBox(width: 8),
+                                // Mute / Unmute Button right beside progress bar
+                                GestureDetector(
+                                  onTap: _toggleMute,
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                    decoration: BoxDecoration(
+                                      color: Colors.black.withValues(alpha: 0.65),
+                                      borderRadius: BorderRadius.circular(4),
+                                      border: Border.all(color: Colors.white24, width: 0.8),
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(
+                                          _isMuted ? Icons.volume_off : Icons.volume_up,
+                                          size: 15,
+                                          color: _isMuted ? Colors.white70 : AppTheme.primaryLight,
+                                        ),
+                                        const SizedBox(width: 4),
+                                        Text(
+                                          _isMuted ? 'MUTE' : 'UNMUTE',
+                                          style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.white),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
                                 ),
                               ],
                             ),
@@ -368,6 +370,7 @@ class _MicrotrailerPlayerState extends State<MicrotrailerPlayer> {
     return PlayniteCachedImage(
       mediaId: bgId,
       fit: BoxFit.cover,
+      isPriority: true,
       memCacheWidth: 1280,
       memCacheHeight: 720,
       placeholder: _buildFallbackGradient(),
@@ -379,6 +382,7 @@ class _MicrotrailerPlayerState extends State<MicrotrailerPlayer> {
     return PlayniteCachedImage(
       mediaId: logoId,
       fit: BoxFit.contain,
+      isPriority: true,
       memCacheWidth: 400,
       placeholder: const SizedBox.shrink(),
       errorWidget: const SizedBox.shrink(),

@@ -83,7 +83,7 @@ class GoogleDriveApiService implements DriveApiService {
   }
 
   @override
-  Future<String> downloadFileText(String fileIdOrPath) async {
+  Future<List<int>> downloadFileBytes(String fileIdOrPath) async {
     final url = MediaUrlResolver.getDriveMediaStreamUrl(fileIdOrPath);
     final uri = Uri.parse(url);
 
@@ -92,16 +92,16 @@ class GoogleDriveApiService implements DriveApiService {
       try {
         var response = await client
             .get(uri, headers: _authHeaders)
-            .timeout(const Duration(seconds: 30));
+            .timeout(const Duration(seconds: 45));
 
         if (response.statusCode == 401 && await refreshAccessToken()) {
           response = await client
               .get(uri, headers: _authHeaders)
-              .timeout(const Duration(seconds: 30));
+              .timeout(const Duration(seconds: 45));
         }
 
         if (response.statusCode >= 200 && response.statusCode < 300) {
-          return utf8.decode(response.bodyBytes);
+          return response.bodyBytes;
         } else if (response.statusCode == 401) {
           throw StateError('Google Drive Authorization Expired (HTTP 401). Please re-authenticate in Settings.');
         } else if (response.statusCode == 429 || response.statusCode >= 500) {
@@ -122,6 +122,12 @@ class GoogleDriveApiService implements DriveApiService {
       }
     }
     throw StateError('Download failed for "$fileIdOrPath" after $maxRetries attempts.');
+  }
+
+  @override
+  Future<String> downloadFileText(String fileIdOrPath) async {
+    final bytes = await downloadFileBytes(fileIdOrPath);
+    return utf8.decode(bytes);
   }
 
   @override

@@ -25,6 +25,7 @@ class PlayniteCachedImage extends StatefulWidget {
   final Widget? placeholder;
   final Widget? errorWidget;
   final BorderRadius? borderRadius;
+  final bool isPriority;
 
   const PlayniteCachedImage({
     super.key,
@@ -39,6 +40,7 @@ class PlayniteCachedImage extends StatefulWidget {
     this.placeholder,
     this.errorWidget,
     this.borderRadius,
+    this.isPriority = false,
   });
 
   @override
@@ -130,6 +132,7 @@ class _PlayniteCachedImageState extends State<PlayniteCachedImage> {
     PlayniteImageLoader.instance.load(
       mediaId: mediaId,
       onComplete: _onImageLoaded,
+      isPriority: widget.isPriority,
     );
   }
 

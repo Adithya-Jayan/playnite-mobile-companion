@@ -66,24 +66,63 @@ class _GallerySettingsScreenState extends State<GallerySettingsScreen> {
 
     // Check tier transitions
     if (oldTier != newTier) {
-      if (newTier == MediaStorageTier.cacheOnly) {
-        // Automatically free up local space when switching back down to Cache Only
-        await PlayniteImageLoader.instance.clearCache();
-        await _loadCacheMetrics();
+      if (newTier == MediaStorageTier.cacheOnly && oldTier != MediaStorageTier.cacheOnly) {
+        // Ask the user before deleting previously downloaded media
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Offline media cleaned up to save local storage.'),
-              backgroundColor: AppTheme.accentGreen,
-              duration: Duration(seconds: 3),
-            ),
-          );
+          await _promptClearCacheOnDowngrade();
         }
       } else if (newTier.index > oldTier.index) {
         // Upgraded to an offline storage tier: Prompt user to run sync
         if (mounted) {
           _promptSyncForOfflineMedia(newTier);
         }
+      }
+    }
+  }
+
+  Future<void> _promptClearCacheOnDowngrade() async {
+    final shouldClear = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppTheme.surface,
+        title: const Row(
+          children: [
+            Icon(Icons.cleaning_services_outlined, color: AppTheme.primaryLight),
+            SizedBox(width: 8),
+            Text('Free Up Storage Space?'),
+          ],
+        ),
+        content: const Text(
+          'You switched your storage tier back to "Cache Only".\n\n'
+          'Would you like to delete previously downloaded offline media to free up device space now, or keep them locally cached?\n\n'
+          '(You can always clear downloaded media at any time using the "Clear Media Cache" button below).',
+          style: TextStyle(color: AppTheme.textSecondary, fontSize: 14),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Keep Downloaded Media', style: TextStyle(color: Colors.white70)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: AppTheme.accentRed),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Clear & Free Up Space', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+
+    if (shouldClear == true) {
+      await PlayniteImageLoader.instance.clearCache();
+      await _loadCacheMetrics();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Offline media cleaned up to save local storage.'),
+            backgroundColor: AppTheme.accentGreen,
+            duration: Duration(seconds: 3),
+          ),
+        );
       }
     }
   }

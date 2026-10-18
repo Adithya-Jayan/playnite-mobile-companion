@@ -6,6 +6,8 @@ import 'package:playnite_mobile_companion/core/database/daos/game_dao.dart';
 import 'package:playnite_mobile_companion/core/database/daos/sync_meta_dao.dart';
 import 'package:playnite_mobile_companion/core/network/drive_api_service.dart';
 import 'package:playnite_mobile_companion/core/services/background_sync_service.dart';
+import 'package:playnite_mobile_companion/core/services/playnite_image_loader.dart';
+import 'package:playnite_mobile_companion/features/settings/data/gallery_settings_repository.dart';
 import 'package:playnite_mobile_companion/features/sync/domain/sync_models.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -29,14 +31,60 @@ class DeltaPullManager {
   }
 
   /// Computes the exact delta between the remote index and the local metadata.
-  PullDiff computeDiff(SyncIndex remoteIndex, Map<String, LocalSyncEntry> localMap) {
+  PullDiff computeDiff(
+    SyncIndex remoteIndex,
+    Map<String, LocalSyncEntry> localMap, {
+    MediaStorageTier mediaTier = MediaStorageTier.cacheOnly,
+  }) {
     final toDownload = <IndexEntry>[];
     var totalBytes = 0;
 
+    bool isVideoEntry(IndexEntry entry) {
+      final cat = entry.category.toLowerCase();
+      final path = entry.relativePath.toLowerCase();
+      return cat == 'microtrailer' ||
+          cat == 'trailer' ||
+          path.contains('/microtrailers/') ||
+          path.contains('/trailers/') ||
+          path.endsWith('.mp4') ||
+          path.endsWith('.webm') ||
+          path.endsWith('.mkv');
+    }
+
+    bool shouldIncludeEntry(IndexEntry entry) {
+      if (entry.category == 'game_metadata' || entry.category == 'manifest') {
+        return true;
+      }
+      if (mediaTier == MediaStorageTier.cacheOnly) {
+        return false;
+      }
+
+      final cat = entry.category.toLowerCase();
+      final path = entry.relativePath.toLowerCase();
+      final isMedia = cat == 'cover' ||
+          cat == 'background' ||
+          cat == 'icon' ||
+          cat == 'logo' ||
+          cat == 'media' ||
+          cat == 'achievement_icon' ||
+          isVideoEntry(entry) ||
+          path.startsWith('media/');
+
+      if (!isMedia) return false;
+
+      if (mediaTier == MediaStorageTier.coversAndFanarts) {
+        return !isVideoEntry(entry);
+      }
+
+      if (mediaTier == MediaStorageTier.completeOffline) {
+        return true;
+      }
+
+      return false;
+    }
+
     for (final entry in remoteIndex.entries.values) {
-      // Synchronize manifest and game metadata JSON payloads.
-      // Media assets (covers, microtrailers) are downloaded on-demand / viewport-driven.
-      if (entry.category != 'game_metadata' && entry.category != 'manifest') {
+      if (!shouldIncludeEntry(entry)) {
         continue;
       }
 
@@ -44,6 +92,15 @@ class DeltaPullManager {
       if (local == null || local.sha256 != entry.sha256) {
         toDownload.add(entry);
         totalBytes += entry.sizeBytes;
+      } else if (entry.category != 'game_metadata' && entry.category != 'manifest') {
+        // For media entries matching local database sha256, verify that the physical file
+        // still exists in the local disk cache. If missing or cleared, re-download!
+        final onDisk = PlayniteImageLoader.instance.getCachedFileSync(entry.driveFileId) != null ||
+            PlayniteImageLoader.instance.getCachedFileSync(entry.relativePath) != null;
+        if (!onDisk) {
+          toDownload.add(entry);
+          totalBytes += entry.sizeBytes;
+        }
       }
     }
 
@@ -63,11 +120,16 @@ class DeltaPullManager {
   Future<SyncReport> executeDeltaPull({
     SyncProgressCallback? onProgress,
     int concurrency = 4,
+    MediaStorageTier? mediaTier,
   }) async {
     final stopwatch = Stopwatch()..start();
     await BackgroundSyncService.acquireWakeLock();
 
     try {
+      // 0. Resolve active media tier from gallery settings if not explicitly passed
+      final resolvedMediaTier = mediaTier ??
+          (await GallerySettingsRepository(database).loadSettings()).mediaStorageTier;
+
       // 1. Fetch remote sync_index.json
       onProgress?.call(const SyncProgress(
         phase: SyncPhase.fetchingIndex,
@@ -89,7 +151,7 @@ class DeltaPullManager {
         stepText: 'Step 1/3: Analyzing Library Changes',
       ));
       final localEntries = await syncMetaDao.getAllEntriesMap();
-      final diff = computeDiff(remoteIndex, localEntries);
+      final diff = computeDiff(remoteIndex, localEntries, mediaTier: resolvedMediaTier);
 
       // Fast-path: 0 downloads needed!
       if (diff.isNoOp) {
@@ -105,14 +167,14 @@ class DeltaPullManager {
         return SyncReport.noOp(durationMs: stopwatch.elapsedMilliseconds);
       }
 
-      // 3. Download changed JSON payloads with bounded concurrency and checkpoint commits
+      // 3. Download changed JSON payloads and offline media with bounded concurrency and checkpoint commits
       onProgress?.call(SyncProgress(
         phase: SyncPhase.downloadingPayloads,
         current: 0,
         total: diff.toDownload.length,
         totalBytes: diff.totalDownloadBytes,
-        message: 'Pulling delta: ${diff.toDownload.length} payloads (${diff.totalDownloadBytes} bytes)...',
-        stepText: 'Step 2/3: Downloading Payloads',
+        message: 'Pulling delta: ${diff.toDownload.length} items (${diff.totalDownloadBytes} bytes)...',
+        stepText: 'Step 2/3: Downloading Payloads & Offline Media',
       ));
 
       final downloadedGames = <UnifiedGamePayload>[];
@@ -134,65 +196,82 @@ class DeltaPullManager {
 
         final chunkFutures = chunk.map((entry) async {
           final fileIdentifier = entry.driveFileId.isNotEmpty ? entry.driveFileId : entry.relativePath;
-          final jsonText = await driveService.downloadFileText(fileIdentifier);
-          final dynamic parsed = jsonDecode(jsonText);
+          final isMetadataOrManifest = entry.category == 'manifest' || entry.category == 'game_metadata';
 
           UnifiedGamePayload? payload;
           String itemName = entry.relativePath.split('/').last;
 
-          if (entry.category == 'manifest' && parsed is Map<String, dynamic>) {
-            downloadedManifest = parsed;
-            itemName = 'manifest.json';
-          } else if (parsed is Map<String, dynamic>) {
-            final rawPayload = UnifiedGamePayload.fromJson(parsed);
+          if (isMetadataOrManifest) {
+            final jsonText = await driveService.downloadFileText(fileIdentifier);
+            final dynamic parsed = jsonDecode(jsonText);
 
-            // Resolve Drive File IDs from remoteIndex.entries for all media pointers
-            final media = rawPayload.media;
-            String? resolveMediaId(String? relPath, String? sha256, String? existingId) {
-              if (existingId != null && existingId.isNotEmpty) {
-                return existingId;
-              }
-              if (relPath != null && relPath.isNotEmpty) {
-                final match = remoteIndex.entries[relPath];
-                if (match != null && match.driveFileId.isNotEmpty) {
-                  return match.driveFileId;
+            if (entry.category == 'manifest' && parsed is Map<String, dynamic>) {
+              downloadedManifest = parsed;
+              itemName = 'manifest.json';
+            } else if (parsed is Map<String, dynamic>) {
+              final rawPayload = UnifiedGamePayload.fromJson(parsed);
+
+              // Resolve Drive File IDs from remoteIndex.entries for all media pointers
+              final media = rawPayload.media;
+              String? resolveMediaId(String? relPath, String? sha256, String? existingId) {
+                if (existingId != null && existingId.isNotEmpty) {
+                  return existingId;
                 }
-              }
-              if (sha256 != null && sha256.isNotEmpty) {
-                final match = remoteIndex.entries.values.firstWhere(
-                  (e) => e.sha256 == sha256 && e.driveFileId.isNotEmpty,
-                  orElse: () => const IndexEntry(
-                    relativePath: '',
-                    sha256: '',
-                    sizeBytes: 0,
-                    modifiedUtc: '',
-                    driveFileId: '',
-                    mimeType: '',
-                    category: '',
-                  ),
-                );
-                if (match.driveFileId.isNotEmpty) {
-                  return match.driveFileId;
+                if (relPath != null && relPath.isNotEmpty) {
+                  final match = remoteIndex.entries[relPath];
+                  if (match != null && match.driveFileId.isNotEmpty) {
+                    return match.driveFileId;
+                  }
                 }
+                if (sha256 != null && sha256.isNotEmpty) {
+                  final match = remoteIndex.entries.values.firstWhere(
+                    (e) => e.sha256 == sha256 && e.driveFileId.isNotEmpty,
+                    orElse: () => const IndexEntry(
+                      relativePath: '',
+                      sha256: '',
+                      sizeBytes: 0,
+                      modifiedUtc: '',
+                      driveFileId: '',
+                      mimeType: '',
+                      category: '',
+                    ),
+                  );
+                  if (match.driveFileId.isNotEmpty) {
+                    return match.driveFileId;
+                  }
+                }
+                return relPath;
               }
-              return relPath;
+
+              final resolvedMedia = media.copyWith(
+                coverDriveFileId: resolveMediaId(media.coverRelativePath, media.coverSha256, media.coverDriveFileId),
+                backgroundDriveFileId: resolveMediaId(media.backgroundRelativePath, media.backgroundSha256, media.backgroundDriveFileId),
+                iconDriveFileId: resolveMediaId(media.iconRelativePath, media.iconSha256, media.iconDriveFileId),
+                logoDriveFileId: remoteIndex.entries['media/logos/${rawPayload.id}.png']?.driveFileId ??
+                    media.logoDriveFileId,
+                microtrailerDriveFileId: remoteIndex.entries['media/microtrailers/${rawPayload.id}.mp4']?.driveFileId ??
+                    media.microtrailerDriveFileId,
+                trailerDriveFileId: remoteIndex.entries['media/trailers/${rawPayload.id}.mp4']?.driveFileId ??
+                    media.trailerDriveFileId,
+              );
+
+              payload = rawPayload.copyWith(media: resolvedMedia);
+              if (payload.name.isNotEmpty) {
+                itemName = payload.name;
+              }
             }
-
-            final resolvedMedia = media.copyWith(
-              coverDriveFileId: resolveMediaId(media.coverRelativePath, media.coverSha256, media.coverDriveFileId),
-              backgroundDriveFileId: resolveMediaId(media.backgroundRelativePath, media.backgroundSha256, media.backgroundDriveFileId),
-              iconDriveFileId: resolveMediaId(media.iconRelativePath, media.iconSha256, media.iconDriveFileId),
-              logoDriveFileId: remoteIndex.entries['media/logos/${rawPayload.id}.png']?.driveFileId ??
-                  media.logoDriveFileId,
-              microtrailerDriveFileId: remoteIndex.entries['media/microtrailers/${rawPayload.id}.mp4']?.driveFileId ??
-                  media.microtrailerDriveFileId,
-              trailerDriveFileId: remoteIndex.entries['media/trailers/${rawPayload.id}.mp4']?.driveFileId ??
-                  media.trailerDriveFileId,
-            );
-
-            payload = rawPayload.copyWith(media: resolvedMedia);
-            if (payload.name.isNotEmpty) {
-              itemName = payload.name;
+          } else {
+            // Binary media payload (cover, background, icon, logo, microtrailer, trailer)
+            final bytes = await driveService.downloadFileBytes(fileIdentifier);
+            if (bytes.isNotEmpty) {
+              final aliases = <String>[entry.relativePath];
+              if (entry.driveFileId.isNotEmpty) aliases.add(entry.driveFileId);
+              if (entry.sha256.isNotEmpty) aliases.add(entry.sha256);
+              await PlayniteImageLoader.instance.saveToCache(
+                keyOrMediaId: entry.driveFileId.isNotEmpty ? entry.driveFileId : entry.relativePath,
+                bytes: bytes,
+                aliases: aliases,
+              );
             }
           }
 
@@ -236,10 +315,10 @@ class DeltaPullManager {
             total: diff.toDownload.length,
             bytesDownloaded: bytesDownloaded,
             totalBytes: diff.totalDownloadBytes,
-            message: 'Downloading $completedCount/${diff.toDownload.length} games ($itemName)...',
+            message: 'Downloading $completedCount/${diff.toDownload.length} items ($itemName)...',
             currentItem: itemName,
             etaText: etaText,
-            stepText: 'Step 2/3: Downloading Payloads',
+            stepText: 'Step 2/3: Downloading Payloads & Offline Media',
           ));
 
           return (entry, payload);
@@ -316,7 +395,7 @@ class DeltaPullManager {
       stopwatch.stop();
       onProgress?.call(SyncProgress(
         phase: SyncPhase.completed,
-        current: downloadedGames.length,
+        current: completedCount,
         total: diff.toDownload.length,
         bytesDownloaded: bytesDownloaded,
         totalBytes: diff.totalDownloadBytes,
@@ -326,7 +405,7 @@ class DeltaPullManager {
 
       return SyncReport(
         isSuccess: true,
-        downloadedCount: downloadedGames.length,
+        downloadedCount: downloadedGames.isNotEmpty ? downloadedGames.length : completedCount,
         deletedCount: diff.toDelete.length,
         bytesTransferred: bytesDownloaded,
         durationMs: stopwatch.elapsedMilliseconds,

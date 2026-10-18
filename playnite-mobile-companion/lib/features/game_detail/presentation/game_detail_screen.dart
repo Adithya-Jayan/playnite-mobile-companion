@@ -1,11 +1,10 @@
-import 'dart:io';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:playnite_mobile_companion/core/config/app_theme.dart';
 import 'package:playnite_mobile_companion/core/utils/duration_formatter.dart';
 import 'package:playnite_mobile_companion/features/sync/domain/sync_models.dart';
 import 'package:playnite_mobile_companion/core/database/app_database.dart';
 import 'package:playnite_mobile_companion/core/database/daos/game_dao.dart';
+import 'package:playnite_mobile_companion/core/services/playnite_image_loader.dart';
 import 'package:playnite_mobile_companion/core/ui/playnite_cached_image.dart';
 import 'package:playnite_mobile_companion/core/utils/media_url_resolver.dart';
 import 'addon_registry/addon_section_registry.dart';
@@ -29,18 +28,18 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
   late Map<String, dynamic> _addons;
   List<UnifiedGamePayload> _relatedGames = [];
 
-  static bool get _isTesting {
-    if (kIsWeb) return false;
-    try {
-      return Platform.environment.containsKey('FLUTTER_TEST');
-    } catch (_) {
-      return false;
-    }
-  }
+
 
   @override
   void initState() {
     super.initState();
+    // Dedicate immediate high-priority connection slots to hero background, cover & logo
+    PlayniteImageLoader.instance.prioritizeDetailView([
+      widget.game.media.backgroundDriveFileId,
+      widget.game.media.coverDriveFileId,
+      widget.game.media.logoDriveFileId,
+    ]);
+
     _addons = widget.game.addons;
     if (_addons.isEmpty) {
       _loadAddons();
@@ -51,21 +50,6 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
         _loadRelatedGames();
       }
     });
-  }
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    if (_isTesting) return;
-    final bgId = widget.game.media.backgroundDriveFileId;
-    if (bgId != null && bgId.isNotEmpty) {
-      final isDirectHttp = bgId.startsWith('http://') || bgId.startsWith('https://');
-      final streamUrl = isDirectHttp ? bgId : MediaUrlResolver.getDriveMediaStreamUrl(bgId);
-      final headers = (isDirectHttp && !streamUrl.contains('googleapis.com'))
-          ? <String, String>{}
-          : MediaUrlResolver.getAuthHeaders();
-      precacheImage(NetworkImage(streamUrl, headers: headers), context).catchError((_) {});
-    }
   }
 
   Future<void> _loadAddons() async {
@@ -331,6 +315,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
                               child: PlayniteCachedImage(
                                 mediaId: related.media.coverDriveFileId,
                                 fit: BoxFit.cover,
+                                isPriority: true,
                                 memCacheWidth: 180,
                                 memCacheHeight: 240,
                               ),

@@ -51,6 +51,9 @@ class PlayniteImageLoader {
   // Synchronous in-memory set of keys confirmed to exist on local flash disk
   final Set<String> _knownOnDisk = {};
 
+  // Set of keys marked as high priority (e.g. game detail view hero assets)
+  final Set<String> _priorityKeys = {};
+
   HttpClient? _client;
 
   static bool get _isTesting {
@@ -65,6 +68,7 @@ class PlayniteImageLoader {
   Future<void> init() async {
     if (_isInitialized) return;
     if (_isTesting) {
+      _cacheDir = Directory.systemTemp.createTempSync('playnite_test_cache_');
       _isInitialized = true;
       if (!_initCompleter.isCompleted) _initCompleter.complete();
       return;
@@ -133,10 +137,11 @@ class PlayniteImageLoader {
 
   /// Request an image download.
   /// If already on disk, completes immediately.
-  /// Otherwise enqueues at the HEAD of the LIFO stack (so visible items load FIRST).
+  /// Otherwise enqueues with LIFO priority (or immediate high priority for detail view).
   void load({
     required String mediaId,
     required void Function(File?) onComplete,
+    bool isPriority = false,
   }) {
     final raw = mediaId.trim();
     if (raw.isEmpty) {
@@ -171,6 +176,10 @@ class PlayniteImageLoader {
     // Register callback listener
     _listeners.putIfAbsent(key, () => []).add(onComplete);
 
+    if (isPriority) {
+      _priorityKeys.add(key);
+    }
+
     // If already downloading or in-flight, listener is registered and will be notified on completion
     if (_inFlightKeys.contains(key) || _activeHttpRequests.containsKey(key)) {
       return;
@@ -180,6 +189,21 @@ class PlayniteImageLoader {
     _lifoQueue.remove(key);
     _lifoQueue.add(key);
 
+    _pumpQueue();
+  }
+
+  /// Immediately prioritizes a list of assets for Game Detail view (background, cover, logo, related)
+  /// and preempts offscreen background requests to dedicate full connection throughput.
+  void prioritizeDetailView(List<String?> mediaIds) {
+    for (final raw in mediaIds) {
+      if (raw == null || raw.trim().isEmpty) continue;
+      final key = sanitizeKey(raw.trim());
+      _priorityKeys.add(key);
+      if (_lifoQueue.contains(key)) {
+        _lifoQueue.remove(key);
+        _lifoQueue.add(key);
+      }
+    }
     _pumpQueue();
   }
 
@@ -199,6 +223,7 @@ class PlayniteImageLoader {
       list.remove(listener);
       if (list.isEmpty) {
         _listeners.remove(key);
+        _priorityKeys.remove(key);
 
         // Remove from waiting LIFO queue so it doesn't block visible items
         _lifoQueue.remove(key);
@@ -227,14 +252,42 @@ class PlayniteImageLoader {
       return;
     }
 
+    // Preemption: If priority keys are waiting to download and all connection slots are saturated,
+    // abort the oldest non-priority active HTTP request to immediately liberate bandwidth!
+    final hasWaitingPriority = _lifoQueue.any((k) => _priorityKeys.contains(k));
+    if (hasWaitingPriority && _activeCount >= maxConcurrentDownloads) {
+      for (final inFlightKey in _activeHttpRequests.keys.toList()) {
+        if (!_priorityKeys.contains(inFlightKey)) {
+          final activeReq = _activeHttpRequests.remove(inFlightKey);
+          if (activeReq != null) {
+            try {
+              activeReq.abort();
+            } catch (_) {}
+            // Push aborted non-priority key back to bottom of queue to retry later
+            _lifoQueue.insert(0, inFlightKey);
+            _inFlightKeys.remove(inFlightKey);
+            _activeCount = (_activeCount - 1).clamp(0, maxConcurrentDownloads);
+            break; // Frees up a slot immediately
+          }
+        }
+      }
+    }
+
     while (_activeCount < maxConcurrentDownloads && _lifoQueue.isNotEmpty) {
-      // Pop most recently requested (visible) item from the end of the list (LIFO)
-      final key = _lifoQueue.removeLast();
+      // If any priority key is in queue, pop it first; otherwise pop LIFO from end
+      final priorityIdx = _lifoQueue.lastIndexWhere((k) => _priorityKeys.contains(k));
+      final String key;
+      if (priorityIdx >= 0) {
+        key = _lifoQueue.removeAt(priorityIdx);
+      } else {
+        key = _lifoQueue.removeLast();
+      }
 
       // Check if listeners are still interested
       final listeners = _listeners[key];
       if (listeners == null || listeners.isEmpty) {
         _keyToMediaId.remove(key);
+        _priorityKeys.remove(key);
         continue;
       }
 
@@ -319,10 +372,64 @@ class PlayniteImageLoader {
         }
       }
     } finally {
+      _priorityKeys.remove(key);
       _inFlightKeys.remove(key);
       _activeHttpRequests.remove(key);
       _activeCount = (_activeCount - 1).clamp(0, maxConcurrentDownloads);
       _pumpQueue();
+    }
+  }
+
+  /// Persists a binary media payload directly into the flash disk cache.
+  /// Used by DeltaPullManager to store pre-downloaded offline covers, backgrounds, and videos.
+  Future<void> saveToCache({
+    required String keyOrMediaId,
+    required List<int> bytes,
+    List<String> aliases = const [],
+  }) async {
+    if (!_isInitialized) {
+      await init();
+    }
+    if (_cacheDir == null) return;
+
+    try {
+      final primaryKey = sanitizeKey(keyOrMediaId);
+      final primaryFile = File(p.join(_cacheDir!.path, '$primaryKey.bin'));
+      await primaryFile.writeAsBytes(bytes, flush: true);
+      _knownOnDisk.add(primaryKey);
+
+      for (final alias in aliases) {
+        if (alias.trim().isEmpty) continue;
+        final aliasKey = sanitizeKey(alias);
+        if (aliasKey != primaryKey) {
+          final aliasFile = File(p.join(_cacheDir!.path, '$aliasKey.bin'));
+          await primaryFile.copy(aliasFile.path);
+          _knownOnDisk.add(aliasKey);
+        }
+      }
+
+      // Notify any active listeners waiting on this image
+      final listeners = _listeners.remove(primaryKey);
+      _keyToMediaId.remove(primaryKey);
+      _priorityKeys.remove(primaryKey);
+      if (listeners != null) {
+        for (final cb in listeners) {
+          cb(primaryFile);
+        }
+      }
+      for (final alias in aliases) {
+        final aliasKey = sanitizeKey(alias);
+        final aliasListeners = _listeners.remove(aliasKey);
+        _keyToMediaId.remove(aliasKey);
+        _priorityKeys.remove(aliasKey);
+        if (aliasListeners != null) {
+          for (final cb in aliasListeners) {
+            cb(primaryFile);
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('PlayniteImageLoader saveToCache error: $e');
     }
   }
 
