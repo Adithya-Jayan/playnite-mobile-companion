@@ -18,7 +18,7 @@ This document details the architectural invariants, network protocols, data cont
 
 ## 1. Core Design Principles
 
-1. **Strict $O(\Delta)$ Efficiency:** Modifying a single game's playtime or closing a session touches **only** that game's JSON payload (`games/{game_id}.json`) and the central `sync_index.json`. A 2,000-game library syncs in under 2 seconds.
+1. **Strict $O(\Delta)$ Efficiency:** Modifying a single game's playtime or closing a session touches **only** that game's JSON payload (`games/{game_id}.json`) and the central `sync_index.json`, avoiding full-library re-exports.
 2. **Read-Only Non-Invasive Scope:** The mobile companion is strictly a viewer, tracker, and statistics dashboard. It contains no game launchers, no execution binaries, and does not require direct store logins.
 3. **Least-Privilege Security:** Cloud sync uses Google's `drive.file` OAuth scope, restricting all access strictly to the dedicated application directory (`PlayniteSync`).
 4. **Dynamic Addon Fault-Tolerance:** Whitelisted Playnite addons are extracted inside isolated try-catch error boundaries. Missing, disabled, or corrupted addons degrade gracefully without failing library export.

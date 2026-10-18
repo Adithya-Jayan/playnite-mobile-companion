@@ -1,26 +1,25 @@
-# Playnite Mobile Delta Sync
+# Playnite Mobile Companion & Delta Sync
 
-[![Playnite](https://img.shields.io/badge/Playnite-Plugin-orange.svg)](https://playnite.link/)
+[![Playnite](https://img.shields.io/badge/Playnite-Repository-orange.svg)](https://github.com/JosefNemec/Playnite)
+[![Playnite Website](https://img.shields.io/badge/Website-playnite.link-blue.svg)](https://playnite.link/)
 [![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Android-blue.svg)](https://flutter.dev/)
 [![C# / .NET](https://img.shields.io/badge/.NET%20Framework-4.6.2-purple.svg)](https://dotnet.microsoft.com/)
 [![Flutter](https://img.shields.io/badge/Flutter-3.22+-02569B.svg)](https://flutter.dev/)
-[![Google Drive](https://img.shields.io/badge/Cloud%20Sync-Google%20Drive%20v3-green.svg)](https://developers.google.com/drive)
+[![Cloud Sync](https://img.shields.io/badge/Cloud%20Sync-Google%20Drive%20v3-green.svg)](https://developers.google.com/drive)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-A high-performance, serverless, and offline-first mobile companion system for **[Playnite](https://playnite.link/)**. Keep your entire PC video game collection, rich metadata, achievements, play session timelines, and video micro-trailers seamlessly synced to your Android device via Google Drive or local storage with true **$O(\Delta)$ incremental delta synchronization**.
+An offline-first mobile companion system for **[Playnite](https://github.com/JosefNemec/Playnite)** ([playnite.link](https://playnite.link/)). Browse and search your PC video game collection, rich metadata, achievements, play session timelines, and video micro-trailers on your Android device via personal Google Drive or local storage synchronization with incremental delta updates.
 
 ---
 
-## The Idea Behind the Project
+## About the Project
 
-While Playnite is the premier open-source video game library manager for Windows PC, browsing and managing your library on mobile has traditionally suffered from two major limitations:
-1. **The 24/7 Server Requirement:** Existing mobile solutions often require running a local web server or background daemon on your desktop PC at all times, along with complex network configuration, DDNS, and port forwarding. When your PC is powered off, your library is inaccessible.
-2. **Massive Full-Export Overhead:** Simple cloud-sync solutions re-export and re-upload the entire library (often hundreds of megabytes or gigabytes) every time, leading to slow exports, bandwidth waste, and rate limits.
+**Playnite Mobile Companion** connects your desktop Playnite library to your mobile device with an offline-first design:
 
-**Playnite Mobile Delta Sync solves this with an intelligent distributed architecture:**
-- **Zero-Server Cloud Sync:** Uses your personal Google Drive as a serverless sync intermediary (or local storage/network shares). Your mobile device can sync anytime, anywhere—even when your PC is turned off.
-- **Atomic $O(\Delta)$ Incremental Transfers:** When you finish playing a game or update metadata, only that single game's small JSON payload (~2 KB) and modified media are uploaded. A 2,000-game library syncs in **under 2 seconds**.
-- **Offline-First & Fast:** The mobile companion downloads your library into a local SQLite database with full-text search (FTS5). The app is 100% functional offline, uses zero battery in the background, and features instant search.
+- **Offline-First Browsing:** The companion app downloads your library into a local SQLite database (with FTS5 search) on your Android device. Once synced, you can browse, filter, and inspect your full collection completely offline.
+- **Incremental Delta Synchronization ($O(\Delta)$):** After the initial export, modifying metadata or completing a play session updates only the changed game payloads and newly added media assets, rather than requiring full library re-exports.
+- **Personal Storage Independence:** Uses your personal Google Drive (with least-privilege `drive.file` scope) or a local shared folder as the synchronization intermediary. No third-party accounts, subscription services, or proprietary relay servers are required.
+- **Rich Addon Integration:** Aggregates metadata from popular Playnite extensions including SuccessStory, HowLongToBeat, GameActivity, and ExtraMetadataLoader.
 
 ---
 

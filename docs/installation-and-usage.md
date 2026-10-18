@@ -67,7 +67,7 @@ Before mobile synchronization can occur, run an initial export to build the clou
 ### Automated Background Delta-Sync
 Once the initial export is committed, you **do not need to manually trigger exports**:
 
-- **On Game Exit (`OnGameStopped`):** As soon as you exit a game, the extension automatically extracts updated playtime, last played timestamps, achievements, and play sessions, uploading **only** that specific game's JSON (`games/{game_id}.json`) and committing `sync_index.json`. This completes in **under 2 seconds**.
+- **On Game Exit (`OnGameStopped`):** As soon as you exit a game, the extension automatically extracts updated playtime, last played timestamps, achievements, and play sessions, uploading **only** that specific game's JSON (`games/{game_id}.json`) and committing `sync_index.json` without touching unchanged games.
 - **On Library Update (`OnLibraryUpdated`):** When Playnite scans or modifies library items, the extension checks for changes and syncs only dirty games and new media.
 - **Orphan Pruning:** When you delete a game from Playnite, the remote game JSON is automatically deleted from Google Drive.
 
