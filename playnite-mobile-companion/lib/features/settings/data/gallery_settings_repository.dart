@@ -20,7 +20,8 @@ enum MediaStorageTier {
 
 /// User preferences for the game gallery, media, and library display.
 class GallerySettings {
-  final bool showHiddenGames;
+  final bool includeUserHiddenGames;
+  final bool includeDuplicateHiderGames;
   final String defaultViewMode; // 'grid', 'list', 'details'
   final RatingScoreSource ratingScoreSource;
   final MediaStorageTier mediaStorageTier;
@@ -28,8 +29,13 @@ class GallerySettings {
   final bool microtrailerMuted;
   final bool showVideoScrubBar;
 
+  /// Backwards-compatible getter: true if either hidden category is included.
+  bool get showHiddenGames => includeUserHiddenGames || includeDuplicateHiderGames;
+
   const GallerySettings({
-    this.showHiddenGames = false,
+    this.includeUserHiddenGames = false,
+    this.includeDuplicateHiderGames = false,
+    bool? showHiddenGames,
     this.defaultViewMode = 'grid',
     this.ratingScoreSource = RatingScoreSource.community,
     this.mediaStorageTier = MediaStorageTier.cacheOnly,
@@ -39,6 +45,8 @@ class GallerySettings {
   });
 
   GallerySettings copyWith({
+    bool? includeUserHiddenGames,
+    bool? includeDuplicateHiderGames,
     bool? showHiddenGames,
     String? defaultViewMode,
     RatingScoreSource? ratingScoreSource,
@@ -48,7 +56,8 @@ class GallerySettings {
     bool? showVideoScrubBar,
   }) {
     return GallerySettings(
-      showHiddenGames: showHiddenGames ?? this.showHiddenGames,
+      includeUserHiddenGames: includeUserHiddenGames ?? showHiddenGames ?? this.includeUserHiddenGames,
+      includeDuplicateHiderGames: includeDuplicateHiderGames ?? this.includeDuplicateHiderGames,
       defaultViewMode: defaultViewMode ?? this.defaultViewMode,
       ratingScoreSource: ratingScoreSource ?? this.ratingScoreSource,
       mediaStorageTier: mediaStorageTier ?? this.mediaStorageTier,
@@ -59,6 +68,8 @@ class GallerySettings {
   }
 
   Map<String, dynamic> toJson() => {
+        'includeUserHiddenGames': includeUserHiddenGames,
+        'includeDuplicateHiderGames': includeDuplicateHiderGames,
         'showHiddenGames': showHiddenGames,
         'defaultViewMode': defaultViewMode,
         'ratingScoreSource': ratingScoreSource.name,
@@ -81,8 +92,13 @@ class GallerySettings {
       orElse: () => MediaStorageTier.cacheOnly,
     );
 
+    final legacyShowHidden = json['showHiddenGames'] as bool? ?? false;
+    final includeUserHidden = json['includeUserHiddenGames'] as bool? ?? legacyShowHidden;
+    final includeDuplicateHider = json['includeDuplicateHiderGames'] as bool? ?? false;
+
     return GallerySettings(
-      showHiddenGames: json['showHiddenGames'] as bool? ?? false,
+      includeUserHiddenGames: includeUserHidden,
+      includeDuplicateHiderGames: includeDuplicateHider,
       defaultViewMode: json['defaultViewMode'] as String? ?? 'grid',
       ratingScoreSource: scoreSource,
       mediaStorageTier: mediaTier,

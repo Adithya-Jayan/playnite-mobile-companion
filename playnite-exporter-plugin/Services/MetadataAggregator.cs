@@ -261,10 +261,20 @@ namespace PlayniteExporterPlugin.Services
             var dhHiddenTagId = GetDuplicateHiderHiddenTagId();
             bool hasDhHiddenTag = game.TagIds != null && game.TagIds.Contains(dhHiddenTagId);
 
-            // Secondary copy classification:
-            // Only games marked hidden WITH the [DH] Hidden tag are secondary duplicate copies.
-            // User-hidden games (without [DH] Hidden) and unhidden primary copies have is_duplicate = false.
-            bool isDuplicate = game.Hidden && hasDhHiddenTag;
+            bool hasDhTag = false;
+            if (game.TagIds != null && api.Database?.Tags != null)
+            {
+                foreach (var tagId in game.TagIds)
+                {
+                    var tag = api.Database.Tags.Get(tagId);
+                    if (tag?.Name != null && (tag.Name.IndexOf("[DH]", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                              tag.Name.IndexOf("duplicate", StringComparison.OrdinalIgnoreCase) >= 0))
+                    {
+                        hasDhTag = true;
+                        break;
+                    }
+                }
+            }
 
             // 1. Query DuplicateHider via reflection if active in Playnite's runtime
             try
@@ -355,6 +365,11 @@ namespace PlayniteExporterPlugin.Services
                     }
                 }
             }
+
+            // Secondary copy classification:
+            // A game is a secondary duplicate copy if it is Hidden AND (has [DH] tag OR another unhidden copy exists).
+            // User-hidden games without other unhidden copies or DH tags remain isDuplicate = false.
+            bool isDuplicate = game.Hidden && (hasDhHiddenTag || hasDhTag || otherCopies.Any(c => !c.Hidden));
 
             Guid? duplicateGroupId = null;
             if (isDuplicate || otherCopies.Count > 0)

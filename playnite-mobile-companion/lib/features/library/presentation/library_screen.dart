@@ -61,7 +61,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
 
   GameFilterCriteria get _effectiveCriteria {
     return _filterCriteria.copyWith(
-      includeHidden: _filterCriteria.includeHidden || _gallerySettings.showHiddenGames,
+      includeUserHidden: _gallerySettings.includeUserHiddenGames,
+      includeDuplicateHider: _gallerySettings.includeDuplicateHiderGames,
       ratingScoreSource: _gallerySettings.ratingScoreSource,
     );
   }
@@ -428,20 +429,46 @@ class _LibraryScreenState extends State<LibraryScreen> {
       ),
       body: Column(
         children: [
-          // Hidden Games Active Banner
-          if (_gallerySettings.showHiddenGames)
+          // Utility Filter Mode Active Banner (Triage / Diagnostic view)
+          if (_filterCriteria.utilityMode != UtilityFilterMode.none)
             Container(
               width: double.infinity,
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              color: Colors.amber.withValues(alpha: 0.12),
+              color: _filterCriteria.utilityMode == UtilityFilterMode.onlyHidden
+                  ? Colors.amber.withValues(alpha: 0.12)
+                  : (_filterCriteria.utilityMode == UtilityFilterMode.onlyDuplicates
+                      ? Colors.purple.withValues(alpha: 0.12)
+                      : Colors.blue.withValues(alpha: 0.12)),
               child: Row(
                 children: [
-                  const Icon(Icons.visibility_off, color: Colors.amber, size: 18),
+                  Icon(
+                    _filterCriteria.utilityMode == UtilityFilterMode.onlyHidden
+                        ? Icons.visibility_off
+                        : (_filterCriteria.utilityMode == UtilityFilterMode.onlyDuplicates
+                            ? Icons.copy_all
+                            : (_filterCriteria.utilityMode == UtilityFilterMode.onlyUnplayed
+                                ? Icons.schedule
+                                : Icons.build_circle_outlined)),
+                    color: _filterCriteria.utilityMode == UtilityFilterMode.onlyHidden
+                        ? Colors.amber
+                        : (_filterCriteria.utilityMode == UtilityFilterMode.onlyDuplicates
+                            ? Colors.purpleAccent
+                            : Colors.lightBlueAccent),
+                    size: 18,
+                  ),
                   const SizedBox(width: 8),
-                  const Expanded(
+                  Expanded(
                     child: Text(
-                      'Showing only hidden games (Gallery Mode)',
-                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.amber),
+                      _getUtilityBannerText(_filterCriteria.utilityMode),
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        color: _filterCriteria.utilityMode == UtilityFilterMode.onlyHidden
+                            ? Colors.amber
+                            : (_filterCriteria.utilityMode == UtilityFilterMode.onlyDuplicates
+                                ? Colors.purpleAccent
+                                : Colors.lightBlueAccent),
+                      ),
                     ),
                   ),
                   TextButton(
@@ -450,12 +477,13 @@ class _LibraryScreenState extends State<LibraryScreen> {
                       minimumSize: Size.zero,
                       tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                     ),
-                    onPressed: () async {
-                      final updated = _gallerySettings.copyWith(showHiddenGames: false);
-                      await _galleryRepo.saveSettings(updated);
+                    onPressed: () {
+                      final updated = _filterCriteria.copyWith(clearUtility: true);
+                      setState(() => _filterCriteria = updated);
+                      _prefsService.saveFilterCriteria(updated);
                       _loadLibrary();
                     },
-                    child: const Text('Exit', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.amberAccent)),
+                    child: const Text('Clear', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white70)),
                   ),
                 ],
               ),
@@ -556,6 +584,23 @@ class _LibraryScreenState extends State<LibraryScreen> {
             )
           : null,
     );
+  }
+
+  String _getUtilityBannerText(UtilityFilterMode mode) {
+    switch (mode) {
+      case UtilityFilterMode.onlyHidden:
+        return 'Triage: Showing only hidden items';
+      case UtilityFilterMode.onlyDuplicates:
+        return 'Triage: Showing only DuplicateHider copies';
+      case UtilityFilterMode.onlyUnplayed:
+        return 'Triage: Showing only unplayed games (0h)';
+      case UtilityFilterMode.missingCovers:
+        return 'Diagnostic: Showing games missing cover art';
+      case UtilityFilterMode.missingMicrotrailers:
+        return 'Diagnostic: Showing games missing microtrailers';
+      case UtilityFilterMode.none:
+        return '';
+    }
   }
 
   String _summaryHeaderText() {

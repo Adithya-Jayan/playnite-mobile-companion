@@ -248,7 +248,7 @@ class _GallerySettingsScreenState extends State<GallerySettingsScreen> {
                         ),
                         SwitchListTile(
                           title: const Text(
-                            'Show Hidden Games',
+                            'Include User Hidden Games',
                             style: TextStyle(
                               fontSize: 15,
                               fontWeight: FontWeight.w600,
@@ -256,13 +256,33 @@ class _GallerySettingsScreenState extends State<GallerySettingsScreen> {
                             ),
                           ),
                           subtitle: const Text(
-                            'Display hidden games in your library. When toggled off, hidden games are completely excluded from the normal gallery.',
+                            'Show games you have manually marked as hidden in Playnite in your main gallery.',
                             style: TextStyle(fontSize: 12, color: AppTheme.textMuted),
                           ),
                           activeThumbColor: AppTheme.primary,
-                          value: _settings.showHiddenGames,
+                          value: _settings.includeUserHiddenGames,
                           onChanged: (val) {
-                            _updateSettings(_settings.copyWith(showHiddenGames: val));
+                            _updateSettings(_settings.copyWith(includeUserHiddenGames: val));
+                          },
+                        ),
+                        const Divider(height: 1),
+                        SwitchListTile(
+                          title: const Text(
+                            'Include DuplicateHider Copies',
+                            style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w600,
+                              color: AppTheme.textPrimary,
+                            ),
+                          ),
+                          subtitle: const Text(
+                            'Show secondary duplicate copies suppressed by DuplicateHider in your main gallery.',
+                            style: TextStyle(fontSize: 12, color: AppTheme.textMuted),
+                          ),
+                          activeThumbColor: AppTheme.primary,
+                          value: _settings.includeDuplicateHiderGames,
+                          onChanged: (val) {
+                            _updateSettings(_settings.copyWith(includeDuplicateHiderGames: val));
                           },
                         ),
                       ],

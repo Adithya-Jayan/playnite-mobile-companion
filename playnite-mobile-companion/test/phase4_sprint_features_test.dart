@@ -212,6 +212,91 @@ void main() {
       expect(duplicates.length, equals(2));
       expect(duplicates.every((g) => g.duplicateGroupId == 'witcher-3-group'), isTrue);
     });
+
+    test('GameDao correctly filters hidden duplicate copies and respects gallery inclusion rules', () async {
+      await gameDao.batchUpsertGames([
+        const UnifiedGamePayload(
+          id: 'primary-copy',
+          gameId: 'app-steam-1',
+          pluginId: 'steam',
+          name: 'Cyberpunk 2077',
+          sortingName: 'Cyberpunk 2077',
+          hidden: false,
+          isDuplicate: false,
+          duplicateGroupId: 'cp-group',
+        ),
+        const UnifiedGamePayload(
+          id: 'duplicate-copy',
+          gameId: 'app-gog-1',
+          pluginId: 'gog',
+          name: 'Cyberpunk 2077',
+          sortingName: 'Cyberpunk 2077',
+          hidden: true,
+          isDuplicate: true,
+          duplicateGroupId: 'cp-group',
+        ),
+        const UnifiedGamePayload(
+          id: 'user-hidden-game',
+          gameId: 'app-secret',
+          pluginId: 'steam',
+          name: 'Secret User Hidden',
+          sortingName: 'Secret User Hidden',
+          hidden: true,
+          isDuplicate: false,
+          duplicateGroupId: null,
+        ),
+      ]);
+
+      // 1. Default mode: Only primary game returned
+      final defaultList = await gameDao.getFilteredGames(
+        criteria: const GameFilterCriteria(),
+        sort: SortOption.titleAsc,
+      );
+      expect(defaultList.map((g) => g.id).toList(), contains('primary-copy'));
+      expect(defaultList.map((g) => g.id).toList(), isNot(contains('duplicate-copy')));
+      expect(defaultList.map((g) => g.id).toList(), isNot(contains('user-hidden-game')));
+
+      // 2. Utility mode: onlyDuplicates returns ONLY duplicate-copy (even though hidden == true)
+      final dupeList = await gameDao.getFilteredGames(
+        criteria: const GameFilterCriteria(utilityMode: UtilityFilterMode.onlyDuplicates),
+        sort: SortOption.titleAsc,
+      );
+      expect(dupeList.map((g) => g.id).toList(), contains('duplicate-copy'));
+      expect(dupeList.map((g) => g.id).toList(), isNot(contains('primary-copy')));
+      expect(dupeList.map((g) => g.id).toList(), isNot(contains('user-hidden-game')));
+
+      // 3. Utility mode: onlyHidden returns ONLY user-hidden-game (excluding duplicate-copy)
+      final hiddenList = await gameDao.getFilteredGames(
+        criteria: const GameFilterCriteria(utilityMode: UtilityFilterMode.onlyHidden),
+        sort: SortOption.titleAsc,
+      );
+      expect(hiddenList.map((g) => g.id).toList(), contains('user-hidden-game'));
+      expect(hiddenList.map((g) => g.id).toList(), isNot(contains('duplicate-copy')));
+      expect(hiddenList.map((g) => g.id).toList(), isNot(contains('primary-copy')));
+
+      // 4. Baseline inclusion: includeDuplicateHider = true returns primary and duplicate-copy, but not user-hidden
+      final dupeIncludedList = await gameDao.getFilteredGames(
+        criteria: const GameFilterCriteria(includeDuplicateHider: true),
+        sort: SortOption.titleAsc,
+      );
+      expect(dupeIncludedList.map((g) => g.id).toList(), containsAll(['primary-copy', 'duplicate-copy']));
+      expect(dupeIncludedList.map((g) => g.id).toList(), isNot(contains('user-hidden-game')));
+
+      // 5. Baseline inclusion: includeUserHidden = true returns primary and user-hidden, but not duplicate-copy
+      final userHiddenIncludedList = await gameDao.getFilteredGames(
+        criteria: const GameFilterCriteria(includeUserHidden: true),
+        sort: SortOption.titleAsc,
+      );
+      expect(userHiddenIncludedList.map((g) => g.id).toList(), containsAll(['primary-copy', 'user-hidden-game']));
+      expect(userHiddenIncludedList.map((g) => g.id).toList(), isNot(contains('duplicate-copy')));
+
+      // 6. Both inclusions active: returns all 3 games
+      final allList = await gameDao.getFilteredGames(
+        criteria: const GameFilterCriteria(includeUserHidden: true, includeDuplicateHider: true),
+        sort: SortOption.titleAsc,
+      );
+      expect(allList.map((g) => g.id).toList(), containsAll(['primary-copy', 'duplicate-copy', 'user-hidden-game']));
+    });
   });
 
   group('Phase 4 Sprint: SharedPreferences Persistence Tests', () {

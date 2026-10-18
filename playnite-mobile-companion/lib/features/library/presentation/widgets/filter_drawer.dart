@@ -32,12 +32,8 @@ class _FilterDrawerState extends State<FilterDrawer> {
   double _minScore = 0;
   double _maxHltbHours = 0; // 0 = Any / Unlimited
 
-  // Utility filters
-  late bool _showHiddenOnly;
-  late bool _missingCoversOnly;
-  late bool _duplicateCopiesOnly;
-  late bool _missingMicrotrailersOnly;
-  late bool _unplayedOnly;
+  // Utility filter mode (single select)
+  late UtilityFilterMode _utilityMode;
 
   @override
   void initState() {
@@ -51,11 +47,7 @@ class _FilterDrawerState extends State<FilterDrawer> {
     _minScore = (widget.currentCriteria.minScore ?? 0).toDouble();
     _maxHltbHours = (widget.currentCriteria.hltbMaxHours ?? 0).toDouble();
 
-    _showHiddenOnly = widget.currentCriteria.showHiddenOnly;
-    _missingCoversOnly = widget.currentCriteria.missingCoversOnly;
-    _duplicateCopiesOnly = widget.currentCriteria.duplicateCopiesOnly;
-    _missingMicrotrailersOnly = widget.currentCriteria.missingMicrotrailersOnly;
-    _unplayedOnly = widget.currentCriteria.unplayedOnly;
+    _utilityMode = widget.currentCriteria.utilityMode;
   }
 
   String _getScoreLabel() {
@@ -216,7 +208,7 @@ class _FilterDrawerState extends State<FilterDrawer> {
                   Theme(
                     data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
                     child: ExpansionTile(
-                      initiallyExpanded: _showHiddenOnly || _missingCoversOnly || _duplicateCopiesOnly || _missingMicrotrailersOnly || _unplayedOnly,
+                      initiallyExpanded: _utilityMode != UtilityFilterMode.none,
                       tilePadding: EdgeInsets.zero,
                       leading: const Icon(Icons.build_circle_outlined, color: AppTheme.primaryLight, size: 20),
                       title: const Text(
@@ -224,45 +216,53 @@ class _FilterDrawerState extends State<FilterDrawer> {
                         style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppTheme.textPrimary),
                       ),
                       children: [
-                        CheckboxListTile(
-                          dense: true,
-                          contentPadding: EdgeInsets.zero,
-                          title: const Text('Show Hidden Only', style: TextStyle(fontSize: 13, color: AppTheme.textPrimary)),
-                          activeColor: AppTheme.primary,
-                          value: _showHiddenOnly,
-                          onChanged: (v) => setState(() => _showHiddenOnly = v ?? false),
-                        ),
-                        CheckboxListTile(
-                          dense: true,
-                          contentPadding: EdgeInsets.zero,
-                          title: const Text('Missing Cover Art', style: TextStyle(fontSize: 13, color: AppTheme.textPrimary)),
-                          activeColor: AppTheme.primary,
-                          value: _missingCoversOnly,
-                          onChanged: (v) => setState(() => _missingCoversOnly = v ?? false),
-                        ),
-                        CheckboxListTile(
-                          dense: true,
-                          contentPadding: EdgeInsets.zero,
-                          title: const Text('DuplicateHider Secondary Copies', style: TextStyle(fontSize: 13, color: AppTheme.textPrimary)),
-                          activeColor: AppTheme.primary,
-                          value: _duplicateCopiesOnly,
-                          onChanged: (v) => setState(() => _duplicateCopiesOnly = v ?? false),
-                        ),
-                        CheckboxListTile(
-                          dense: true,
-                          contentPadding: EdgeInsets.zero,
-                          title: const Text('Missing Microtrailers', style: TextStyle(fontSize: 13, color: AppTheme.textPrimary)),
-                          activeColor: AppTheme.primary,
-                          value: _missingMicrotrailersOnly,
-                          onChanged: (v) => setState(() => _missingMicrotrailersOnly = v ?? false),
-                        ),
-                        CheckboxListTile(
-                          dense: true,
-                          contentPadding: EdgeInsets.zero,
-                          title: const Text('Unplayed Games (0 Hours)', style: TextStyle(fontSize: 13, color: AppTheme.textPrimary)),
-                          activeColor: AppTheme.primary,
-                          value: _unplayedOnly,
-                          onChanged: (v) => setState(() => _unplayedOnly = v ?? false),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          child: Align(
+                            alignment: Alignment.centerLeft,
+                            child: Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: [
+                                ChoiceChip(
+                                  label: const Text('None'),
+                                  selected: _utilityMode == UtilityFilterMode.none,
+                                  selectedColor: AppTheme.primary,
+                                  onSelected: (_) => setState(() => _utilityMode = UtilityFilterMode.none),
+                                ),
+                                ChoiceChip(
+                                  label: const Text('Only Hidden'),
+                                  selected: _utilityMode == UtilityFilterMode.onlyHidden,
+                                  selectedColor: AppTheme.primary,
+                                  onSelected: (sel) => setState(() => _utilityMode = sel ? UtilityFilterMode.onlyHidden : UtilityFilterMode.none),
+                                ),
+                                ChoiceChip(
+                                  label: const Text('Only Duplicates'),
+                                  selected: _utilityMode == UtilityFilterMode.onlyDuplicates,
+                                  selectedColor: AppTheme.primary,
+                                  onSelected: (sel) => setState(() => _utilityMode = sel ? UtilityFilterMode.onlyDuplicates : UtilityFilterMode.none),
+                                ),
+                                ChoiceChip(
+                                  label: const Text('Only Unplayed'),
+                                  selected: _utilityMode == UtilityFilterMode.onlyUnplayed,
+                                  selectedColor: AppTheme.primary,
+                                  onSelected: (sel) => setState(() => _utilityMode = sel ? UtilityFilterMode.onlyUnplayed : UtilityFilterMode.none),
+                                ),
+                                ChoiceChip(
+                                  label: const Text('Missing Covers'),
+                                  selected: _utilityMode == UtilityFilterMode.missingCovers,
+                                  selectedColor: AppTheme.primary,
+                                  onSelected: (sel) => setState(() => _utilityMode = sel ? UtilityFilterMode.missingCovers : UtilityFilterMode.none),
+                                ),
+                                ChoiceChip(
+                                  label: const Text('Missing Microtrailers'),
+                                  selected: _utilityMode == UtilityFilterMode.missingMicrotrailers,
+                                  selectedColor: AppTheme.primary,
+                                  onSelected: (sel) => setState(() => _utilityMode = sel ? UtilityFilterMode.missingMicrotrailers : UtilityFilterMode.none),
+                                ),
+                              ],
+                            ),
+                          ),
                         ),
                       ],
                     ),
@@ -293,11 +293,7 @@ class _FilterDrawerState extends State<FilterDrawer> {
                       isFavorite: _isFavorite,
                       minScore: _minScore > 0 ? _minScore.toInt() : null,
                       hltbMaxHours: _maxHltbHours > 0 ? _maxHltbHours.toInt() : null,
-                      showHiddenOnly: _showHiddenOnly,
-                      missingCoversOnly: _missingCoversOnly,
-                      duplicateCopiesOnly: _duplicateCopiesOnly,
-                      missingMicrotrailersOnly: _missingMicrotrailersOnly,
-                      unplayedOnly: _unplayedOnly,
+                      utilityMode: _utilityMode,
                       clearInstalled: _isInstalled == null,
                       clearFavorite: _isFavorite == null,
                       clearScores: _minScore == 0,

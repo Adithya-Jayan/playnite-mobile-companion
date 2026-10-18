@@ -149,11 +149,8 @@ class GameDao {
     await batch.commit(noResult: true);
   }
 
-  List<String>? _cachedSafeColumns;
-
   /// Dynamically queries existing table columns excluding addons_json to protect against CursorWindow overflows in batch queries.
   Future<List<String>> _getSafeLibraryColumns() async {
-    if (_cachedSafeColumns != null) return _cachedSafeColumns!;
     try {
       final info = await database.db.rawQuery('PRAGMA table_info(games);');
       final cols = info
@@ -161,7 +158,6 @@ class GameDao {
           .where((c) => c.isNotEmpty && c != 'addons_json')
           .toList();
       if (cols.isNotEmpty) {
-        _cachedSafeColumns = cols;
         return cols;
       }
     } catch (_) {}
@@ -246,11 +242,47 @@ class GameDao {
     final whereClauses = <String>[];
     final whereArgs = <dynamic>[];
 
-    // 1. Filter: Hidden games (display ONLY hidden games when toggled; exclude hidden in normal mode)
-    if (criteria.showHiddenOnly) {
-      whereClauses.add('hidden = 1');
-    } else {
-      whereClauses.add('(hidden = 0 OR hidden IS NULL)');
+    final safeCols = await _getSafeLibraryColumns();
+    final hasDuplicateCol = safeCols.contains('is_duplicate');
+
+    // 1. Visibility and Triage / Utility Filter Clause
+    switch (criteria.utilityMode) {
+      case UtilityFilterMode.onlyDuplicates:
+        // Dedicated triage view: ONLY duplicate copies (which are hidden by DuplicateHider)
+        if (hasDuplicateCol) {
+          whereClauses.add('is_duplicate = 1');
+        } else {
+          whereClauses.add('0 = 1');
+        }
+        break;
+
+      case UtilityFilterMode.onlyHidden:
+        // Dedicated triage view: ONLY manually hidden items (excluding duplicate copies)
+        if (hasDuplicateCol) {
+          whereClauses.add('hidden = 1 AND (is_duplicate = 0 OR is_duplicate IS NULL)');
+        } else {
+          whereClauses.add('hidden = 1');
+        }
+        break;
+
+      case UtilityFilterMode.onlyUnplayed:
+        whereClauses.add('(playtime_seconds = 0 OR playtime_seconds IS NULL) AND (play_count = 0 OR play_count IS NULL)');
+        _applyBaselineVisibility(whereClauses, criteria, hasDuplicateCol: hasDuplicateCol);
+        break;
+
+      case UtilityFilterMode.missingCovers:
+        whereClauses.add("(cover_drive_file_id IS NULL OR cover_drive_file_id = '')");
+        _applyBaselineVisibility(whereClauses, criteria, hasDuplicateCol: hasDuplicateCol);
+        break;
+
+      case UtilityFilterMode.missingMicrotrailers:
+        whereClauses.add("(microtrailer_drive_file_id IS NULL OR microtrailer_drive_file_id = '')");
+        _applyBaselineVisibility(whereClauses, criteria, hasDuplicateCol: hasDuplicateCol);
+        break;
+
+      case UtilityFilterMode.none:
+        _applyBaselineVisibility(whereClauses, criteria, hasDuplicateCol: hasDuplicateCol);
+        break;
     }
 
     // 2. Search Query (FTS match or LIKE fallback)
@@ -388,21 +420,40 @@ class GameDao {
       whereArgs.addAll(hltbArgs);
     }
 
-    // 11. Diagnostic / Utility Filters
-    if (criteria.missingCoversOnly) {
-      whereClauses.add("(cover_drive_file_id IS NULL OR cover_drive_file_id = '')");
-    }
-    if (criteria.duplicateCopiesOnly) {
-      whereClauses.add('is_duplicate = 1');
-    }
-    if (criteria.missingMicrotrailersOnly) {
-      whereClauses.add("(microtrailer_drive_file_id IS NULL OR microtrailer_drive_file_id = '')");
-    }
-    if (criteria.unplayedOnly) {
-      whereClauses.add('(playtime_seconds = 0 OR playtime_seconds IS NULL) AND (play_count = 0 OR play_count IS NULL)');
+    return (whereClauses: whereClauses, whereArgs: whereArgs);
+  }
+
+  /// Applies standard gallery visibility rules based on settings for user-hidden games and duplicate copies.
+  void _applyBaselineVisibility(
+    List<String> whereClauses,
+    GameFilterCriteria criteria, {
+    bool hasDuplicateCol = true,
+  }) {
+    if (criteria.includeUserHidden && criteria.includeDuplicateHider) {
+      // User opted to include both user-hidden games and duplicate copies in gallery:
+      // No visibility filter clause needed - all games visible!
+      return;
     }
 
-    return (whereClauses: whereClauses, whereArgs: whereArgs);
+    if (!criteria.includeUserHidden && !criteria.includeDuplicateHider) {
+      // Default: Exclude both user-hidden games and duplicate copies
+      whereClauses.add('(hidden = 0 OR hidden IS NULL)');
+      if (hasDuplicateCol) {
+        whereClauses.add('(is_duplicate = 0 OR is_duplicate IS NULL)');
+      }
+    } else if (criteria.includeUserHidden && !criteria.includeDuplicateHider) {
+      // Include user-hidden games, but exclude DuplicateHider duplicate copies
+      if (hasDuplicateCol) {
+        whereClauses.add('(is_duplicate = 0 OR is_duplicate IS NULL)');
+      }
+    } else if (!criteria.includeUserHidden && criteria.includeDuplicateHider) {
+      // Exclude user-hidden games, but include DuplicateHider duplicate copies
+      if (hasDuplicateCol) {
+        whereClauses.add('(hidden = 0 OR hidden IS NULL OR is_duplicate = 1)');
+      } else {
+        whereClauses.add('(hidden = 0 OR hidden IS NULL)');
+      }
+    }
   }
 
   /// Returns count of games matching current filter criteria.
