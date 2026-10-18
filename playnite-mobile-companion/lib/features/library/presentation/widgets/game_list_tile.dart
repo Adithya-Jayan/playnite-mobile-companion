@@ -1,5 +1,8 @@
+import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:playnite_mobile_companion/core/config/app_theme.dart';
+import 'package:playnite_mobile_companion/core/ui/playnite_cached_image.dart';
 import 'package:playnite_mobile_companion/core/utils/duration_formatter.dart';
 import 'package:playnite_mobile_companion/core/utils/media_url_resolver.dart';
 import 'package:playnite_mobile_companion/features/game_detail/presentation/game_detail_screen.dart';
@@ -10,9 +13,19 @@ class GameListTile extends StatelessWidget {
 
   const GameListTile({super.key, required this.game});
 
+  static bool get _isTesting {
+    if (kIsWeb) return false;
+    try {
+      return Platform.environment.containsKey('FLUTTER_TEST');
+    } catch (_) {
+      return false;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final coverId = game.media.coverDriveFileId;
+    final hasIcon = game.media.iconDriveFileId != null && game.media.iconDriveFileId!.isNotEmpty;
+    final mediaId = hasIcon ? game.media.iconDriveFileId : game.media.coverDriveFileId;
     final playtime = game.playtimeSeconds > 0
         ? DurationFormatter.formatSecondsToHoursMinutes(game.playtimeSeconds)
         : null;
@@ -25,23 +38,34 @@ class GameListTile extends StatelessWidget {
     return ListTile(
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       onTap: () {
+        final bgId = game.media.backgroundDriveFileId;
+        if (!_isTesting && bgId != null && bgId.isNotEmpty) {
+          final isDirectHttp = bgId.startsWith('http://') || bgId.startsWith('https://');
+          final streamUrl = isDirectHttp ? bgId : MediaUrlResolver.getDriveMediaStreamUrl(bgId);
+          final headers = (isDirectHttp && !streamUrl.contains('googleapis.com'))
+              ? <String, String>{}
+              : MediaUrlResolver.getAuthHeaders();
+          precacheImage(NetworkImage(streamUrl, headers: headers), context).catchError((_) {});
+        }
         Navigator.of(context).push(
           MaterialPageRoute(builder: (_) => GameDetailScreen(game: game)),
         );
       },
       leading: ClipRRect(
-        borderRadius: BorderRadius.circular(4),
+        borderRadius: BorderRadius.circular(hasIcon ? 6 : 4),
         child: SizedBox(
-          width: 44,
-          height: 60,
-          child: (coverId != null && coverId.isNotEmpty)
-              ? Image.network(
-                  MediaUrlResolver.getDriveThumbnailUrl(coverId, width: 120),
-                  headers: MediaUrlResolver.getAuthHeaders(),
-                  fit: BoxFit.cover,
-                  errorBuilder: (context, error, stackTrace) => _buildPlaceholder(),
-                )
-              : _buildPlaceholder(),
+          width: hasIcon ? 44 : 44,
+          height: hasIcon ? 44 : 60,
+          child: PlayniteCachedImage(
+            mediaId: mediaId,
+            fit: hasIcon ? BoxFit.contain : BoxFit.cover,
+            memCacheWidth: 120,
+            memCacheHeight: 120,
+            maxWidthDiskCache: 200,
+            maxHeightDiskCache: 200,
+            placeholder: _buildPlaceholder(),
+            errorWidget: _buildPlaceholder(),
+          ),
         ),
       ),
       title: Text(

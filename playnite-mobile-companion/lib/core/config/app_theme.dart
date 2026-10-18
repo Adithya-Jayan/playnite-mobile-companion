@@ -120,6 +120,23 @@ class AppTheme {
           foregroundColor: primaryLight,
         ),
       ),
+      scrollbarTheme: ScrollbarThemeData(
+        thumbColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.dragged)) {
+            return primary;
+          }
+          return primary.withValues(alpha: 0.65);
+        }),
+        trackColor: WidgetStateProperty.all(Colors.white10),
+        radius: const Radius.circular(8),
+        thickness: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.hovered) || states.contains(WidgetState.dragged)) {
+            return 8.0;
+          }
+          return 6.0;
+        }),
+        crossAxisMargin: 2.0,
+      ),
     );
   }
 }

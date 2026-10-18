@@ -23,14 +23,28 @@ namespace PlayniteExporterPlugin.Storage
             this.driveService = driveService;
         }
 
-        public async Task<string> EnsureRootFolderAsync(string rootFolderName, CancellationToken ct = default)
+        public void InvalidateCache(string? relativeDirPath = null)
         {
-            if (!string.IsNullOrEmpty(rootFolderId)) return rootFolderId!;
+            if (string.IsNullOrWhiteSpace(relativeDirPath) || relativeDirPath == "." || relativeDirPath == "/")
+            {
+                rootFolderId = null;
+                folderIdCache.Clear();
+            }
+            else
+            {
+                var cleanPath = relativeDirPath!.Trim('/').Replace('\\', '/');
+                folderIdCache.TryRemove(cleanPath, out _);
+            }
+        }
+
+        public async Task<string> EnsureRootFolderAsync(string rootFolderName, CancellationToken ct = default, bool forceRefresh = false)
+        {
+            if (!forceRefresh && !string.IsNullOrEmpty(rootFolderId)) return rootFolderId!;
 
             await hierarchyLock.WaitAsync(ct).ConfigureAwait(false);
             try
             {
-                if (!string.IsNullOrEmpty(rootFolderId)) return rootFolderId!;
+                if (!forceRefresh && !string.IsNullOrEmpty(rootFolderId)) return rootFolderId!;
 
                 var query = $"name = '{EscapeQuery(rootFolderName)}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false";
                 var request = driveService.Files.List();
@@ -74,16 +88,16 @@ namespace PlayniteExporterPlugin.Storage
             }
         }
 
-        public async Task<string> EnsureFolderPathAsync(string rootFolderName, string relativeDirPath, CancellationToken ct = default)
+        public async Task<string> EnsureFolderPathAsync(string rootFolderName, string relativeDirPath, CancellationToken ct = default, bool forceRefresh = false)
         {
-            var rootId = await EnsureRootFolderAsync(rootFolderName, ct).ConfigureAwait(false);
+            var rootId = await EnsureRootFolderAsync(rootFolderName, ct, forceRefresh).ConfigureAwait(false);
             if (string.IsNullOrWhiteSpace(relativeDirPath) || relativeDirPath == "." || relativeDirPath == "/")
             {
                 return rootId;
             }
 
             var cleanPath = relativeDirPath.Trim('/').Replace('\\', '/');
-            if (folderIdCache.TryGetValue(cleanPath, out var cachedId))
+            if (!forceRefresh && folderIdCache.TryGetValue(cleanPath, out var cachedId))
             {
                 return cachedId;
             }
@@ -92,7 +106,7 @@ namespace PlayniteExporterPlugin.Storage
             try
             {
                 // Double-check cache after acquiring lock to prevent parallel worker duplicate folder creation
-                if (folderIdCache.TryGetValue(cleanPath, out cachedId))
+                if (!forceRefresh && folderIdCache.TryGetValue(cleanPath, out cachedId))
                 {
                     return cachedId;
                 }

@@ -20,12 +20,14 @@ class RecentSessionEntry {
   final String gameName;
   final String dateSessionUtc;
   final int elapsedSeconds;
+  final String? coverDriveFileId;
 
   const RecentSessionEntry({
     required this.gameId,
     required this.gameName,
     required this.dateSessionUtc,
     required this.elapsedSeconds,
+    this.coverDriveFileId,
   });
 }
 
@@ -153,17 +155,19 @@ class StatsDao {
         ps.game_id,
         g.name as game_name,
         ps.date_session_utc,
-        ps.elapsed_seconds
+        ps.elapsed_seconds,
+        g.cover_drive_file_id
       FROM play_sessions ps
       JOIN games g ON ps.game_id = g.id
       ORDER BY ps.date_session_utc DESC
-      LIMIT 15;
+      LIMIT 50;
     ''');
     final recentSessions = sessionRows.map((r) => RecentSessionEntry(
       gameId: r['game_id'] as String,
       gameName: r['game_name'] as String? ?? 'Unknown',
       dateSessionUtc: r['date_session_utc'] as String,
       elapsedSeconds: (r['elapsed_seconds'] as num).toInt(),
+      coverDriveFileId: r['cover_drive_file_id'] as String?,
     )).toList();
 
     return LibraryStats(

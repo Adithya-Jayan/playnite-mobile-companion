@@ -9,6 +9,7 @@ import 'package:playnite_mobile_companion/features/library/domain/sort_options.d
 import 'package:playnite_mobile_companion/features/library/presentation/library_screen.dart';
 import 'package:playnite_mobile_companion/features/sync/domain/sync_models.dart';
 import 'package:playnite_mobile_companion/features/sync/presentation/widgets/sync_dialog.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 void main() {
@@ -153,7 +154,7 @@ void main() {
 
     testWidgets('Shows "No games match your current filters" when DB has games but query matches 0', (tester) async {
       await tester.runAsync(() async {
-        // Seed 1 hidden game in database (so DB has 1 game, but default filter with includeHidden: false matches 0)
+        // Seed 1 game in database
         await gameDao.batchUpsertGames([
           const UnifiedGamePayload(
             id: 'test-game-1',
@@ -161,9 +162,15 @@ void main() {
             pluginId: 'p-1',
             name: 'Secret Game',
             sortingName: 'Secret Game',
-            hidden: true,
+            hidden: false,
           ),
         ]);
+
+        // Pre-save an active filter query that matches 0 games
+        SharedPreferences.setMockInitialValues({
+          'pref_filter_criteria_json':
+              '{"searchQuery":"NonExistentQuery","platforms":[],"sources":[],"genres":[],"tags":[],"completionStatuses":[]}'
+        });
 
         await tester.pumpWidget(
           ProviderScope(

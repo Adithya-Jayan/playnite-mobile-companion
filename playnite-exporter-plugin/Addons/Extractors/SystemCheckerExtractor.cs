@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 using Newtonsoft.Json.Linq;
 using Playnite.SDK.Models;
@@ -64,6 +65,11 @@ namespace PlayniteExporterPlugin.Addons.Extractors
                 var storageBytes = item.Value<double?>("Storage");
                 var storageUsage = item.Value<string>("StorageUsage");
 
+                if (!HasRealSpecs(osList, cpuList, gpuList, ramBytes, storageBytes))
+                {
+                    continue;
+                }
+
                 var specObj = new
                 {
                     os = osList,
@@ -79,12 +85,25 @@ namespace PlayniteExporterPlugin.Addons.Extractors
                 else if (!isMin && recSpecs == null) recSpecs = specObj;
             }
 
+            var hasRequirements = minSpecs != null || recSpecs != null;
+
             return new
             {
-                has_requirements = minSpecs != null || recSpecs != null,
+                has_requirements = hasRequirements,
                 minimum = minSpecs,
                 recommended = recSpecs
             };
+        }
+
+        private static bool HasRealSpecs(List<string> os, List<string> cpu, List<string> gpu, double? ram, double? storage)
+        {
+            var hasOs = os != null && os.Any(s => !string.IsNullOrWhiteSpace(s));
+            var hasCpu = cpu != null && cpu.Any(s => !string.IsNullOrWhiteSpace(s));
+            var hasGpu = gpu != null && gpu.Any(s => !string.IsNullOrWhiteSpace(s));
+            var hasRam = ram.HasValue && ram.Value > 0.0;
+            var hasStorage = storage.HasValue && storage.Value > 0.0;
+
+            return hasOs || hasCpu || hasGpu || hasRam || hasStorage;
         }
 
         private static List<string> ToStringList(JToken? token)

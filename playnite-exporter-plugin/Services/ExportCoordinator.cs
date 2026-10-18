@@ -26,7 +26,8 @@ namespace PlayniteExporterPlugin.Services
         private readonly string localIndexCachePath;
 
         private ISyncStorageProvider storageProvider;
-        private SyncIndex currentIndex = new();
+        public const string CurrentClientVersion = "1.1.0";
+        private SyncIndex currentIndex = new() { ClientVersion = CurrentClientVersion };
         private readonly SemaphoreSlim syncLock = new(1, 1);
         private readonly Dictionary<Guid, (ulong Playtime, ulong PlayCount, string Cover, string Bg, string Icon)> gameStatCache = new();
 
@@ -120,7 +121,8 @@ namespace PlayniteExporterPlugin.Services
 
                 currentIndex = new SyncIndex
                 {
-                    LibraryId = settings.LibraryId != Guid.Empty ? settings.LibraryId : Guid.NewGuid()
+                    LibraryId = settings.LibraryId != Guid.Empty ? settings.LibraryId : Guid.NewGuid(),
+                    ClientVersion = CurrentClientVersion
                 };
                 settings.LibraryId = currentIndex.LibraryId;
             }
@@ -253,28 +255,35 @@ namespace PlayniteExporterPlugin.Services
 
                             if (!string.IsNullOrEmpty(item.SourceFilePath) && File.Exists(item.SourceFilePath))
                             {
-                                using var fs = new FileStream(item.SourceFilePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-                                var fileId = await storageProvider.UploadFileAsync(
-                                    item.RelativePath,
-                                    item.MimeType,
-                                    fs,
-                                    item.ExistingDriveFileId,
-                                    null,
-                                    ct
-                                ).ConfigureAwait(false);
-
-                                lock (currentIndex.Entries)
+                                try
                                 {
-                                    currentIndex.Entries[item.RelativePath] = new IndexEntry
+                                    using var fs = new FileStream(item.SourceFilePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                                    var fileId = await storageProvider.UploadFileAsync(
+                                        item.RelativePath,
+                                        item.MimeType,
+                                        fs,
+                                        item.ExistingDriveFileId,
+                                        null,
+                                        ct
+                                    ).ConfigureAwait(false);
+
+                                    lock (currentIndex.Entries)
                                     {
-                                        Sha256 = item.Sha256,
-                                        SizeBytes = item.SizeBytes,
-                                        ModifiedUtc = DateTime.UtcNow,
-                                        DriveFileId = fileId,
-                                        MimeType = item.MimeType,
-                                        Category = item.Category,
-                                        GameId = item.GameId
-                                    };
+                                        currentIndex.Entries[item.RelativePath] = new IndexEntry
+                                        {
+                                            Sha256 = item.Sha256,
+                                            SizeBytes = item.SizeBytes,
+                                            ModifiedUtc = DateTime.UtcNow,
+                                            DriveFileId = fileId,
+                                            MimeType = item.MimeType,
+                                            Category = item.Category,
+                                            GameId = item.GameId
+                                        };
+                                    }
+                                }
+                                catch (Exception ex) when (!(ex is OperationCanceledException))
+                                {
+                                    Logger.Warn(ex, $"Failed uploading media file '{item.RelativePath}' during single-game sync. Continuing.");
                                 }
                             }
                         }
@@ -398,8 +407,9 @@ namespace PlayniteExporterPlugin.Services
                     var relPath = $"games/{game.Id}.json";
                     bool isUnchanged = false;
                     IndexEntry? existingEntry = null;
+                    bool isVersionMatch = currentIndex != null && currentIndex.ClientVersion == CurrentClientVersion;
 
-                    if (currentIndex != null && currentIndex.Entries.TryGetValue(relPath, out existingEntry))
+                    if (isVersionMatch && currentIndex!.Entries.TryGetValue(relPath, out existingEntry))
                     {
                         if (!string.IsNullOrEmpty(existingEntry.Sha256) && existingEntry.ModifiedUtc > DateTime.MinValue)
                         {
@@ -524,7 +534,13 @@ namespace PlayniteExporterPlugin.Services
                     indeterminate: true
                 ));
 
-                var diff = hashEngine.ComputeDiff(candidateFiles, currentIndex ?? new SyncIndex());
+                currentIndex ??= new SyncIndex
+                {
+                    LibraryId = settings.LibraryId != Guid.Empty ? settings.LibraryId : Guid.NewGuid(),
+                    ClientVersion = CurrentClientVersion
+                };
+
+                var diff = hashEngine.ComputeDiff(candidateFiles, currentIndex);
 
                 if (!diff.HasChanges)
                 {
@@ -557,6 +573,7 @@ namespace PlayniteExporterPlugin.Services
                 int totalUploads = dirtyCount + mediaCount + 1;
                 int uploadsDone = 0;
                 var uploadEstimator = new ProgressEstimator(totalUploads);
+                var failedUploads = new System.Collections.Concurrent.ConcurrentBag<string>();
 
                 // Phase 2: Uploading dirty/new game payloads:
                 int gamesDone = 0;
@@ -586,28 +603,36 @@ namespace PlayniteExporterPlugin.Services
                             indeterminate: false
                         ));
 
-                        using var ms = new MemoryStream(Encoding.UTF8.GetBytes(item.Content));
-                        var fileId = await storageProvider.UploadFileAsync(
-                            item.RelativePath,
-                            item.MimeType,
-                            ms,
-                            item.ExistingDriveFileId,
-                            null,
-                            ct
-                        ).ConfigureAwait(false);
-
-                        lock (currentIndex.Entries)
+                        try
                         {
-                            currentIndex.Entries[item.RelativePath] = new IndexEntry
+                            using var ms = new MemoryStream(Encoding.UTF8.GetBytes(item.Content));
+                            var fileId = await storageProvider.UploadFileAsync(
+                                item.RelativePath,
+                                item.MimeType,
+                                ms,
+                                item.ExistingDriveFileId,
+                                null,
+                                ct
+                            ).ConfigureAwait(false);
+
+                            lock (currentIndex.Entries)
                             {
-                                Sha256 = item.Sha256,
-                                SizeBytes = item.SizeBytes,
-                                ModifiedUtc = DateTime.UtcNow,
-                                DriveFileId = fileId,
-                                MimeType = item.MimeType,
-                                Category = item.Category,
-                                GameId = item.GameId
-                            };
+                                currentIndex.Entries[item.RelativePath] = new IndexEntry
+                                {
+                                    Sha256 = item.Sha256,
+                                    SizeBytes = item.SizeBytes,
+                                    ModifiedUtc = DateTime.UtcNow,
+                                    DriveFileId = fileId,
+                                    MimeType = item.MimeType,
+                                    Category = item.Category,
+                                    GameId = item.GameId
+                                };
+                            }
+                        }
+                        catch (Exception ex) when (!(ex is OperationCanceledException))
+                        {
+                            Logger.Warn(ex, $"Failed uploading game payload for '{gameName}' ({item.RelativePath}). Skipping this item so export continues.");
+                            failedUploads.Add(item.RelativePath);
                         }
                     }
                     finally
@@ -647,28 +672,36 @@ namespace PlayniteExporterPlugin.Services
 
                         if (!string.IsNullOrEmpty(item.SourceFilePath) && File.Exists(item.SourceFilePath))
                         {
-                            using var fs = new FileStream(item.SourceFilePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-                            var fileId = await storageProvider.UploadFileAsync(
-                                item.RelativePath,
-                                item.MimeType,
-                                fs,
-                                item.ExistingDriveFileId,
-                                null,
-                                ct
-                            ).ConfigureAwait(false);
-
-                            lock (currentIndex.Entries)
+                            try
                             {
-                                currentIndex.Entries[item.RelativePath] = new IndexEntry
+                                using var fs = new FileStream(item.SourceFilePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                                var fileId = await storageProvider.UploadFileAsync(
+                                    item.RelativePath,
+                                    item.MimeType,
+                                    fs,
+                                    item.ExistingDriveFileId,
+                                    null,
+                                    ct
+                                ).ConfigureAwait(false);
+
+                                lock (currentIndex.Entries)
                                 {
-                                    Sha256 = item.Sha256,
-                                    SizeBytes = item.SizeBytes,
-                                    ModifiedUtc = DateTime.UtcNow,
-                                    DriveFileId = fileId,
-                                    MimeType = item.MimeType,
-                                    Category = item.Category,
-                                    GameId = item.GameId
-                                };
+                                    currentIndex.Entries[item.RelativePath] = new IndexEntry
+                                    {
+                                        Sha256 = item.Sha256,
+                                        SizeBytes = item.SizeBytes,
+                                        ModifiedUtc = DateTime.UtcNow,
+                                        DriveFileId = fileId,
+                                        MimeType = item.MimeType,
+                                        Category = item.Category,
+                                        GameId = item.GameId
+                                    };
+                                }
+                            }
+                            catch (Exception ex) when (!(ex is OperationCanceledException))
+                            {
+                                Logger.Warn(ex, $"Failed uploading media file '{item.RelativePath}'. Skipping this item so export continues.");
+                                failedUploads.Add(item.RelativePath);
                             }
                         }
                     }
@@ -764,7 +797,15 @@ namespace PlayniteExporterPlugin.Services
                 await CommitSyncIndexAsync(ct).ConfigureAwait(false);
 
                 settings.LastSyncUtc = DateTime.UtcNow;
-                progress?.Report(new ExportProgressReport("Step 3/3: Complete • 100%\r\nSync successfully completed!", totalUploads, totalUploads, indeterminate: false));
+                if (failedUploads.Count > 0)
+                {
+                    Logger.Warn($"Sync finished with {failedUploads.Count} skipped items out of {totalUploads}. These items will be retried on next sync.");
+                    progress?.Report(new ExportProgressReport($"Step 3/3: Complete • 100%\r\nSync completed ({failedUploads.Count} items skipped - will retry on next export).", totalUploads, totalUploads, indeterminate: false));
+                }
+                else
+                {
+                    progress?.Report(new ExportProgressReport("Step 3/3: Complete • 100%\r\nSync successfully completed!", totalUploads, totalUploads, indeterminate: false));
+                }
                 return diff;
             }
             finally
@@ -794,7 +835,8 @@ namespace PlayniteExporterPlugin.Services
             {
                 currentIndex = new SyncIndex
                 {
-                    LibraryId = settings.LibraryId != Guid.Empty ? settings.LibraryId : Guid.NewGuid()
+                    LibraryId = settings.LibraryId != Guid.Empty ? settings.LibraryId : Guid.NewGuid(),
+                    ClientVersion = CurrentClientVersion
                 };
                 if (File.Exists(localIndexCachePath))
                 {
@@ -814,7 +856,7 @@ namespace PlayniteExporterPlugin.Services
             currentIndex.GeneratedAtUtc = DateTime.UtcNow;
             currentIndex.Version = "1.0.0";
             currentIndex.Generator = "playnite-exporter-plugin";
-            currentIndex.ClientVersion = "1.0.0";
+            currentIndex.ClientVersion = CurrentClientVersion;
             currentIndex.TotalGames = currentIndex.Entries.Values.Count(e => e.Category == "game_metadata");
             currentIndex.TotalEntries = currentIndex.Entries.Count;
             currentIndex.TotalSizeBytes = currentIndex.Entries.Values.Sum(e => e.SizeBytes);

@@ -1,0 +1,124 @@
+name: Publish Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Release Tag (e.g. v1.1.0; leave blank to use version from extension.yaml)'
+        required: false
+        default: ''
+        type: string
+      release_name:
+        description: 'Release Title (e.g. Release v1.1.0; leave blank for automatic)'
+        required: false
+        default: ''
+        type: string
+      draft:
+        description: 'Create as a Draft Release'
+        required: false
+        default: false
+        type: boolean
+      prerelease:
+        description: 'Mark as a Pre-release'
+        required: false
+        default: false
+        type: boolean
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    name: Publish Release Assets
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify Distribution Artifacts
+        run: |
+          echo "Checking for required release binaries in dist/..."
+          if [ ! -f "dist/MobileDeltaSyncExporter.pext" ]; then
+            echo "::error::dist/MobileDeltaSyncExporter.pext is missing from the repository."
+            exit 1
+          fi
+          if [ ! -f "dist/playnite-mobile-companion.apk" ]; then
+            echo "::error::dist/playnite-mobile-companion.apk is missing from the repository."
+            exit 1
+          fi
+          echo "Found:"
+          ls -lh dist/MobileDeltaSyncExporter.pext
+          ls -lh dist/playnite-mobile-companion.apk
+
+      - name: Compute SHA-256 Checksums
+        run: |
+          cd dist
+          sha256sum MobileDeltaSyncExporter.pext playnite-mobile-companion.apk > checksums.txt
+          cat checksums.txt
+          cd ..
+
+      - name: Determine Version and Release Metadata
+        id: meta
+        run: |
+          # 1. Determine Tag
+          if [ -n "${{ github.event.inputs.tag_name }}" ]; then
+            TAG="${{ github.event.inputs.tag_name }}"
+          elif [ "${{ github.ref_type }}" = "tag" ]; then
+            TAG="${{ github.ref_name }}"
+          else
+            EXT_VER=$(grep -E '^Version:' playnite-exporter-plugin/extension.yaml | head -n 1 | awk '{print $2}' | tr -d '\r')
+            TAG="v${EXT_VER:-1.1.0}"
+          fi
+
+          # 2. Determine Title
+          if [ -n "${{ github.event.inputs.release_name }}" ]; then
+            TITLE="${{ github.event.inputs.release_name }}"
+          else
+            TITLE="Playnite Mobile Companion & Exporter ${TAG}"
+          fi
+
+          # 3. Read Checksums
+          CHECKSUMS=$(cat dist/checksums.txt)
+
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "title=${TITLE}" >> "$GITHUB_OUTPUT"
+
+          # 4. Generate Markdown Release Body
+          {
+            echo "## Playnite Mobile Delta Sync ${TAG}"
+            echo ""
+            echo "Official release binaries for Playnite Mobile Companion and Playnite Delta Sync Exporter."
+            echo ""
+            echo "### 📦 Release Assets"
+            echo "* **Playnite Desktop Exporter:** \`MobileDeltaSyncExporter.pext\`"
+            echo "  * *Installation:* Open Playnite Desktop -> Press \`F9\` (Add-ons) -> Select **Install from file...** -> Choose \`MobileDeltaSyncExporter.pext\` -> Restart Playnite."
+            echo "* **Android Mobile Companion:** \`playnite-mobile-companion.apk\`"
+            echo "  * *Installation:* Sideload and install on Android (Android 8.0+ supported)."
+            echo ""
+            echo "### 🔒 SHA-256 Checksums"
+            echo "\`\`\`text"
+            echo "${CHECKSUMS}"
+            echo "\`\`\`"
+          } > release_notes.md
+
+      - name: Create or Update GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          name: ${{ steps.meta.outputs.title }}
+          body_path: release_notes.md
+          draft: ${{ github.event.inputs.draft == 'true' }}
+          prerelease: ${{ github.event.inputs.prerelease == 'true' }}
+          files: |
+            dist/MobileDeltaSyncExporter.pext
+            dist/playnite-mobile-companion.apk
+            dist/checksums.txt
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+

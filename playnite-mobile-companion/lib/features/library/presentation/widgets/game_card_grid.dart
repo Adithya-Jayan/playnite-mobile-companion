@@ -1,5 +1,8 @@
+import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:playnite_mobile_companion/core/config/app_theme.dart';
+import 'package:playnite_mobile_companion/core/ui/playnite_cached_image.dart';
 import 'package:playnite_mobile_companion/core/utils/duration_formatter.dart';
 import 'package:playnite_mobile_companion/core/utils/media_url_resolver.dart';
 import 'package:playnite_mobile_companion/features/game_detail/presentation/game_detail_screen.dart';
@@ -10,12 +13,30 @@ class GameCardGrid extends StatelessWidget {
 
   const GameCardGrid({super.key, required this.game});
 
+  static bool get _isTesting {
+    if (kIsWeb) return false;
+    try {
+      return Platform.environment.containsKey('FLUTTER_TEST');
+    } catch (_) {
+      return false;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final coverId = game.media.coverDriveFileId;
 
     return GestureDetector(
       onTap: () {
+        final bgId = game.media.backgroundDriveFileId;
+        if (!_isTesting && bgId != null && bgId.isNotEmpty) {
+          final isDirectHttp = bgId.startsWith('http://') || bgId.startsWith('https://');
+          final streamUrl = isDirectHttp ? bgId : MediaUrlResolver.getDriveMediaStreamUrl(bgId);
+          final headers = (isDirectHttp && !streamUrl.contains('googleapis.com'))
+              ? <String, String>{}
+              : MediaUrlResolver.getAuthHeaders();
+          precacheImage(NetworkImage(streamUrl, headers: headers), context).catchError((_) {});
+        }
         Navigator.of(context).push(
           MaterialPageRoute(builder: (_) => GameDetailScreen(game: game)),
         );
@@ -31,16 +52,20 @@ class GameCardGrid extends StatelessWidget {
           child: Stack(
             fit: StackFit.expand,
             children: [
-              // Cover Art Image
-              if (coverId != null && coverId.isNotEmpty)
-                Image.network(
-                  MediaUrlResolver.getDriveThumbnailUrl(coverId, width: 300),
-                  headers: MediaUrlResolver.getAuthHeaders(),
+              // Cover Art Image with disk cache, memory downsampling and Hero transition
+              Hero(
+                tag: 'cover_${game.id}',
+                child: PlayniteCachedImage(
+                  mediaId: coverId,
                   fit: BoxFit.cover,
-                  errorBuilder: (context, error, stackTrace) => _buildPlaceholder(),
-                )
-              else
-                _buildPlaceholder(),
+                  memCacheWidth: 280,
+                  memCacheHeight: 420,
+                  maxWidthDiskCache: 400,
+                  maxHeightDiskCache: 600,
+                  placeholder: _buildPlaceholder(),
+                  errorWidget: _buildPlaceholder(),
+                ),
+              ),
 
               // Gradient vignette for bottom text readability
               Container(
@@ -160,7 +185,7 @@ class GameCardGrid extends StatelessWidget {
                   ),
                 ),
 
-              // Truly Hidden / NSFW Game Badge
+              // Hidden Game Badge
               if (game.hidden && !game.isDuplicate)
                 Positioned(
                   top: 6,

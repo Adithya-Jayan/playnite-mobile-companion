@@ -1,10 +1,15 @@
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:playnite_mobile_companion/core/config/app_theme.dart';
 import 'package:playnite_mobile_companion/core/database/app_database.dart';
 import 'package:playnite_mobile_companion/core/database/daos/game_dao.dart';
 import 'package:playnite_mobile_companion/core/database/daos/taxonomy_dao.dart';
+import 'package:playnite_mobile_companion/features/game_detail/presentation/game_detail_screen.dart';
 import 'package:playnite_mobile_companion/features/library/domain/game_filter_criteria.dart';
+import 'package:playnite_mobile_companion/features/library/domain/library_preferences_service.dart';
 import 'package:playnite_mobile_companion/features/library/domain/sort_options.dart';
+import 'package:playnite_mobile_companion/features/settings/data/gallery_settings_repository.dart';
+import 'package:playnite_mobile_companion/features/settings/presentation/settings_screen.dart';
 import 'package:playnite_mobile_companion/features/stats/presentation/stats_dashboard_screen.dart';
 import 'package:playnite_mobile_companion/features/sync/domain/sync_models.dart';
 import 'package:playnite_mobile_companion/features/sync/presentation/sync_settings_screen.dart';
@@ -50,6 +55,18 @@ class _LibraryScreenState extends State<LibraryScreen> {
   ViewMode _viewMode = ViewMode.grid;
   SortOption _sortOption = SortOption.titleAsc;
   GameFilterCriteria _filterCriteria = const GameFilterCriteria();
+  late final GallerySettingsRepository _galleryRepo;
+  late final LibraryPreferencesService _prefsService;
+  GallerySettings _gallerySettings = const GallerySettings();
+
+  GameFilterCriteria get _effectiveCriteria {
+    return _filterCriteria.copyWith(
+      includeHidden: _filterCriteria.includeHidden || _gallerySettings.showHiddenGames,
+      ratingScoreSource: _gallerySettings.ratingScoreSource,
+    );
+  }
+
+  bool _showScrollToTop = false;
 
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
 
@@ -58,7 +75,32 @@ class _LibraryScreenState extends State<LibraryScreen> {
     super.initState();
     _gameDao = GameDao(widget.database);
     _taxonomyDao = TaxonomyDao(widget.database);
+    _galleryRepo = GallerySettingsRepository(widget.database);
+    _prefsService = LibraryPreferencesService();
     _scrollController.addListener(_onScroll);
+    _restorePreferencesAndLoad();
+  }
+
+  Future<void> _restorePreferencesAndLoad() async {
+    try {
+      final savedSort = await _prefsService.loadSortOption();
+      final savedView = await _prefsService.loadViewMode();
+      final savedCriteria = await _prefsService.loadFilterCriteria();
+      final gallerySettings = await _galleryRepo.loadSettings();
+
+      if (mounted) {
+        setState(() {
+          _sortOption = savedSort;
+          if (savedView != null) {
+            _viewMode = ViewMode.values.firstWhere((v) => v.name == savedView, orElse: () => ViewMode.grid);
+          }
+          if (savedCriteria != null) {
+            _filterCriteria = savedCriteria;
+          }
+          _gallerySettings = gallerySettings;
+        });
+      }
+    } catch (_) {}
     _loadLibrary();
   }
 
@@ -70,10 +112,15 @@ class _LibraryScreenState extends State<LibraryScreen> {
   }
 
   void _onScroll() {
-    if (_scrollController.hasClients &&
-        _scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 400) {
-      if (!_isLoading && !_isLoadingMore && _hasMore) {
-        _loadMore();
+    if (_scrollController.hasClients) {
+      final showToTop = _scrollController.offset > 600;
+      if (showToTop != _showScrollToTop) {
+        setState(() => _showScrollToTop = showToTop);
+      }
+      if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 400) {
+        if (!_isLoading && !_isLoadingMore && _hasMore) {
+          _loadMore();
+        }
       }
     }
   }
@@ -85,16 +132,18 @@ class _LibraryScreenState extends State<LibraryScreen> {
       _loadError = null;
     });
     try {
+      _gallerySettings = await _galleryRepo.loadSettings();
+      final effective = _effectiveCriteria;
       final totalCount = await _gameDao.getGamesCount();
       final taxonomies = await _taxonomyDao.getAvailableTaxonomies();
       final int filteredCount;
-      if (_filterCriteria.isEmpty) {
+      if (effective.isEmpty) {
         filteredCount = totalCount;
       } else {
-        filteredCount = await _gameDao.getFilteredGamesCount(criteria: _filterCriteria);
+        filteredCount = await _gameDao.getFilteredGamesCount(criteria: effective);
       }
       final firstBatch = await _gameDao.getFilteredGames(
-        criteria: _filterCriteria,
+        criteria: effective,
         sort: _sortOption,
         limit: _pageSize,
         offset: 0,
@@ -132,7 +181,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
 
     try {
       final nextBatch = await _gameDao.getFilteredGames(
-        criteria: _filterCriteria,
+        criteria: _effectiveCriteria,
         sort: _sortOption,
         limit: _pageSize,
         offset: _games.length,
@@ -167,7 +216,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
     if (_scrollController.hasClients) {
       _scrollController.jumpTo(0);
     }
-    _filterCriteria = criteria;
+    setState(() => _filterCriteria = criteria);
+    _prefsService.saveFilterCriteria(criteria);
     _loadLibrary();
   }
 
@@ -175,11 +225,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
     if (_scrollController.hasClients) {
       _scrollController.jumpTo(0);
     }
-    if (_filterCriteria.isEmpty && _totalGamesCount > 0) {
-      _filterCriteria = const GameFilterCriteria(includeHidden: true);
-    } else {
-      _filterCriteria = const GameFilterCriteria();
-    }
+    const resetCriteria = GameFilterCriteria();
+    setState(() => _filterCriteria = resetCriteria);
+    _prefsService.saveFilterCriteria(resetCriteria);
     _loadLibrary();
   }
 
@@ -197,16 +245,48 @@ class _LibraryScreenState extends State<LibraryScreen> {
           break;
       }
     });
+    _prefsService.saveViewMode(_viewMode.name);
+  }
+
+  void _pickSurpriseGame() {
+    if (_games.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No games available in current filter selection.')),
+      );
+      return;
+    }
+    final unplayed = _games.where((g) => g.playtimeSeconds == 0 || g.playCount == 0).toList();
+    final pool = unplayed.isNotEmpty ? unplayed : _games;
+    final randomGame = pool[Random().nextInt(pool.length)];
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('🎲 Surprise Pick: ${randomGame.name}'),
+        duration: const Duration(seconds: 2),
+        backgroundColor: AppTheme.primary,
+      ),
+    );
+
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => GameDetailScreen(game: randomGame)),
+    );
   }
 
   void _showSortBottomSheet() {
-    const sortChoices = [
+    final sortChoices = [
       SortOption.titleAsc,
       SortOption.titleDesc,
+      SortOption.addedDesc,
+      const SortOption(field: SortField.addedDate, direction: SortDirection.ascending),
       SortOption.playtimeDesc,
+      const SortOption(field: SortField.playtime, direction: SortDirection.ascending),
       SortOption.lastPlayedDesc,
-      SortOption.scoreDesc,
+      const SortOption(field: SortField.lastPlayed, direction: SortDirection.ascending),
+      const SortOption(field: SortField.timesPlayed, direction: SortDirection.descending),
+      SortOption.communityScoreDesc,
+      SortOption.criticScoreDesc,
       SortOption.releaseDesc,
+      const SortOption(field: SortField.releaseDate, direction: SortDirection.ascending),
     ];
 
     showModalBottomSheet(
@@ -225,25 +305,32 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 ),
               ),
               const Divider(height: 1),
-              ...sortChoices.map((opt) {
-                final isSelected = _sortOption.field == opt.field && _sortOption.direction == opt.direction;
-                return ListTile(
-                  title: Text(
-                    opt.label,
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: isSelected ? AppTheme.primaryLight : AppTheme.textPrimary,
-                      fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                    ),
-                  ),
-                  trailing: isSelected ? const Icon(Icons.check, color: AppTheme.primaryLight) : null,
-                  onTap: () {
-                    Navigator.of(ctx).pop();
-                    setState(() => _sortOption = opt);
-                    _loadLibrary();
-                  },
-                );
-              }),
+              Flexible(
+                child: ListView(
+                  shrinkWrap: true,
+                  children: sortChoices.map((opt) {
+                    final isSelected = _sortOption.field == opt.field && _sortOption.direction == opt.direction;
+                    return ListTile(
+                      dense: true,
+                      title: Text(
+                        opt.label,
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: isSelected ? AppTheme.primaryLight : AppTheme.textPrimary,
+                          fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                        ),
+                      ),
+                      trailing: isSelected ? const Icon(Icons.check, color: AppTheme.primaryLight) : null,
+                      onTap: () {
+                        Navigator.of(ctx).pop();
+                        setState(() => _sortOption = opt);
+                        _prefsService.saveSortOption(opt);
+                        _loadLibrary();
+                      },
+                    );
+                  }).toList(),
+                ),
+              ),
             ],
           ),
         );
@@ -258,9 +345,18 @@ class _LibraryScreenState extends State<LibraryScreen> {
     return Scaffold(
       key: _scaffoldKey,
       backgroundColor: AppTheme.background,
+      drawerEnableOpenDragGesture: false,
+      endDrawerEnableOpenDragGesture: false,
       appBar: AppBar(
-        title: const Text('Playnite Library'),
+        title: const Text('Playnite Mobile Companion'),
         actions: [
+          // Surprise Me (Random Game Picker)
+          IconButton(
+            icon: const Icon(Icons.casino),
+            tooltip: 'Surprise Me',
+            onPressed: _pickSurpriseGame,
+          ),
+
           // View Mode Toggle
           IconButton(
             icon: Icon(
@@ -270,13 +366,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
             ),
             tooltip: 'Change View Mode',
             onPressed: _toggleViewMode,
-          ),
-
-          // Sort Button
-          IconButton(
-            icon: const Icon(Icons.sort),
-            tooltip: 'Sort Options',
-            onPressed: _showSortBottomSheet,
           ),
 
           // Stats Dashboard Button
@@ -310,14 +399,14 @@ class _LibraryScreenState extends State<LibraryScreen> {
             },
           ),
 
-          // Settings & Sync Configuration
+          // Settings
           IconButton(
             icon: const Icon(Icons.settings),
-            tooltip: 'Settings & Cloud Sync',
+            tooltip: 'Settings',
             onPressed: () async {
               await Navigator.of(context).push(
                 MaterialPageRoute(
-                  builder: (_) => SyncSettingsScreen(
+                  builder: (_) => SettingsScreen(
                     database: widget.database,
                     onSettingsChanged: _loadLibrary,
                   ),
@@ -338,6 +427,39 @@ class _LibraryScreenState extends State<LibraryScreen> {
       ),
       body: Column(
         children: [
+          // Hidden Games Active Banner
+          if (_gallerySettings.showHiddenGames)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              color: Colors.amber.withValues(alpha: 0.12),
+              child: Row(
+                children: [
+                  const Icon(Icons.visibility_off, color: Colors.amber, size: 18),
+                  const SizedBox(width: 8),
+                  const Expanded(
+                    child: Text(
+                      'Showing only hidden games (Gallery Mode)',
+                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.amber),
+                    ),
+                  ),
+                  TextButton(
+                    style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      minimumSize: Size.zero,
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                    onPressed: () async {
+                      final updated = _gallerySettings.copyWith(showHiddenGames: false);
+                      await _galleryRepo.saveSettings(updated);
+                      _loadLibrary();
+                    },
+                    child: const Text('Exit', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.amberAccent)),
+                  ),
+                ],
+              ),
+            ),
+
           // Search & Filter Bar
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
@@ -349,12 +471,13 @@ class _LibraryScreenState extends State<LibraryScreen> {
                     onQueryChanged: _onSearchQueryChanged,
                   ),
                 ),
-                const SizedBox(width: 8),
+                const SizedBox(width: 4),
                 Stack(
                   alignment: Alignment.topRight,
                   children: [
                     IconButton(
                       icon: const Icon(Icons.filter_list),
+                      tooltip: 'Filter Library',
                       onPressed: () => _scaffoldKey.currentState?.openEndDrawer(),
                     ),
                     if (activeFilters > 0)
@@ -374,6 +497,12 @@ class _LibraryScreenState extends State<LibraryScreen> {
                         ),
                       ),
                   ],
+                ),
+                // Sort Button (To the right of the filter button)
+                IconButton(
+                  icon: const Icon(Icons.swap_vert),
+                  tooltip: 'Sort Library',
+                  onPressed: _showSortBottomSheet,
                 ),
               ],
             ),
@@ -410,6 +539,21 @@ class _LibraryScreenState extends State<LibraryScreen> {
           ),
         ],
       ),
+      floatingActionButton: _showScrollToTop
+          ? FloatingActionButton.small(
+              backgroundColor: AppTheme.primary,
+              foregroundColor: Colors.white,
+              tooltip: 'Scroll to Top',
+              onPressed: () {
+                _scrollController.animateTo(
+                  0,
+                  duration: const Duration(milliseconds: 400),
+                  curve: Curves.easeOutCubic,
+                );
+              },
+              child: const Icon(Icons.keyboard_arrow_up, size: 24),
+            )
+          : null,
     );
   }
 
@@ -431,9 +575,10 @@ class _LibraryScreenState extends State<LibraryScreen> {
   }
 
   Widget _buildGamesView() {
+    Widget scrollView;
     switch (_viewMode) {
       case ViewMode.grid:
-        return LayoutBuilder(
+        scrollView = LayoutBuilder(
           builder: (context, constraints) {
             // Adaptive column count based on viewport width
             final crossAxisCount = (constraints.maxWidth / 140).floor().clamp(2, 6);
@@ -441,6 +586,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
               controller: _scrollController,
               physics: const AlwaysScrollableScrollPhysics(),
               padding: const EdgeInsets.all(12),
+              cacheExtent: 500.0,
+              addAutomaticKeepAlives: false,
+              addRepaintBoundaries: true,
               gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                 crossAxisCount: crossAxisCount,
                 childAspectRatio: 2 / 3,
@@ -457,17 +605,24 @@ class _LibraryScreenState extends State<LibraryScreen> {
                     ),
                   );
                 }
-                return GameCardGrid(game: _games[index]);
+                return GameCardGrid(
+                  key: ValueKey(_games[index].id),
+                  game: _games[index],
+                );
               },
             );
           },
         );
+        break;
 
       case ViewMode.list:
-        return ListView.separated(
+        scrollView = ListView.separated(
           controller: _scrollController,
           physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.symmetric(vertical: 8),
+          cacheExtent: 500.0,
+          addAutomaticKeepAlives: false,
+          addRepaintBoundaries: true,
           itemCount: _games.length + (_isLoadingMore ? 1 : 0),
           separatorBuilder: (context, index) => const Divider(height: 1),
           itemBuilder: (context, index) {
@@ -479,15 +634,22 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 ),
               );
             }
-            return GameListTile(game: _games[index]);
+            return GameListTile(
+              key: ValueKey(_games[index].id),
+              game: _games[index],
+            );
           },
         );
+        break;
 
       case ViewMode.details:
-        return ListView.builder(
+        scrollView = ListView.builder(
           controller: _scrollController,
           physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.symmetric(vertical: 8),
+          cacheExtent: 500.0,
+          addAutomaticKeepAlives: false,
+          addRepaintBoundaries: true,
           itemCount: _games.length + (_isLoadingMore ? 1 : 0),
           itemBuilder: (context, index) {
             if (index >= _games.length) {
@@ -498,10 +660,102 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 ),
               );
             }
-            return GameDetailsTile(game: _games[index]);
+            return GameDetailsTile(
+              key: ValueKey(_games[index].id),
+              game: _games[index],
+            );
           },
         );
+        break;
     }
+
+    final showScrubber = _sortOption.field == SortField.title && _games.length >= 10;
+    return Stack(
+      children: [
+        Scrollbar(
+          controller: _scrollController,
+          interactive: true,
+          thickness: 6.0,
+          radius: const Radius.circular(8),
+          child: scrollView,
+        ),
+        if (showScrubber) _buildAlphabetScrubber(),
+      ],
+    );
+  }
+
+  void _scrollToLetter(String letter) {
+    if (_games.isEmpty || !_scrollController.hasClients) return;
+    int targetIndex = -1;
+    for (int i = 0; i < _games.length; i++) {
+      final title = (_games[i].sortingName.isNotEmpty ? _games[i].sortingName : _games[i].name).trim().toUpperCase();
+      if (letter == '#') {
+        if (title.isNotEmpty && !RegExp(r'^[A-Z]').hasMatch(title[0])) {
+          targetIndex = i;
+          break;
+        }
+      } else {
+        if (title.startsWith(letter)) {
+          targetIndex = i;
+          break;
+        }
+      }
+    }
+
+    if (targetIndex != -1) {
+      final maxScroll = _scrollController.position.maxScrollExtent;
+      final double estimatedOffset = (targetIndex / _games.length) * maxScroll;
+      _scrollController.animateTo(
+        estimatedOffset.clamp(0.0, maxScroll),
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeOutCubic,
+      );
+    }
+  }
+
+  Widget _buildAlphabetScrubber() {
+    const letters = [
+      '#', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I',
+      'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S',
+      'T', 'U', 'V', 'W', 'X', 'Y', 'Z'
+    ];
+
+    return Positioned(
+      right: 2,
+      top: 8,
+      bottom: 8,
+      child: Center(
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 2),
+          decoration: BoxDecoration(
+            color: Colors.black.withValues(alpha: 0.45),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: letters.map((l) {
+              return GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => _scrollToLetter(l),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 1.0, horizontal: 3.0),
+                  child: Text(
+                    l,
+                    style: const TextStyle(
+                      fontSize: 9,
+                      fontWeight: FontWeight.bold,
+                      color: AppTheme.textMuted,
+                      height: 1.1,
+                    ),
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+        ),
+      ),
+    );
   }
 
   Widget _buildEmptyState() {

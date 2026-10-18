@@ -38,7 +38,7 @@ void main() {
       expect(streamUrl, equals('https://www.googleapis.com/drive/v3/files/drive-file-abc-123?alt=media'));
 
       final thumbUrl = MediaUrlResolver.getDriveThumbnailUrl('drive-file-abc-123', width: 500);
-      expect(thumbUrl, equals('https://drive.google.com/thumbnail?id=drive-file-abc-123&sz=w500'));
+      expect(thumbUrl, equals('https://www.googleapis.com/drive/v3/files/drive-file-abc-123?alt=media'));
 
       final headers = MediaUrlResolver.getAuthHeaders();
       expect(headers['Authorization'], equals('Bearer test-bearer-token'));

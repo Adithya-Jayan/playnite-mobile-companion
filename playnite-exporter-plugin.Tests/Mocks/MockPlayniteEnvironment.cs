@@ -60,6 +60,8 @@ namespace PlayniteExporterPlugin.Tests.Mocks
             mockCol.Setup(c => c.CopyTo(It.IsAny<T[]>(), It.IsAny<int>()))
                 .Callback<T[], int>((arr, idx) => list.CopyTo(arr, idx));
             mockCol.Setup(c => c.Get(It.IsAny<Guid>())).Returns((Guid id) => list.FirstOrDefault(i => i.Id == id));
+            mockCol.Setup(c => c.Add(It.IsAny<T>())).Callback<T>(item => list.Add(item));
+            mockCol.Setup(c => c.Remove(It.IsAny<T>())).Returns<T>(item => list.Remove(item));
             db.Setup(property).Returns(mockCol.Object);
         }
     }

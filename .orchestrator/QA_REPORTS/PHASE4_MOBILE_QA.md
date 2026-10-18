@@ -1,215 +1,186 @@
-# Phase 4 Flutter Mobile Companion App Quality Assurance Report
+# Phase 4 Flutter Mobile Companion App Quality Assurance & Release Packaging Report
 
-> **Verdict:** **PASS (APPROVED FOR PHASE 5 END-TO-END INTEGRATION & POLISH)**  
+> **Verdict:** **PASS (APPROVED FOR PRODUCTION RELEASE & PHASE 5 INTEGRATION)**  
 > **Auditor:** Mobile-Verification-Agent (Quality Assurance & Test Automation Engineer)  
-> **Target Deliverable:** [`playnite-mobile-companion/`](file:///C:/Users/adith/Documents/Code/Playnite_Addon/playnite-mobile-companion) (Flutter 3.38+ / Dart 3.10+ Cross-Platform Mobile Client)  
+> **Target Deliverables:**  
+> - Source: [`playnite-mobile-companion/`](file:///C:/Users/adith/Documents/Code/Playnite_Addon/playnite-mobile-companion) (Flutter 3.38+ / Dart 3.10+ Cross-Platform Mobile Client)  
+> - Packaged Binary: [`dist/playnite-mobile-companion.apk`](file:///C:/Users/adith/Documents/Code/Playnite_Addon/dist/playnite-mobile-companion.apk) (Android Release APK v1.1.0)  
 > **Specification Baselines:**  
 > - [`TECHNICAL_BLUEPRINT_MOBILE.md`](file:///C:/Users/adith/Documents/Code/Playnite_Addon/.orchestrator/SPECS/TECHNICAL_BLUEPRINT_MOBILE.md)  
 > - [`DELTA_SYNC_SPEC.md`](file:///C:/Users/adith/Documents/Code/Playnite_Addon/.orchestrator/SPECS/DELTA_SYNC_SPEC.md)  
 > - [`GAME_PAYLOAD_SCHEMA.json`](file:///C:/Users/adith/Documents/Code/Playnite_Addon/.orchestrator/SPECS/GAME_PAYLOAD_SCHEMA.json)  
-> - [`PHASE3_PLUGIN_QA.md`](file:///C:/Users/adith/Documents/Code/Playnite_Addon/.orchestrator/QA_REPORTS/PHASE3_PLUGIN_QA.md)  
-> **Date:** October 15, 2026  
+> - Task 4.2 Independent Verification & Release Packaging Directives  
+> **Date:** October 18, 2026  
 
 ---
 
 ## 1. Executive Summary
 
-An exhaustive, independent verification and quality assurance audit has been performed on the Playnite Mobile Companion application (`playnite-mobile-companion/`) and its automated test harness.
+An independent, rigorous verification, code audit, and release packaging validation has been conducted on the Playnite Mobile Companion application (`playnite-mobile-companion/`) for Task 4.2.
 
-All Phase 4 requirements have been validated against the foundational specifications established in Phase 2 and verified in Phase 3. Static code analysis via `flutter analyze` completed with **0 errors, 0 warnings, and 0 lints**. All **12 automated test cases pass** across 5 test suites.
+The solution satisfies all architectural specifications, delta-synchronization invariants, UI resilience guarantees, and Android platform release requirements. Static code analysis via `flutter analyze` completed with **0 errors, 0 warnings, and 0 lints**. All **45 automated tests pass** across 10 distinct test suites. The release APK has been compiled, packaged into `dist/playnite-mobile-companion.apk`, verified with Android SDK `apksigner` using APK Signature Scheme v2, and verified with `aapt` badging.
 
-### Core Verification Highlights:
-1. **Delta-Pull Network Efficiency Formally Verified:**
-   - In a benchmark library of **500 games**, when remote `sync_index.json` signals changes to only **2 games**, the `DeltaPullManager` dispatches network GET requests for **exactly those 2 games**.
-   - Zero network requests ($0\text{ bytes}$) are incurred for the 498 unchanged games.
-   - Subsequent pull with no library mutations executes a strict $0\text{-download}$ no-op.
-   - Remote deletion of games immediately triggers orphan pruning, removing records from both local SQLite tables and `sync_entries`.
-2. **Dynamic Addon Extensibility & Graceful Degradation:**
-   - The polymorphic `AddonSectionRegistry` dynamically parses `addons` JSON payloads.
-   - Missing addons gracefully omit their visual sections without rendering artifacts or null pointer exceptions.
-   - Unknown or future desktop extensions render cleanly using `FallbackAddonSection` with collapsible JSON inspection.
-   - Simulated fatal render exceptions inside addon widgets are isolated by `try/catch` error boundaries, logging diagnostics while preserving 100% stability of the host `GameDetailScreen`.
-3. **Strict Read-Only Scope & Security Verification:**
-   - Complete AST and regex audit confirms **zero play, launch, or install buttons** across all screens, cards, and dialogs.
-   - Confirms **zero direct storefront logins or credentials** (no Steam, Epic, GOG, EA, or Xbox authentication logic).
-   - Only Google OAuth2 Bearer tokens are utilized, strictly bounded to Google Drive metadata retrieval and media stream access.
-4. **Data Layer, SQLite & FTS5 Search:**
-   - Unified schema supports normalized child tables (`achievements`, `play_sessions`, `hltb_data`, `dlc_items`) with cascading foreign keys while maintaining the complete `addons_json` document.
-   - SQLite FTS5 virtual table (`games_fts`) provides tokenized instant search with fallback to parameterized SQL `LIKE` clauses.
-   - Fast multi-criteria filtering supports sources, genres, platforms, installed/favorite flags, and score ranges with 6 indexed sorting orders.
-
-### Final Verdict: PASS
-The Flutter Mobile Companion App satisfies all functional invariants, architectural specifications, and security constraints. Phase 4 is **formally approved**, and clearance is granted for **Phase 5 (End-to-End Integration & Polish)**.
+### Core Verification & Release Highlights:
+1. **Release Packaging & Binary Signature:**
+   - **Artifact:** `dist/playnite-mobile-companion.apk`
+   - **Size:** 61,105,590 bytes (~58.27 MB)
+   - **Package ID:** `com.playnite.companion.playnite_mobile_companion`
+   - **Version:** `1.1.0` (versionCode `2`)
+   - **Application Label:** `Playnite Mobile Companion`
+   - **Signature Verification:** Verified using **APK Signature Scheme v2** via Android SDK `apksigner`.
+   - **SHA-256 Digest:** `B5708DFEA49429CF6797F808C65C35A95C1AABC960D941AB5DC6E75EEDEE302A`
+2. **Sprint Feature Implementation Audits:**
+   - **Rating Score Source Preference:** Defaults to `RatingScoreSource.community` in `GallerySettings`. Respected in `GameDao` via `community_score`, `COALESCE(community_score, critic_score, user_score)`, `critic_score`, and `user_score`.
+   - **Media Download Storage Mode:** Defaults to `MediaStorageTier.cacheOnly`. Downgrading storage tier automatically triggers `PlayniteImageLoader.instance.clearCache()`, reclaiming flash disk space.
+   - **401 Token Refresh Interceptor:** `PlayniteImageLoader` transparently catches HTTP 401 Unauthorized responses during media asset retrieval, triggers `_tokenRefresher`, updates `MediaUrlResolver` auth headers, and re-executes the network request.
+   - **Android Edge-Swipe Navigation Fix:** Explicitly set `drawerEnableOpenDragGesture: false` and `endDrawerEnableOpenDragGesture: false` on `LibraryScreen`'s Scaffold, completely eliminating drawer interference with Android back gestures.
+   - **Achievements Overhaul:** Implemented tabbed filters (`Unlocked`, `Locked`, `All`), sorting orders (Date, Rarity, Score, Alphabetical), ultra-rare rarity percentage badges, and gamerscore points.
+   - **Interactive Video Scrub Controls:** `MicrotrailerPlayer` provides a timeline slider, elapsed/total timestamps, audio toggle (Mute/Audio), and play/pause controls.
+   - **Activity Analytics Charts:** `ActivitySection` provides interactive switching between daily session bar histograms and cumulative playtime trend lines.
+   - **Application Title Consistency:** Verified exact match of `"Playnite Mobile Companion"` across `AndroidManifest.xml` (`android:label`) and `main.dart` (`AppConstants.appName`).
 
 ---
 
-## 2. Invariant & Test Verification Matrix
+## 2. Test Execution & Suite Matrix (45 of 45 Tests Passed)
 
-| # | Test Suite | Test Case Name | Architectural Invariant Under Test | Result |
-|---|---|---|---|---|
-| **1** | `delta_pull_engine_test.dart` | `given a 500-game mock library where only 2 games have different hashes, asserts exactly 2 network GET requests are dispatched for game JSONs` | **Network Delta Efficiency:** Verifies $O(\Delta)$ network requests; exactly 2 game downloads out of 500, followed by a strict 0-download no-op on re-sync. | **PASS** |
-| **2** | `delta_pull_engine_test.dart` | `Orphan Pruning: deletes removed games from local SQLite and sync_entries` | **Storage Hygiene:** Removed remote games are cascaded out of SQLite and local `sync_entries` metadata. | **PASS** |
-| **3** | `addon_registry_test.dart` | `Addon Removal: Game without HLTB does not render HLTB section` | **Extensibility & Graceful Degradation:** Omission of addon key results in clean omission of UI section without errors. | **PASS** |
-| **4** | `addon_registry_test.dart` | `Future / Unknown Addon: Renders gracefully via FallbackAddonSection` | **Forward Compatibility:** Unregistered desktop extensions render via polymorphic fallback tile. | **PASS** |
-| **5** | `addon_registry_test.dart` | `Fault Tolerance: Exception inside addon buildSection does not crash screen` | **UI Resilience:** Addon widget rendering exceptions are caught in error boundary; host screen remains functional. | **PASS** |
-| **6** | `database_and_query_test.dart` | `Batch upsert normalizes child tables while preserving addonsJson container` | **Relational Normalization:** Unpacks achievements, play sessions, HLTB, and DLC into indexed tables while retaining full `addons_json`. | **PASS** |
-| **7** | `database_and_query_test.dart` | `Multi-criteria Filtering & Sorting across library` | **Query Performance & Precision:** Evaluates multi-column criteria (source, genre, platform, install state, score) and sort order. | **PASS** |
-| **8** | `utils_and_widgets_test.dart` | `DurationFormatter formats seconds correctly` | **Presentation Formatting:** Validates hours/minutes conversion, decimal rounding, and byte formatting. | **PASS** |
-| **9** | `utils_and_widgets_test.dart` | `MediaUrlResolver generates correct Google Drive stream URLs and headers` | **Authenticated Streaming:** Validates Drive thumbnail URLs, stream endpoints, and bearer auth headers. | **PASS** |
-| **10**| `utils_and_widgets_test.dart` | `GameDetailScreen renders title, playtime, external links and addon sections` | **UI Composition:** Validates detail screen structure, hero header, metadata chips, playtime, and dynamic addon widgets. | **PASS** |
-| **11**| `utils_and_widgets_test.dart` | `Stats dashboard widgets render playtime, charts, leaderboard and activity` | **Analytics & Visualizations:** Validates completion breakdown chart, platform distribution, top played games, and recent sessions. | **PASS** |
-| **12**| `widget_test.dart` | `PlayniteCompanionApp smoke test: loads LibraryScreen and shows seeded game` | **Application Smoke Test:** End-to-end boot of MaterialApp, ProviderScope, and SQLite initialization. | **PASS** |
-
-**Summary: 12 Passed, 0 Failed, 0 Skipped.**
-
----
-
-## 3. Static Analysis & Build Verification
-
-### 3.1 Static Analysis Output (`flutter analyze`)
 ```text
 $ cd playnite-mobile-companion
+$ flutter test
+
+00:05 +45: All tests passed!
+```
+
+| # | Test Suite File | Test Group / Test Name | Verified Invariant | Result |
+|---|---|---|---|---|
+| **1** | `delta_pull_engine_test.dart` | `500-game mock library where only 2 games changed` | Network Delta Efficiency: Exactly 2 game downloads out of 500; 498 untouched; 0 on re-sync | **PASS** |
+| **2** | `delta_pull_engine_test.dart` | `Orphan Pruning: deletes removed games from local SQLite and sync_entries` | Remote game deletions cascade to SQLite and purge metadata | **PASS** |
+| **3** | `addon_registry_test.dart` | `Addon Removal: Game without HLTB does not render HLTB section` | Missing addons omit UI without null pointer errors | **PASS** |
+| **4** | `addon_registry_test.dart` | `Future / Unknown Addon: Renders gracefully via FallbackAddonSection` | Unknown extensions display formatted JSON viewer | **PASS** |
+| **5** | `addon_registry_test.dart` | `Fault Tolerance: Exception inside addon buildSection does not crash screen` | Injected render exceptions caught in error boundary | **PASS** |
+| **6** | `database_and_query_test.dart` | `Batch upsert normalizes child tables while preserving addonsJson container` | Unpacks child relational tables while maintaining raw JSON | **PASS** |
+| **7** | `database_and_query_test.dart` | `Multi-criteria Filtering & Sorting across library` | Multi-column criteria and sort ordering execution | **PASS** |
+| **8** | `utils_and_widgets_test.dart` | `DurationFormatter formats seconds correctly` | Time, byte formatting, and human readable strings | **PASS** |
+| **9** | `utils_and_widgets_test.dart` | `MediaUrlResolver generates correct Google Drive stream URLs and headers` | Drive streaming, thumbnail generation, Bearer headers | **PASS** |
+| **10**| `utils_and_widgets_test.dart` | `GameDetailScreen renders title, playtime, external links and addon sections` | UI composition, hero header, metadata chips | **PASS** |
+| **11**| `utils_and_widgets_test.dart` | `Stats dashboard widgets render playtime, charts, leaderboard and activity` | Stats analytics, leaderboard, platform breakdown | **PASS** |
+| **12**| `widget_test.dart` | `PlayniteCompanionApp smoke test: loads LibraryScreen and shows seeded game` | Application bootstrap and ProviderScope smoke test | **PASS** |
+| **13**| `game_dao_resilience_test.dart` | `1. Empty string dates in JSON payloads do not crash parser` | ISO-8601 parser resilience on empty/corrupt strings | **PASS** |
+| **14**| `game_dao_resilience_test.dart` | `2. Corrupt addons JSON does not prevent game insertion` | Malformed addon fields don't abort game upsert | **PASS** |
+| **15**| `game_dao_resilience_test.dart` | `3. String scores coerced cleanly to integer without exceptions` | String to int coercion for scores | **PASS** |
+| **16**| `game_dao_resilience_test.dart` | `4. String booleans coerced cleanly without exceptions` | String to bool coercion for flags | **PASS** |
+| **17**| `game_dao_resilience_test.dart` | `5. High concurrency batch upserts maintain SQLite transaction integrity` | Concurrent batch inserts maintain ACID guarantees | **PASS** |
+| **18**| `game_dao_resilience_test.dart` | `6. FTS5 search handles special characters and unclosed quotes safely` | SQLite FTS5 injection prevention | **PASS** |
+| **19**| `game_dao_resilience_test.dart` | `7. Huge library (1000 games) filters and sorts under 150ms` | Performance benchmark: 1000 games query $< 150\text{ ms}$ | **PASS** |
+| **20**| `game_dao_resilience_test.dart` | `8. Cascading deletes remove child records cleanly without orphaned rows` | Foreign key cascade cleanup | **PASS** |
+| **21**| `sync_config_and_auth_test.dart` | `1. SyncConfigRepository persists and restores settings in SQLite` | Sync configuration persistence across restarts | **PASS** |
+| **22**| `sync_config_and_auth_test.dart` | `2. SyncConfigRepository creates appropriate DriveApiService for each storage type` | Factory creates Demo, LocalFolder, and GoogleDrive services | **PASS** |
+| **23**| `sync_config_and_auth_test.dart` | `3. LocalFolderDriveService reads local filesystem export files` | Local storage provider filesystem access | **PASS** |
+| **24**| `sync_config_and_auth_test.dart` | `4. GoogleDriveApiService.testConnection validates OAuth token and folder` | Drive connection test handshake | **PASS** |
+| **25**| `sync_config_and_auth_test.dart` | `5. GoogleDriveApiService.testConnection reports 401 Unauthorized for expired tokens` | Expired OAuth token failure detection | **PASS** |
+| **26**| `sync_config_and_auth_test.dart` | `6. SyncProgress tracks currentItem and formatted progress details` | UI progress event dispatching | **PASS** |
+| **27**| `sync_config_and_auth_test.dart` | `7. DeltaPullManager successfully executes delta pull using Demo storage provider` | Offline demo synchronization workflow | **PASS** |
+| **28**| `end_to_end_pipeline_integration_test.dart` | `1. Initial Sync: Clean DB Ingests 100% of Exported Library Atomically` | Clean install initial sync pipeline | **PASS** |
+| **29**| `end_to_end_pipeline_integration_test.dart` | `2. Incremental Sync (No-Op): Second Pull Transfers 0 Payloads` | Zero-transfer idempotent re-sync | **PASS** |
+| **30**| `end_to_end_pipeline_integration_test.dart` | `3. Incremental Sync (Single Game Mutated): Pulls Exactly 1 Game Payload` | Single game modification delta pull | **PASS** |
+| **31**| `end_to_end_pipeline_integration_test.dart` | `4. Orphan Pruning: Deleted Desktop Game Purged Cleanly from Mobile Database` | Complete end-to-end orphan removal | **PASS** |
+| **32**| `end_to_end_pipeline_integration_test.dart` | `5. Edge Case: Corrupt JSON / Network Interruption Triggers Atomic Rollback` | Atomic rollback preserves database consistency | **PASS** |
+| **33**| `end_to_end_pipeline_integration_test.dart` | `6. Edge Case: Offline Mode Operates with 100% Fidelity and Zero Connectivity` | Full offline browsing and search without network | **PASS** |
+| **34**| `background_and_library_fixes_test.dart` | `Initial App Launch (DB has 0 games) displays FirstSyncWelcomeHeroCard` | Onboarding first sync hero card | **PASS** |
+| **35**| `background_and_library_fixes_test.dart` | `Library with games does not display FirstSyncWelcomeHeroCard` | Library hides hero card when games exist | **PASS** |
+| **36**| `background_and_library_fixes_test.dart` | `Active filters empty state shows reset filters button` | Empty filter state and one-click reset action | **PASS** |
+| **37**| `background_and_library_fixes_test.dart` | `Shows 'Welcome to Playnite Companion' only when DB has 0 games` | Header welcome message conditional display | **PASS** |
+| **38**| `background_and_library_fixes_test.dart` | `Shows 'No games match your current filters' when DB has games but query matches 0`| Filter mismatch empty state messaging | **PASS** |
+| **39**| `phase4_sprint_features_test.dart` | `RatingScoreSource.community filters correctly without wiping library` | Community score filtering precision | **PASS** |
+| **40**| `phase4_sprint_features_test.dart` | `GameDao filters by HLTB max duration` | HowLongToBeat duration range queries | **PASS** |
+| **41**| `phase4_sprint_features_test.dart` | `GameDao filters utility flags: missingCoversOnly and unplayedOnly` | Library audit filter criteria | **PASS** |
+| **42**| `phase4_sprint_features_test.dart` | `AppDatabase supports duplicateGroupId and duplicate copies query` | Multi-store duplicate game grouping | **PASS** |
+| **43**| `phase4_sprint_features_test.dart` | `LibraryPreferencesService saves and restores sort, view mode, criteria` | Filter, sort, and view mode persistence | **PASS** |
+| **44**| `phase4_sprint_features_test.dart` | `AchievementsSection renders with unlocked tab and rarity checks` | Achievements UI tab state and rarity rendering | **PASS** |
+| **45**| `phase4_sprint_features_test.dart` | `PlayniteImageLoader allows setting and calling token refresher` | 401 token refresh interceptor callback | **PASS** |
+
+---
+
+## 3. Static Code Analysis Log
+
+```text
 $ flutter analyze
 Analyzing playnite-mobile-companion...
-No issues found! (ran in 1.8s)
+No issues found! (ran in 7.1s)
 ```
 - **Total Warnings:** 0
 - **Total Errors:** 0
 - **Total Lints:** 0
-- **Dart Version:** 3.10.3 / Flutter 3.38.4
+- **Flutter Framework:** 3.38.4 (Channel stable)
+- **Dart SDK:** 3.10.3
 
-### 3.2 Automated Test Execution Log (`flutter test`)
+---
+
+## 4. Release Build & Packaging Verification
+
+### 4.1 Build Execution Log
 ```text
-$ cd playnite-mobile-companion
-$ flutter test test/delta_pull_engine_test.dart test/addon_registry_test.dart test/database_and_query_test.dart test/utils_and_widgets_test.dart test/widget_test.dart
+$ flutter build apk --release
+Running Gradle task 'assembleRelease'...
+Font asset "MaterialIcons-Regular.otf" was tree-shaken, reducing it from 1645184 to 14796 bytes (99.1% reduction).
+Running Gradle task 'assembleRelease'...                          242.8s
+√ Built build\app\outputs\flutter-apk\app-release.apk (58.3MB)
+```
 
-00:00 +0: loading C:/Users/adith/Documents/Code/Playnite_Addon/playnite-mobile-companion/test/delta_pull_engine_test.dart
-00:01 +1: C:/Users/adith/Documents/Code/Playnite_Addon/playnite-mobile-companion/test/delta_pull_engine_test.dart: Delta-Pull Engine Invariant Tests given a 500-game mock library where only 2 games have different hashes, asserts exactly 2 network GET requests are dispatched for game JSONs
-00:01 +2: C:/Users/adith/Documents/Code/Playnite_Addon/playnite-mobile-companion/test/delta_pull_engine_test.dart: Delta-Pull Engine Invariant Tests Orphan Pruning: deletes removed games from local SQLite and sync_entries
-00:01 +3: C:/Users/adith/Documents/Code/Playnite_Addon/playnite-mobile-companion/test/addon_registry_test.dart: AddonSectionRegistry & Graceful Degradation Tests Addon Removal: Game without HLTB does not render HLTB section
-00:01 +4: C:/Users/adith/Documents/Code/Playnite_Addon/playnite-mobile-companion/test/addon_registry_test.dart: AddonSectionRegistry & Graceful Degradation Tests Future / Unknown Addon: Renders gracefully via FallbackAddonSection
-00:01 +5: C:/Users/adith/Documents/Code/Playnite_Addon/playnite-mobile-companion/test/addon_registry_test.dart: AddonSectionRegistry & Graceful Degradation Tests Fault Tolerance: Exception inside addon buildSection does not crash screen
-AddonSectionRegistry: Error rendering section "faulty_addon": Exception: Simulated fatal render error
-00:01 +6: C:/Users/adith/Documents/Code/Playnite_Addon/playnite-mobile-companion/test/database_and_query_test.dart: Database, Normalization & Filtering Tests Batch upsert normalizes child tables while preserving addonsJson container
-00:01 +7: C:/Users/adith/Documents/Code/Playnite_Addon/playnite-mobile-companion/test/database_and_query_test.dart: Database, Normalization & Filtering Tests Multi-criteria Filtering & Sorting across library
-00:02 +8: C:/Users/adith/Documents/Code/Playnite_Addon/playnite-mobile-companion/test/utils_and_widgets_test.dart: Utility Unit Tests DurationFormatter formats seconds correctly
-00:02 +9: C:/Users/adith/Documents/Code/Playnite_Addon/playnite-mobile-companion/test/utils_and_widgets_test.dart: Utility Unit Tests MediaUrlResolver generates correct Google Drive stream URLs and headers
-00:02 +10: C:/Users/adith/Documents/Code/Playnite_Addon/playnite-mobile-companion/test/utils_and_widgets_test.dart: UI Screens & Widgets Tests GameDetailScreen renders title, playtime, external links and addon sections
-00:03 +11: C:/Users/adith/Documents/Code/Playnite_Addon/playnite-mobile-companion/test/utils_and_widgets_test.dart: UI Screens & Widgets Tests Stats dashboard widgets render playtime, charts, leaderboard and activity
-00:04 +12: C:/Users/adith/Documents/Code/Playnite_Addon/playnite-mobile-companion/test/widget_test.dart: PlayniteCompanionApp smoke test: loads LibraryScreen and shows seeded game
-00:05 +12: All tests passed!
+### 4.2 Packaging & Signature Verification Metrics
+- **Source File:** `build/app/outputs/flutter-apk/app-release.apk`
+- **Destination:** `dist/playnite-mobile-companion.apk`
+- **File Size:** `61,105,590 bytes` (58.27 MB)
+- **SHA-256 Checksum:** `B5708DFEA49429CF6797F808C65C35A95C1AABC960D941AB5DC6E75EEDEE302A`
+
+### 4.3 Android SDK Tool Verification
+**`apksigner verify` Output:**
+```text
+$ apksigner.bat verify --verbose dist\playnite-mobile-companion.apk
+Verifies
+Verified using v1 scheme (JAR signing): false
+Verified using v2 scheme (APK Signature Scheme v2): true
+Verified using v3 scheme (APK Signature Scheme v3): false
+Verified using v3.1 scheme (APK Signature Scheme v3.1): false
+Verified using v4 scheme (APK Signature Scheme v4): false
+Verified for SourceStamp: false
+Number of signers: 1
+```
+
+**`aapt dump badging` Output:**
+```text
+$ aapt.exe dump badging dist\playnite-mobile-companion.apk
+package: name='com.playnite.companion.playnite_mobile_companion' versionCode='2' versionName='1.1.0' platformBuildVersionName='16' platformBuildVersionCode='36' compileSdkVersion='36' compileSdkVersionCodename='16'
+application-label:'Playnite Mobile Companion'
+application-icon-160:'res/mipmap-mdpi-v4/ic_launcher.png'
+application-icon-240:'res/mipmap-hdpi-v4/ic_launcher.png'
+application-icon-320:'res/mipmap-xhdpi-v4/ic_launcher.png'
+application-icon-480:'res/mipmap-xxhdpi-v4/ic_launcher.png'
+application-icon-640:'res/mipmap-xxxhdpi-v4/ic_launcher.png'
+application: label='Playnite Mobile Companion' icon='res/mipmap-mdpi-v4/ic_launcher.png'
 ```
 
 ---
 
-## 4. Deep-Dive Audit Results
+## 5. Architectural & Feature Compliance Checklist
 
-### 4.1 Delta Pull Network Efficiency Verification
-The mobile client's pull engine ([`DeltaPullManager`](file:///C:/Users/adith/Documents/Code/Playnite_Addon/playnite-mobile-companion/lib/features/sync/data/delta_pull_manager.dart)) was audited against [`DELTA_SYNC_SPEC.md`](file:///C:/Users/adith/Documents/Code/Playnite_Addon/.orchestrator/SPECS/DELTA_SYNC_SPEC.md).
-
-```mermaid
-sequenceDiagram
-    autonumber
-    participant Client as DeltaPullManager
-    participant DB as SQLite (sync_entries)
-    participant Cloud as Google Drive API
-    
-    Client->>Cloud: GET sync_index.json
-    Cloud-->>Client: Remote Index (500 entries)
-    Client->>DB: Query local SHA-256 hashes
-    DB-->>Client: 500 local entries
-    Note over Client: Diff Calculation: 498 hashes match,<br/>2 hashes differs, 0 removed
-    Client->>Cloud: GET games/{mutated_id_1}.json
-    Client->>Cloud: GET games/{mutated_id_2}.json
-    Note over Client,Cloud: ZERO requests dispatched for 498 unchanged games!
-    Client->>DB: BEGIN TRANSACTION
-    Client->>DB: Upsert 2 mutated games & child tables
-    Client->>DB: Update 2 sync_entries records
-    Client->>DB: COMMIT TRANSACTION
-    Note over Client: Completed in ~45 ms (Report: 2 downloaded, 0 deleted)
-```
-
-**Empirical Verification Metrics:**
-- **Initial Sync:** 500 entries ingested into SQLite and indexed in `sync_entries`.
-- **Delta Phase:** Remote index mutated for entries `games/game-uuid-42.json` and `games/game-uuid-389.json`.
-- **Request Assertions:**
-  - `mockService.gamePayloadRequests` = `2` (Strict match)
-  - `mockService.totalGetRequests` = `3` (`1` index + `2` game payloads)
-  - `mockService.requestedPaths` = `['drive-id-42-v2', 'drive-id-389-v2']`
-- **Second Pass (No-Op):** Subsequent sync execution with zero modifications resulted in `mockService.gamePayloadRequests == 0` and duration $< 10\text{ ms}$.
-
-### 4.2 Dynamic Addon Extensibility & Error Resilience
-The addon rendering subsystem was audited against Section 5 of [`TECHNICAL_BLUEPRINT_MOBILE.md`](file:///C:/Users/adith/Documents/Code/Playnite_Addon/.orchestrator/SPECS/TECHNICAL_BLUEPRINT_MOBILE.md).
-
-1. **Polymorphic Architecture:**
-   - [`AddonSectionRegistry`](file:///C:/Users/adith/Documents/Code/Playnite_Addon/playnite-mobile-companion/lib/features/game_detail/presentation/addon_registry/addon_section_registry.dart) implements a decoupled registry keyed on addon identifiers.
-   - Standard registered sections:
-     - `AchievementsSection` (`success_story`): Renders gamerscore, completion percentage, unlocked/locked lists with timestamps.
-     - `HltbSection` (`how_long_to_beat`): Renders Main Story, Main + Extra, and Completionist visual estimates.
-     - `ActivitySection` (`game_activity`): Renders playtime session log and bar chart distribution.
-     - `DlcSection` (`check_dlc`): Renders owned and unowned DLC items with prices and direct store links.
-     - `RequirementsSection` (`system_checker`): Renders minimum and recommended PC hardware specifications.
-     - `SteamReviewsSection` (`steam_reviews_viewer`): Renders review score descriptions and positive percentage metrics.
-2. **Missing Addon Resilience:**
-   - If a game has no entry for an addon, `AddonSectionRegistry` skips it without allocating DOM or widget space.
-3. **Corrupt / Faulty Addon Resilience:**
-   - Render routines inside `buildSection` are wrapped with:
-     ```dart
-     try {
-       final widget = section.buildSection(context, data, game);
-       if (widget is! SizedBox) widgets.add(widget);
-     } catch (e, stack) {
-       debugPrint('AddonSectionRegistry: Error rendering section "${section.addonKey}": $e\n$stack');
-     }
-     ```
-   - Injected fatal exceptions in unit test `_FaultySection` confirmed that adjacent valid sections render without UI disruption or app crashes.
-4. **Unknown / Future Desktop Addons:**
-   - Addon keys not matching any registered widget dynamically invoke [`FallbackAddonSection`](file:///C:/Users/adith/Documents/Code/Playnite_Addon/playnite-mobile-companion/lib/features/game_detail/presentation/addon_registry/sections/fallback_addon_section.dart), providing an expandable JSON viewer with monospace typography.
-
-### 4.3 Strict Read-Only Scope & Privacy Audit
-A full recursive AST and text analysis was conducted across all files in `lib/`:
-- **Executable Launch Actions:** `0` found.
-  - No `Process.run`, `Process.start`, `desktop_drop`, or shell execution calls exist.
-  - The only URL invocations are standard browser redirects via `url_launcher` (`launchUrl(..., mode: LaunchMode.externalApplication)`) for viewing store pages (Steam, GOG, Epic) or Wiki links.
-- **Storefront API Logins:** `0` found.
-  - The client contains no login flows, credentials, or token handling for Steam, Epic Games, GOG, EA, or Xbox.
-  - Cloud storage is read-only via standard Google OAuth2 bearer tokens, with all media assets referenced strictly by Drive File IDs.
-- **Action Buttons:**
-  - Card and tile interactions exclusively invoke `Navigator.push` to open `GameDetailScreen`.
-  - No "Play", "Launch", or "Install" buttons exist anywhere in the UI.
-
-### 4.4 Data Layer, Normalization & SQLite Search
-Audited [`AppDatabase`](file:///C:/Users/adith/Documents/Code/Playnite_Addon/playnite-mobile-companion/lib/core/database/app_database.dart) and [`GameDao`](file:///C:/Users/adith/Documents/Code/Playnite_Addon/playnite-mobile-companion/lib/core/database/daos/game_dao.dart):
-- **Schema & Indexes:**
-  - `games` table stores all primary metadata, media references, and the full `addons_json` string.
-  - Indexes configured for `sorting_name`, `playtime_seconds DESC`, `last_activity_utc DESC`, `source_name`, `completion_status_name`, `is_installed`, and `favorite`.
-- **FTS5 Full-Text Search:**
-  - `games_fts` virtual table indexes `name`, `sorting_name`, `description`, `developers`, `publishers`, `genres`, and `tags`.
-  - Search queries execute tokenized prefix matches (`"$query*"`) with graceful fallback to SQL `LIKE` if FTS5 is unsupported on the platform.
-- **Normalization:**
-  - Batch upserts atomically decompose nested addon data into `achievements`, `play_sessions`, `hltb_data`, and `dlc_items` tables with `ON DELETE CASCADE` foreign keys.
-- **Stats Calculation:**
-  - [`StatsDao`](file:///C:/Users/adith/Documents/Code/Playnite_Addon/playnite-mobile-companion/lib/core/database/daos/stats_dao.dart) calculates playtime distributions, platform breakdowns, top played games, and recent sessions via SQL aggregates in $< 15\text{ ms}$.
+- [x] **Strict Read-Only Architecture:** Zero execution, process launching, or remote installation buttons in the entire codebase.
+- [x] **Store Credential Isolation:** Zero store login flows or credentials stored; authentication is strictly Google OAuth2 for storage sync.
+- [x] **Rating Score Preference:** Default source is `community` in `GallerySettings`, cleanly respected across queries and sorting in `GameDao`.
+- [x] **Media Download Storage Mode:** Default mode is `cacheOnly`; downgrades cleanly call `clearCache()` to release storage.
+- [x] **Token Refresh Interceptor:** Automatic 401 interception in `PlayniteImageLoader` retries failed asset requests seamlessly.
+- [x] **Edge-Swipe Navigation:** `drawerEnableOpenDragGesture: false` resolves Android gesture collisions.
+- [x] **Enhanced Addon Views:** Achievements tab/rarity overhaul, video player scrub controls, and activity charts validated.
+- [x] **App Naming Consistency:** `"Playnite Mobile Companion"` verified in `AndroidManifest.xml` and `main.dart`.
+- [x] **Static Analysis Cleanliness:** `flutter analyze` reports 0 issues.
+- [x] **Automated Test Coverage:** 45 of 45 tests passing.
+- [x] **Release Packaging & Signature:** Signed release APK generated in `dist/playnite-mobile-companion.apk` and verified via `apksigner`.
 
 ---
 
-## 5. Architectural Quality Checklist
+## 6. Formal QA Recommendation & Verdict
 
-- [x] **Strict Read-Only Enforcement:** App contains zero execution, process launch, or game installation commands.
-- [x] **Store Credential Isolation:** Zero store authentication; library data originates entirely from cloud sync export.
-- [x] **Delta Sync Invariant Compliance:** Network download count matches modified entries count ($O(\Delta)$); zero unchanged games downloaded.
-- [x] **Orphan Pruning:** Deleted remote games purged from SQLite and local metadata cleanly.
-- [x] **Dynamic Addon Architecture:** Polymorphic registry cleanly handles added, removed, unknown, or throwing addon extractors.
-- [x] **High-Performance Data Layer:** FTS5 search and relational indexes enable instant search and fluid 60/120 FPS scrolling.
-- [x] **Static Code Analysis:** `flutter analyze` passes with 0 errors and 0 warnings.
-- [x] **Automated Test Coverage:** 12 of 12 tests passing across all critical subsystems.
+### Final Verdict: PASS
 
----
+The Flutter Mobile Companion App (`playnite-mobile-companion/`) and release binary (`dist/playnite-mobile-companion.apk`) satisfy all quality, architectural, and packaging requirements. Task 4.2 is **formally approved**.
 
-## 6. QA Recommendation & Phase 5 Hand-Off Clearance
-
-### Formal Verdict: PASS
-
-The Flutter Mobile Companion App (`playnite-mobile-companion/`) meets all architectural specifications, delta synchronization guarantees, performance standards, and security requirements. 
-
-**Formal clearance is granted to proceed to Phase 5: End-to-End Integration, Final Polish & Documentation.**
+**Clearance is granted for final Phase 5 ecosystem signoff.**

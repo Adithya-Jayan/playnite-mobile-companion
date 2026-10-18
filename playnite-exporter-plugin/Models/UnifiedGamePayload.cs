@@ -66,6 +66,9 @@ namespace PlayniteExporterPlugin.Models
         [JsonProperty("is_duplicate")]
         public bool IsDuplicate { get; set; }
 
+        [JsonProperty("duplicate_group_id")]
+        public Guid? DuplicateGroupId { get; set; }
+
         [JsonProperty("other_copies")]
         public List<DuplicateCopyPayload> OtherCopies { get; set; } = new();
 

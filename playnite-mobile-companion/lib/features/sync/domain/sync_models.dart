@@ -233,49 +233,143 @@ class LinkItem {
 
 /// Represents media references in UnifiedGamePayload
 class MediaPayload {
+  final String? coverRelativePath;
   final String? coverSha256;
   final String? coverDriveFileId;
+
+  final String? backgroundRelativePath;
   final String? backgroundSha256;
   final String? backgroundDriveFileId;
+
+  final String? iconRelativePath;
+  final String? iconSha256;
+  final String? iconDriveFileId;
+
+  final String? logoRelativePath;
   final String? logoDriveFileId;
+
+  final String? microtrailerRelativePath;
   final String? microtrailerDriveFileId;
+
+  final String? trailerRelativePath;
   final String? trailerDriveFileId;
+  final String? trailerWebUrl;
 
   const MediaPayload({
+    this.coverRelativePath,
     this.coverSha256,
     this.coverDriveFileId,
+    this.backgroundRelativePath,
     this.backgroundSha256,
     this.backgroundDriveFileId,
+    this.iconRelativePath,
+    this.iconSha256,
+    this.iconDriveFileId,
+    this.logoRelativePath,
     this.logoDriveFileId,
+    this.microtrailerRelativePath,
     this.microtrailerDriveFileId,
+    this.trailerRelativePath,
     this.trailerDriveFileId,
+    this.trailerWebUrl,
   });
+
+  MediaPayload copyWith({
+    String? coverRelativePath,
+    String? coverSha256,
+    String? coverDriveFileId,
+    String? backgroundRelativePath,
+    String? backgroundSha256,
+    String? backgroundDriveFileId,
+    String? iconRelativePath,
+    String? iconSha256,
+    String? iconDriveFileId,
+    String? logoRelativePath,
+    String? logoDriveFileId,
+    String? microtrailerRelativePath,
+    String? microtrailerDriveFileId,
+    String? trailerRelativePath,
+    String? trailerDriveFileId,
+    String? trailerWebUrl,
+  }) {
+    return MediaPayload(
+      coverRelativePath: coverRelativePath ?? this.coverRelativePath,
+      coverSha256: coverSha256 ?? this.coverSha256,
+      coverDriveFileId: coverDriveFileId ?? this.coverDriveFileId,
+      backgroundRelativePath: backgroundRelativePath ?? this.backgroundRelativePath,
+      backgroundSha256: backgroundSha256 ?? this.backgroundSha256,
+      backgroundDriveFileId: backgroundDriveFileId ?? this.backgroundDriveFileId,
+      iconRelativePath: iconRelativePath ?? this.iconRelativePath,
+      iconSha256: iconSha256 ?? this.iconSha256,
+      iconDriveFileId: iconDriveFileId ?? this.iconDriveFileId,
+      logoRelativePath: logoRelativePath ?? this.logoRelativePath,
+      logoDriveFileId: logoDriveFileId ?? this.logoDriveFileId,
+      microtrailerRelativePath: microtrailerRelativePath ?? this.microtrailerRelativePath,
+      microtrailerDriveFileId: microtrailerDriveFileId ?? this.microtrailerDriveFileId,
+      trailerRelativePath: trailerRelativePath ?? this.trailerRelativePath,
+      trailerDriveFileId: trailerDriveFileId ?? this.trailerDriveFileId,
+      trailerWebUrl: trailerWebUrl ?? this.trailerWebUrl,
+    );
+  }
 
   factory MediaPayload.fromJson(Map<String, dynamic>? json) {
     if (json == null) return const MediaPayload();
     final cover = json['cover'] as Map<String, dynamic>?;
     final bg = json['background'] as Map<String, dynamic>?;
+    final icon = json['icon'] as Map<String, dynamic>?;
     final logo = json['logo'] as Map<String, dynamic>?;
     final micro = json['microtrailer'] as Map<String, dynamic>?;
     final trailer = json['trailer'] as Map<String, dynamic>?;
 
     return MediaPayload(
+      coverRelativePath: cover?['relative_path']?.toString(),
       coverSha256: cover?['sha256']?.toString(),
       coverDriveFileId: cover?['drive_file_id']?.toString(),
+      backgroundRelativePath: bg?['relative_path']?.toString(),
       backgroundSha256: bg?['sha256']?.toString(),
       backgroundDriveFileId: bg?['drive_file_id']?.toString(),
+      iconRelativePath: icon?['relative_path']?.toString(),
+      iconSha256: icon?['sha256']?.toString(),
+      iconDriveFileId: icon?['drive_file_id']?.toString(),
+      logoRelativePath: logo?['relative_path']?.toString(),
       logoDriveFileId: logo?['drive_file_id']?.toString(),
+      microtrailerRelativePath: micro?['relative_path']?.toString(),
       microtrailerDriveFileId: micro?['drive_file_id']?.toString(),
+      trailerRelativePath: trailer?['relative_path']?.toString(),
       trailerDriveFileId: trailer?['drive_file_id']?.toString(),
+      trailerWebUrl: trailer?['web_url']?.toString(),
     );
   }
 
   Map<String, dynamic> toJson() => {
-    'cover': {'sha256': coverSha256, 'drive_file_id': coverDriveFileId},
-    'background': {'sha256': backgroundSha256, 'drive_file_id': backgroundDriveFileId},
-    'logo': {'drive_file_id': logoDriveFileId},
-    'microtrailer': {'drive_file_id': microtrailerDriveFileId},
-    'trailer': {'drive_file_id': trailerDriveFileId},
+    'cover': {
+      'relative_path': coverRelativePath,
+      'sha256': coverSha256,
+      'drive_file_id': coverDriveFileId,
+    },
+    'background': {
+      'relative_path': backgroundRelativePath,
+      'sha256': backgroundSha256,
+      'drive_file_id': backgroundDriveFileId,
+    },
+    'icon': {
+      'relative_path': iconRelativePath,
+      'sha256': iconSha256,
+      'drive_file_id': iconDriveFileId,
+    },
+    'logo': {
+      'relative_path': logoRelativePath,
+      'drive_file_id': logoDriveFileId,
+    },
+    'microtrailer': {
+      'relative_path': microtrailerRelativePath,
+      'drive_file_id': microtrailerDriveFileId,
+    },
+    'trailer': {
+      'relative_path': trailerRelativePath,
+      'drive_file_id': trailerDriveFileId,
+      'web_url': trailerWebUrl,
+    },
   };
 }
 
@@ -300,6 +394,7 @@ class UnifiedGamePayload {
   final int? installSizeBytes;
   final bool hidden;
   final bool isDuplicate;
+  final String? duplicateGroupId;
   final List<DuplicateCopyPayload> otherCopies;
   final bool favorite;
   final int? userScore;
@@ -315,6 +410,7 @@ class UnifiedGamePayload {
   final List<NamedItem> developers;
   final List<NamedItem> publishers;
   final List<NamedItem> features;
+  final List<NamedItem> series;
   final List<LinkItem> links;
   final MediaPayload media;
   final Map<String, dynamic> addons;
@@ -339,6 +435,7 @@ class UnifiedGamePayload {
     this.installSizeBytes,
     this.hidden = false,
     this.isDuplicate = false,
+    this.duplicateGroupId,
     this.otherCopies = const [],
     this.favorite = false,
     this.userScore,
@@ -354,6 +451,7 @@ class UnifiedGamePayload {
     this.developers = const [],
     this.publishers = const [],
     this.features = const [],
+    this.series = const [],
     this.links = const [],
     this.media = const MediaPayload(),
     this.addons = const {},
@@ -379,6 +477,7 @@ class UnifiedGamePayload {
     int? installSizeBytes,
     bool? hidden,
     bool? isDuplicate,
+    String? duplicateGroupId,
     List<DuplicateCopyPayload>? otherCopies,
     bool? favorite,
     int? userScore,
@@ -394,6 +493,7 @@ class UnifiedGamePayload {
     List<NamedItem>? developers,
     List<NamedItem>? publishers,
     List<NamedItem>? features,
+    List<NamedItem>? series,
     List<LinkItem>? links,
     MediaPayload? media,
     Map<String, dynamic>? addons,
@@ -418,6 +518,7 @@ class UnifiedGamePayload {
       installSizeBytes: installSizeBytes ?? this.installSizeBytes,
       hidden: hidden ?? this.hidden,
       isDuplicate: isDuplicate ?? this.isDuplicate,
+      duplicateGroupId: duplicateGroupId ?? this.duplicateGroupId,
       otherCopies: otherCopies ?? this.otherCopies,
       favorite: favorite ?? this.favorite,
       userScore: userScore ?? this.userScore,
@@ -433,6 +534,7 @@ class UnifiedGamePayload {
       developers: developers ?? this.developers,
       publishers: publishers ?? this.publishers,
       features: features ?? this.features,
+      series: series ?? this.series,
       links: links ?? this.links,
       media: media ?? this.media,
       addons: addons ?? this.addons,
@@ -483,6 +585,7 @@ class UnifiedGamePayload {
       installSizeBytes: (json['install_size_bytes'] as num?)?.toInt(),
       hidden: parseBool(json['hidden']),
       isDuplicate: parseBool(json['is_duplicate']),
+      duplicateGroupId: json['duplicate_group_id']?.toString(),
       otherCopies: (json['other_copies'] is List)
           ? (json['other_copies'] as List)
               .whereType<Map<String, dynamic>>()
@@ -507,6 +610,7 @@ class UnifiedGamePayload {
       developers: parseNamedList(json['developers']),
       publishers: parseNamedList(json['publishers']),
       features: parseNamedList(json['features']),
+      series: parseNamedList(json['series']),
       links: parseLinks(json['links']),
       media: MediaPayload.fromJson(json['media'] as Map<String, dynamic>?),
       addons: json['addons'] as Map<String, dynamic>? ?? {},
@@ -534,6 +638,7 @@ class UnifiedGamePayload {
       'install_size_bytes': installSizeBytes,
       'hidden': hidden ? 1 : 0,
       'is_duplicate': isDuplicate ? 1 : 0,
+      'duplicate_group_id': duplicateGroupId,
       'other_copies_json': jsonEncode(otherCopies.map((e) => e.toJson()).toList()),
       'favorite': favorite ? 1 : 0,
       'user_score': userScore,
@@ -548,9 +653,12 @@ class UnifiedGamePayload {
       'cover_sha256': media.coverSha256,
       'background_drive_file_id': media.backgroundDriveFileId,
       'background_sha256': media.backgroundSha256,
+      'icon_drive_file_id': media.iconDriveFileId,
+      'icon_sha256': media.iconSha256,
       'logo_drive_file_id': media.logoDriveFileId,
       'microtrailer_drive_file_id': media.microtrailerDriveFileId,
       'trailer_drive_file_id': media.trailerDriveFileId,
+      'trailer_web_url': media.trailerWebUrl,
       'platforms_json': jsonEncode(platforms.map((e) => e.toJson()).toList()),
       'genres_json': jsonEncode(genres.map((e) => e.toJson()).toList()),
       'categories_json': jsonEncode(categories.map((e) => e.toJson()).toList()),
@@ -558,6 +666,7 @@ class UnifiedGamePayload {
       'developers_json': jsonEncode(developers.map((e) => e.toJson()).toList()),
       'publishers_json': jsonEncode(publishers.map((e) => e.toJson()).toList()),
       'features_json': jsonEncode(features.map((e) => e.toJson()).toList()),
+      'series_json': jsonEncode(series.map((e) => e.toJson()).toList()),
       'links_json': jsonEncode(links.map((e) => e.toJson()).toList()),
       'addons_json': _safeAddonsJson(addons),
     };
@@ -610,6 +719,8 @@ class UnifiedGamePayload {
     if (installDirectory != null) 'install_directory': installDirectory,
     if (installSizeBytes != null) 'install_size_bytes': installSizeBytes,
     'hidden': hidden,
+    'is_duplicate': isDuplicate,
+    if (duplicateGroupId != null) 'duplicate_group_id': duplicateGroupId,
     'favorite': favorite,
     if (userScore != null) 'user_score': userScore,
     if (criticScore != null) 'critic_score': criticScore,
@@ -624,6 +735,7 @@ class UnifiedGamePayload {
     'developers': developers.map((e) => e.toJson()).toList(),
     'publishers': publishers.map((e) => e.toJson()).toList(),
     'features': features.map((e) => e.toJson()).toList(),
+    'series': series.map((e) => e.toJson()).toList(),
     'links': links.map((e) => e.toJson()).toList(),
     'media': media.toJson(),
     'addons': addons,

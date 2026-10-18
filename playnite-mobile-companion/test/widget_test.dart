@@ -53,7 +53,7 @@ void main() {
     await tester.pump();
 
     // Verify AppBar title is present
-    expect(find.text('Playnite Library'), findsOneWidget);
+    expect(find.text('Playnite Mobile Companion'), findsOneWidget);
 
     // Verify GameCardGrid is rendered
     expect(find.byType(GameCardGrid), findsOneWidget);

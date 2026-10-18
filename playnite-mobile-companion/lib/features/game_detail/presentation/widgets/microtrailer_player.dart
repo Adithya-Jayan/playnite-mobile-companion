@@ -1,22 +1,33 @@
+import 'dart:async';
+import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:playnite_mobile_companion/core/config/app_theme.dart';
+import 'package:playnite_mobile_companion/core/ui/playnite_cached_image.dart';
 import 'package:playnite_mobile_companion/core/utils/media_url_resolver.dart';
+import 'package:playnite_mobile_companion/features/settings/data/gallery_settings_repository.dart';
 import 'package:video_player/video_player.dart';
 
-/// Microtrailer preview player that auto-plays a muted, looping 6-second video.
-/// Falls back to background fanart or colored placeholder if trailer is absent or fails to load.
+/// Microtrailer preview player that auto-plays a muted, looping video header.
+/// Features an auto-fading touch overlay with Play/Pause, Mute/Unmute, and a scrub bar.
 class MicrotrailerPlayer extends StatefulWidget {
   final String? microtrailerDriveFileId;
+  final String? trailerDriveFileId;
+  final String? trailerWebUrl;
   final String? backgroundDriveFileId;
   final String? logoDriveFileId;
   final double height;
+  final GallerySettings? gallerySettings;
 
   const MicrotrailerPlayer({
     super.key,
     this.microtrailerDriveFileId,
+    this.trailerDriveFileId,
+    this.trailerWebUrl,
     this.backgroundDriveFileId,
     this.logoDriveFileId,
     this.height = 220,
+    this.gallerySettings,
   });
 
   @override
@@ -27,17 +38,37 @@ class _MicrotrailerPlayerState extends State<MicrotrailerPlayer> {
   VideoPlayerController? _controller;
   bool _isInitialized = false;
   bool _hasError = false;
+  bool _isMuted = true;
+  bool _isDisposed = false;
+  bool _showOverlay = true;
+  Timer? _overlayTimer;
+
+  static bool get _isTesting {
+    if (kIsWeb) return false;
+    try {
+      return Platform.environment.containsKey('FLUTTER_TEST');
+    } catch (_) {
+      return false;
+    }
+  }
+
+  bool get _autoPlay => widget.gallerySettings?.autoPlayMicrotrailers ?? true;
+  bool get _defaultMuted => widget.gallerySettings?.microtrailerMuted ?? true;
+  bool get _showScrubBar => widget.gallerySettings?.showVideoScrubBar ?? true;
 
   @override
   void initState() {
     super.initState();
+    _isMuted = _defaultMuted;
     _initVideo();
   }
 
   @override
   void didUpdateWidget(covariant MicrotrailerPlayer oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.microtrailerDriveFileId != widget.microtrailerDriveFileId) {
+    if (oldWidget.microtrailerDriveFileId != widget.microtrailerDriveFileId ||
+        oldWidget.trailerWebUrl != widget.trailerWebUrl ||
+        oldWidget.trailerDriveFileId != widget.trailerDriveFileId) {
       _controller?.dispose();
       _controller = null;
       _isInitialized = false;
@@ -47,32 +78,51 @@ class _MicrotrailerPlayerState extends State<MicrotrailerPlayer> {
   }
 
   Future<void> _initVideo() async {
-    final videoId = widget.microtrailerDriveFileId;
-    if (videoId == null || videoId.isEmpty) return;
+    final videoSource = (widget.microtrailerDriveFileId != null && widget.microtrailerDriveFileId!.isNotEmpty)
+        ? widget.microtrailerDriveFileId
+        : ((widget.trailerWebUrl != null && widget.trailerWebUrl!.isNotEmpty)
+            ? widget.trailerWebUrl
+            : widget.trailerDriveFileId);
+
+    if (videoSource == null || videoSource.isEmpty || _isTesting) return;
 
     try {
-      final streamUrl = MediaUrlResolver.getDriveMediaStreamUrl(videoId);
-      final headers = MediaUrlResolver.getAuthHeaders();
+      final isDirectHttp = videoSource.startsWith('http://') || videoSource.startsWith('https://');
+      final streamUrl = isDirectHttp ? videoSource : MediaUrlResolver.getDriveMediaStreamUrl(videoSource);
+      final headers = (isDirectHttp && !streamUrl.contains('googleapis.com'))
+          ? <String, String>{}
+          : MediaUrlResolver.getAuthHeaders();
 
-      _controller = VideoPlayerController.networkUrl(
+      final controller = VideoPlayerController.networkUrl(
         Uri.parse(streamUrl),
         httpHeaders: headers,
       );
 
-      await _controller!.initialize();
-      _controller!.setLooping(true);
-      _controller!.setVolume(0.0); // Muted preview loop
-      _controller!.play();
+      _controller = controller;
+      await controller.initialize();
 
-      if (mounted) {
-        setState(() {
-          _isInitialized = true;
-          _hasError = false;
-        });
+      if (_isDisposed || !mounted) {
+        await controller.dispose();
+        return;
       }
+
+      controller.setLooping(true);
+      controller.setVolume(_isMuted ? 0.0 : 1.0);
+      if (_autoPlay) {
+        controller.play();
+      }
+
+      controller.addListener(_onVideoControllerTick);
+
+      setState(() {
+        _isInitialized = true;
+        _hasError = false;
+      });
+
+      _startOverlayTimer();
     } catch (e) {
       debugPrint('Microtrailer playback warning: $e');
-      if (mounted) {
+      if (mounted && !_isDisposed) {
         setState(() {
           _hasError = true;
           _isInitialized = false;
@@ -81,8 +131,64 @@ class _MicrotrailerPlayerState extends State<MicrotrailerPlayer> {
     }
   }
 
+  void _onVideoControllerTick() {
+    if (mounted && !_isDisposed && _showOverlay) {
+      setState(() {});
+    }
+  }
+
+  void _startOverlayTimer() {
+    _overlayTimer?.cancel();
+    _overlayTimer = Timer(const Duration(seconds: 3), () {
+      if (mounted && !_isDisposed && (_controller?.value.isPlaying ?? false)) {
+        setState(() => _showOverlay = false);
+      }
+    });
+  }
+
+  void _toggleOverlay() {
+    setState(() {
+      _showOverlay = !_showOverlay;
+    });
+    if (_showOverlay) {
+      _startOverlayTimer();
+    }
+  }
+
+  void _togglePlayPause() {
+    if (_controller == null || !_isInitialized || _isDisposed || !mounted) return;
+    setState(() {
+      if (_controller!.value.isPlaying) {
+        _controller!.pause();
+        _showOverlay = true;
+        _overlayTimer?.cancel();
+      } else {
+        _controller!.play();
+        _startOverlayTimer();
+      }
+    });
+  }
+
+  void _toggleMute() {
+    if (_controller == null || !_isInitialized || _isDisposed || !mounted) return;
+    setState(() {
+      _isMuted = !_isMuted;
+      _controller!.setVolume(_isMuted ? 0.0 : 1.0);
+    });
+    _startOverlayTimer();
+  }
+
+  String _formatDuration(Duration d) {
+    final mins = d.inMinutes;
+    final secs = (d.inSeconds % 60).toString().padLeft(2, '0');
+    return '$mins:$secs';
+  }
+
   @override
   void dispose() {
+    _isDisposed = true;
+    _overlayTimer?.cancel();
+    _controller?.removeListener(_onVideoControllerTick);
     _controller?.dispose();
     super.dispose();
   }
@@ -101,81 +207,181 @@ class _MicrotrailerPlayerState extends State<MicrotrailerPlayer> {
               fit: BoxFit.cover,
               clipBehavior: Clip.hardEdge,
               child: SizedBox(
-                width: _controller!.value.size.width,
-                height: _controller!.value.size.height,
+                width: _controller!.value.size.width > 0 ? _controller!.value.size.width : 16,
+                height: _controller!.value.size.height > 0 ? _controller!.value.size.height : 9,
                 child: VideoPlayer(_controller!),
               ),
             )
           else if (widget.backgroundDriveFileId != null && widget.backgroundDriveFileId!.isNotEmpty)
-            Image.network(
-              MediaUrlResolver.getDriveMediaStreamUrl(widget.backgroundDriveFileId!),
-              headers: MediaUrlResolver.getAuthHeaders(),
-              fit: BoxFit.cover,
-              errorBuilder: (context, error, stackTrace) => _buildFallbackGradient(),
-            )
+            _buildBackgroundImage(widget.backgroundDriveFileId!)
           else
             _buildFallbackGradient(),
 
-          // Dark gradient vignette overlay for high-contrast text and logo legibility
+          // Dark gradient vignette overlay
           Container(
             decoration: const BoxDecoration(
               gradient: LinearGradient(
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
                 colors: [
-                  Colors.black26,
+                  Colors.black38,
                   Colors.transparent,
                   AppTheme.background,
                 ],
-                stops: [0.0, 0.5, 1.0],
+                stops: [0.0, 0.45, 1.0],
               ),
             ),
           ),
 
-          // Looping video badge indicator
-          if (_isInitialized && !_hasError)
-            Positioned(
-              top: 12,
-              right: 12,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: 0.6),
-                  borderRadius: BorderRadius.circular(4),
-                ),
-                child: const Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.videocam, size: 12, color: AppTheme.primaryLight),
-                    SizedBox(width: 4),
-                    Text(
-                      'PREVIEW',
-                      style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.white),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-
           // Transparent Game Title Logo (if available) centered/bottom
           if (widget.logoDriveFileId != null && widget.logoDriveFileId!.isNotEmpty)
             Positioned(
-              bottom: 20,
+              bottom: 24,
               left: 20,
               right: 20,
               child: ConstrainedBox(
-                constraints: const BoxConstraints(maxHeight: 70),
-                child: Image.network(
-                  MediaUrlResolver.getDriveMediaStreamUrl(widget.logoDriveFileId!),
-                  headers: MediaUrlResolver.getAuthHeaders(),
-                  fit: BoxFit.contain,
-                  alignment: Alignment.centerLeft,
-                  errorBuilder: (context, error, stackTrace) => const SizedBox.shrink(),
+                constraints: const BoxConstraints(maxHeight: 65),
+                child: _buildLogo(widget.logoDriveFileId!),
+              ),
+            ),
+
+          // Interactive Tap Area for Overlay
+          Positioned.fill(
+            child: GestureDetector(
+              behavior: HitTestBehavior.translucent,
+              onTap: _toggleOverlay,
+            ),
+          ),
+
+          // Auto-fading touch controls overlay
+          if (_isInitialized && _controller != null && !_hasError)
+            Positioned.fill(
+              child: IgnorePointer(
+                ignoring: !_showOverlay,
+                child: AnimatedOpacity(
+                  opacity: _showOverlay ? 1.0 : 0.0,
+                  duration: const Duration(milliseconds: 300),
+                  child: Container(
+                    color: Colors.black.withValues(alpha: 0.35),
+                    child: Stack(
+                      children: [
+                        // Center Play/Pause button
+                        Center(
+                          child: IconButton(
+                            iconSize: 48,
+                            icon: Icon(
+                              _controller!.value.isPlaying ? Icons.pause_circle_filled : Icons.play_circle_filled,
+                              color: Colors.white,
+                            ),
+                            onPressed: _togglePlayPause,
+                          ),
+                        ),
+
+                        // Top right Mute toggle & stream badge
+                        Positioned(
+                          top: 12,
+                          right: 12,
+                          child: GestureDetector(
+                            onTap: _toggleMute,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: Colors.black.withValues(alpha: 0.65),
+                                borderRadius: BorderRadius.circular(4),
+                                border: Border.all(color: Colors.white24, width: 0.8),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    _isMuted ? Icons.volume_off : Icons.volume_up,
+                                    size: 15,
+                                    color: _isMuted ? Colors.white70 : AppTheme.primaryLight,
+                                  ),
+                                  const SizedBox(width: 5),
+                                  Text(
+                                    _isMuted ? 'MUTED' : 'AUDIO',
+                                    style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.white),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+
+                        // Bottom Scrub Bar & Timestamps
+                        if (_showScrubBar)
+                          Positioned(
+                            bottom: 6,
+                            left: 12,
+                            right: 12,
+                            child: Row(
+                              children: [
+                                Text(
+                                  _formatDuration(_controller!.value.position),
+                                  style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: SliderTheme(
+                                    data: SliderTheme.of(context).copyWith(
+                                      thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 5),
+                                      trackHeight: 3,
+                                      activeTrackColor: AppTheme.primary,
+                                      inactiveTrackColor: Colors.white24,
+                                      thumbColor: AppTheme.primary,
+                                    ),
+                                    child: Slider(
+                                      value: _controller!.value.duration.inMilliseconds > 0
+                                          ? (_controller!.value.position.inMilliseconds /
+                                                  _controller!.value.duration.inMilliseconds)
+                                              .clamp(0.0, 1.0)
+                                          : 0.0,
+                                      onChanged: (val) {
+                                        final targetMs = (val * _controller!.value.duration.inMilliseconds).round();
+                                        _controller!.seekTo(Duration(milliseconds: targetMs));
+                                        _startOverlayTimer();
+                                      },
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Text(
+                                  _formatDuration(_controller!.value.duration),
+                                  style: const TextStyle(color: Colors.white70, fontSize: 11),
+                                ),
+                              ],
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
                 ),
               ),
             ),
         ],
       ),
+    );
+  }
+
+  Widget _buildBackgroundImage(String bgId) {
+    return PlayniteCachedImage(
+      mediaId: bgId,
+      fit: BoxFit.cover,
+      memCacheWidth: 1280,
+      memCacheHeight: 720,
+      placeholder: _buildFallbackGradient(),
+      errorWidget: _buildFallbackGradient(),
+    );
+  }
+
+  Widget _buildLogo(String logoId) {
+    return PlayniteCachedImage(
+      mediaId: logoId,
+      fit: BoxFit.contain,
+      memCacheWidth: 400,
+      placeholder: const SizedBox.shrink(),
+      errorWidget: const SizedBox.shrink(),
     );
   }
 

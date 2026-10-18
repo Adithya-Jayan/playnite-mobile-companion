@@ -10,20 +10,24 @@ class MediaUrlResolver {
   /// Current active token
   static String? get authToken => _authToken;
 
-  /// Returns direct Google Drive download/stream URL for given file ID.
+  /// Returns direct Google Drive download/stream URL for given file ID or direct URL.
   static String getDriveMediaStreamUrl(String driveFileId) {
-    if (driveFileId.startsWith('http://') || driveFileId.startsWith('https://')) {
+    if (driveFileId.startsWith('http://') ||
+        driveFileId.startsWith('https://') ||
+        driveFileId.startsWith('file://')) {
       return driveFileId;
+    }
+    if (driveFileId.startsWith('/') ||
+        driveFileId.contains(':\\') ||
+        driveFileId.contains(':/')) {
+      return 'file://$driveFileId';
     }
     return 'https://www.googleapis.com/drive/v3/files/$driveFileId?alt=media';
   }
 
-  /// Returns Google Drive thumbnail URL.
+  /// Returns media URL for thumbnails and grid cards (routes to standard authenticated media stream).
   static String getDriveThumbnailUrl(String driveFileId, {int width = 400}) {
-    if (driveFileId.startsWith('http://') || driveFileId.startsWith('https://')) {
-      return driveFileId;
-    }
-    return 'https://drive.google.com/thumbnail?id=$driveFileId&sz=w$width';
+    return getDriveMediaStreamUrl(driveFileId);
   }
 
   /// Returns HTTP headers including Authorization if token is set.

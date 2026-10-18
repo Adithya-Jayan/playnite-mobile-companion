@@ -136,6 +136,7 @@ class AppDatabase {
         install_size_bytes INTEGER,
         hidden INTEGER NOT NULL DEFAULT 0,
         is_duplicate INTEGER NOT NULL DEFAULT 0,
+        duplicate_group_id TEXT,
         other_copies_json TEXT NOT NULL DEFAULT '[]',
         favorite INTEGER NOT NULL DEFAULT 0,
         user_score INTEGER,
@@ -150,9 +151,12 @@ class AppDatabase {
         cover_sha256 TEXT,
         background_drive_file_id TEXT,
         background_sha256 TEXT,
+        icon_drive_file_id TEXT,
+        icon_sha256 TEXT,
         logo_drive_file_id TEXT,
         microtrailer_drive_file_id TEXT,
         trailer_drive_file_id TEXT,
+        trailer_web_url TEXT,
         platforms_json TEXT NOT NULL DEFAULT '[]',
         genres_json TEXT NOT NULL DEFAULT '[]',
         categories_json TEXT NOT NULL DEFAULT '[]',
@@ -160,6 +164,7 @@ class AppDatabase {
         developers_json TEXT NOT NULL DEFAULT '[]',
         publishers_json TEXT NOT NULL DEFAULT '[]',
         features_json TEXT NOT NULL DEFAULT '[]',
+        series_json TEXT NOT NULL DEFAULT '[]',
         links_json TEXT NOT NULL DEFAULT '[]',
         addons_json TEXT NOT NULL DEFAULT '{}'
       );
@@ -264,14 +269,36 @@ class AppDatabase {
     await db.execute('CREATE INDEX IF NOT EXISTS idx_dlc_items_game_id ON dlc_items(game_id);');
   }
 
-  /// Verifies or creates newly introduced columns on pre-existing databases
+  /// Verifies or creates newly introduced columns on pre-existing databases using PRAGMA inspection.
   Future<void> _ensureColumnsExist(DatabaseExecutor db) async {
     try {
-      await db.execute('ALTER TABLE games ADD COLUMN is_duplicate INTEGER NOT NULL DEFAULT 0;');
-    } catch (_) {}
-    try {
-      await db.execute("ALTER TABLE games ADD COLUMN other_copies_json TEXT NOT NULL DEFAULT '[]';");
-    } catch (_) {}
+      final columnsRes = await db.rawQuery('PRAGMA table_info(games);');
+      final existingColumns = columnsRes.map((r) => r['name'] as String).toSet();
+
+      if (!existingColumns.contains('is_duplicate')) {
+        await db.execute('ALTER TABLE games ADD COLUMN is_duplicate INTEGER NOT NULL DEFAULT 0;');
+      }
+      if (!existingColumns.contains('duplicate_group_id')) {
+        await db.execute('ALTER TABLE games ADD COLUMN duplicate_group_id TEXT;');
+      }
+      if (!existingColumns.contains('other_copies_json')) {
+        await db.execute("ALTER TABLE games ADD COLUMN other_copies_json TEXT NOT NULL DEFAULT '[]';");
+      }
+      if (!existingColumns.contains('icon_drive_file_id')) {
+        await db.execute('ALTER TABLE games ADD COLUMN icon_drive_file_id TEXT;');
+      }
+      if (!existingColumns.contains('icon_sha256')) {
+        await db.execute('ALTER TABLE games ADD COLUMN icon_sha256 TEXT;');
+      }
+      if (!existingColumns.contains('trailer_web_url')) {
+        await db.execute('ALTER TABLE games ADD COLUMN trailer_web_url TEXT;');
+      }
+      if (!existingColumns.contains('series_json')) {
+        await db.execute("ALTER TABLE games ADD COLUMN series_json TEXT NOT NULL DEFAULT '[]';");
+      }
+    } catch (e) {
+      debugPrint('Error inspecting table_info in _ensureColumnsExist: $e');
+    }
   }
 
   /// Verifies or creates the FTS table with FTS5 or FTS4 fallback, updating [isFtsSupported].

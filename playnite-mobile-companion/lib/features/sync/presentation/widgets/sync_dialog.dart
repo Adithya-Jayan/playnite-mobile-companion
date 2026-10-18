@@ -298,22 +298,33 @@ class _SyncDialogState extends State<SyncDialog> {
         ),
       ),
       actions: [
-        TextButton(
-          style: TextButton.styleFrom(foregroundColor: AppTheme.textSecondary),
-          onPressed: _isSyncing ? null : _onClose,
-          child: const Text('Close'),
-        ),
-        ElevatedButton(
-          style: ElevatedButton.styleFrom(
-            backgroundColor: AppTheme.primary,
-            foregroundColor: Colors.white,
+        if (_report != null && _report!.isSuccess)
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppTheme.accentGreen,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: _onClose,
+            child: const Text('Close', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          )
+        else ...[
+          TextButton(
+            style: TextButton.styleFrom(foregroundColor: AppTheme.textSecondary),
+            onPressed: _isSyncing ? null : _onClose,
+            child: const Text('Close'),
           ),
-          onPressed: _isSyncing ? null : _startSync,
-          child: Text(
-            _report == null ? 'Start Sync' : 'Sync Again',
-            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppTheme.primary,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: _isSyncing ? null : _startSync,
+            child: Text(
+              _report == null ? 'Start Sync' : 'Try Again',
+              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+            ),
           ),
-        ),
+        ],
       ],
     );
   }

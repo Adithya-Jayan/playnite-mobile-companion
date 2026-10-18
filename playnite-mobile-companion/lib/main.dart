@@ -7,6 +7,8 @@ import 'package:playnite_mobile_companion/core/config/app_theme.dart';
 import 'package:playnite_mobile_companion/core/database/app_database.dart';
 import 'package:playnite_mobile_companion/core/database/daos/game_dao.dart';
 import 'package:playnite_mobile_companion/core/database/daos/sync_meta_dao.dart';
+import 'package:playnite_mobile_companion/core/network/google_drive_api_service.dart';
+import 'package:playnite_mobile_companion/core/services/playnite_image_loader.dart';
 import 'package:playnite_mobile_companion/features/library/presentation/library_screen.dart';
 import 'package:playnite_mobile_companion/features/sync/data/sync_config_repository.dart';
 import 'package:playnite_mobile_companion/features/sync/domain/sync_models.dart';
@@ -14,6 +16,10 @@ import 'package:playnite_mobile_companion/features/sync/domain/sync_models.dart'
 void main() {
   runZonedGuarded(() async {
     WidgetsFlutterBinding.ensureInitialized();
+
+    // 0. Tune global image cache for 7,000-game library smooth scrolling
+    PaintingBinding.instance.imageCache.maximumSize = 2500;
+    PaintingBinding.instance.imageCache.maximumSizeBytes = 256 * 1024 * 1024; // 256 MB memory limit
 
     // 1. Global Flutter framework error handling
     FlutterError.onError = (FlutterErrorDetails details) {
@@ -80,11 +86,42 @@ void main() {
       }
 
       // Initialize persistent sync configuration
+      SyncConfigRepository? configRepo;
       try {
-        final configRepo = SyncConfigRepository(database);
+        configRepo = SyncConfigRepository(database);
         await configRepo.loadConfig();
       } catch (cfgErr) {
         debugPrint('Warning: Loading sync config encountered error: $cfgErr');
+      }
+
+      // Initialize persistent high-performance image cache
+      try {
+        await PlayniteImageLoader.instance.init();
+        if (configRepo != null) {
+          final repo = configRepo;
+          PlayniteImageLoader.instance.setTokenRefresher(() async {
+            try {
+              final latest = await repo.loadConfig();
+              if (latest.storageType == SyncStorageType.googleDrive &&
+                  latest.googleRefreshToken.isNotEmpty &&
+                  latest.googleClientId.isNotEmpty) {
+                final driveService = repo.createDriveService(latest);
+                if (driveService is GoogleDriveApiService) {
+                  final refreshed = await driveService.refreshAccessToken();
+                  if (refreshed) {
+                    final updatedConfig = await repo.loadConfig();
+                    return updatedConfig.googleAccessToken;
+                  }
+                }
+              }
+            } catch (err) {
+              debugPrint('Automatic image loader token refresh encountered error: $err');
+            }
+            return null;
+          });
+        }
+      } catch (loaderErr) {
+        debugPrint('Warning: Image loader initialization encountered error: $loaderErr');
       }
     } catch (e, stack) {
       debugPrint('FATAL: Database initialization error: $e\n$stack');

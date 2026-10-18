@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:playnite_mobile_companion/core/database/app_database.dart';
 import 'package:playnite_mobile_companion/features/library/domain/game_filter_criteria.dart';
 import 'package:playnite_mobile_companion/features/library/domain/sort_options.dart';
+import 'package:playnite_mobile_companion/features/settings/data/gallery_settings_repository.dart';
 import 'package:playnite_mobile_companion/features/sync/domain/sync_models.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -46,10 +47,10 @@ class GameDao {
 
       // 3. Unpack SuccessStory (achievements)
       final successStory = payload.addons['success_story'] as Map<String, dynamic>?;
-      if (successStory != null && successStory['achievements'] is List) {
+      final rawAchievements = successStory?['items'] ?? successStory?['achievements'];
+      if (rawAchievements is List) {
         batch.delete('achievements', where: 'game_id = ?', whereArgs: [payload.id]);
-        final achievements = successStory['achievements'] as List;
-        for (final item in achievements) {
+        for (final item in rawAchievements) {
           if (item is Map<String, dynamic>) {
             batch.insert('achievements', {
               'game_id': payload.id,
@@ -60,7 +61,7 @@ class GameDao {
               'url_locked': item['url_locked'] as String?,
               'date_unlocked_utc': item['date_unlocked_utc'] as String?,
               'percent': (item['percent'] as num?)?.toDouble(),
-              'gamer_score': (item['gamer_score'] as num?)?.toDouble(),
+              'gamer_score': (item['gamerscore'] as num?)?.toDouble() ?? (item['gamer_score'] as num?)?.toDouble(),
               'is_hidden': (item['is_hidden'] as bool? ?? false) ? 1 : 0,
             });
           }
@@ -245,8 +246,10 @@ class GameDao {
     final whereClauses = <String>[];
     final whereArgs = <dynamic>[];
 
-    // 1. Filter: Hidden games (exclude hidden by default unless includeHidden is true)
-    if (!criteria.includeHidden) {
+    // 1. Filter: Hidden games (display ONLY hidden games when toggled; exclude hidden in normal mode)
+    if (criteria.showHiddenOnly) {
+      whereClauses.add('hidden = 1');
+    } else {
       whereClauses.add('(hidden = 0 OR hidden IS NULL)');
     }
 
@@ -311,14 +314,32 @@ class GameDao {
       whereArgs.add(criteria.isFavorite! ? 1 : 0);
     }
 
-    // 6. Filter: User Score Range
-    if (criteria.minScore != null) {
-      whereClauses.add('user_score >= ?');
-      whereArgs.add(criteria.minScore);
-    }
-    if (criteria.maxScore != null) {
-      whereClauses.add('user_score <= ?');
-      whereArgs.add(criteria.maxScore);
+    // 6. Filter: Rating Score Range (query preferred score source)
+    if (criteria.minScore != null || criteria.maxScore != null) {
+      String scoreExpr;
+      switch (criteria.ratingScoreSource) {
+        case RatingScoreSource.community:
+          scoreExpr = 'community_score';
+          break;
+        case RatingScoreSource.composite:
+          scoreExpr = 'COALESCE(community_score, critic_score, user_score)';
+          break;
+        case RatingScoreSource.critic:
+          scoreExpr = 'critic_score';
+          break;
+        case RatingScoreSource.user:
+          scoreExpr = 'user_score';
+          break;
+      }
+
+      if (criteria.minScore != null) {
+        whereClauses.add('$scoreExpr IS NOT NULL AND $scoreExpr >= ?');
+        whereArgs.add(criteria.minScore);
+      }
+      if (criteria.maxScore != null) {
+        whereClauses.add('$scoreExpr IS NOT NULL AND $scoreExpr <= ?');
+        whereArgs.add(criteria.maxScore);
+      }
     }
 
     // 7. Filter: Platforms (JSON containment via LIKE)
@@ -351,6 +372,36 @@ class GameDao {
       whereClauses.add('(${tagSubClauses.join(' OR ')})');
     }
 
+    // 10. Filter: HowLongToBeat Duration
+    if (criteria.hltbMinHours != null || criteria.hltbMaxHours != null) {
+      final hltbConditions = <String>[];
+      final hltbArgs = <dynamic>[];
+      if (criteria.hltbMinHours != null) {
+        hltbConditions.add('main_story_seconds >= ?');
+        hltbArgs.add(criteria.hltbMinHours! * 3600);
+      }
+      if (criteria.hltbMaxHours != null) {
+        hltbConditions.add('main_story_seconds <= ?');
+        hltbArgs.add(criteria.hltbMaxHours! * 3600);
+      }
+      whereClauses.add('id IN (SELECT game_id FROM hltb_data WHERE ${hltbConditions.join(' AND ')})');
+      whereArgs.addAll(hltbArgs);
+    }
+
+    // 11. Diagnostic / Utility Filters
+    if (criteria.missingCoversOnly) {
+      whereClauses.add("(cover_drive_file_id IS NULL OR cover_drive_file_id = '')");
+    }
+    if (criteria.duplicateCopiesOnly) {
+      whereClauses.add('is_duplicate = 1');
+    }
+    if (criteria.missingMicrotrailersOnly) {
+      whereClauses.add("(microtrailer_drive_file_id IS NULL OR microtrailer_drive_file_id = '')");
+    }
+    if (criteria.unplayedOnly) {
+      whereClauses.add('(playtime_seconds = 0 OR playtime_seconds IS NULL) AND (play_count = 0 OR play_count IS NULL)');
+    }
+
     return (whereClauses: whereClauses, whereArgs: whereArgs);
   }
 
@@ -380,7 +431,21 @@ class GameDao {
   }) async {
     final (:whereClauses, :whereArgs) = await _buildFilterWhere(criteria);
     final whereString = whereClauses.isNotEmpty ? whereClauses.join(' AND ') : null;
-    final orderBy = sort.toSqlOrderBy();
+    final baseOrderBy = sort.toSqlOrderBy();
+    final String orderBy;
+    if (criteria.searchQuery.trim().isNotEmpty) {
+      final sanitized = criteria.searchQuery.replaceAll("'", "''").trim().toLowerCase();
+      orderBy = '''
+        CASE 
+          WHEN LOWER(name) = '$sanitized' THEN 0
+          WHEN LOWER(name) LIKE '$sanitized%' THEN 1
+          WHEN LOWER(name) LIKE '%$sanitized%' THEN 2
+          ELSE 3
+        END, $baseOrderBy
+      ''';
+    } else {
+      orderBy = baseOrderBy;
+    }
     final safeColumns = await _getSafeLibraryColumns();
 
     final rows = await database.db.query(
@@ -464,6 +529,7 @@ class GameDao {
       installSizeBytes: (row['install_size_bytes'] as num?)?.toInt(),
       hidden: (row['hidden'] as num?)?.toInt() == 1,
       isDuplicate: (row['is_duplicate'] as num?)?.toInt() == 1,
+      duplicateGroupId: row['duplicate_group_id']?.toString(),
       otherCopies: (row['other_copies_json'] != null && row['other_copies_json'].toString().isNotEmpty)
           ? () {
               try {
@@ -499,17 +565,67 @@ class GameDao {
       developers: parseJsonNamedList(row['developers_json']?.toString()),
       publishers: parseJsonNamedList(row['publishers_json']?.toString()),
       features: parseJsonNamedList(row['features_json']?.toString()),
+      series: parseJsonNamedList(row['series_json']?.toString()),
       links: parseJsonLinkList(row['links_json']?.toString()),
       media: MediaPayload(
         coverDriveFileId: row['cover_drive_file_id']?.toString(),
         coverSha256: row['cover_sha256']?.toString(),
         backgroundDriveFileId: row['background_drive_file_id']?.toString(),
         backgroundSha256: row['background_sha256']?.toString(),
+        iconDriveFileId: row['icon_drive_file_id']?.toString(),
+        iconSha256: row['icon_sha256']?.toString(),
         logoDriveFileId: row['logo_drive_file_id']?.toString(),
         microtrailerDriveFileId: row['microtrailer_drive_file_id']?.toString(),
         trailerDriveFileId: row['trailer_drive_file_id']?.toString(),
+        trailerWebUrl: row['trailer_web_url']?.toString(),
       ),
       addons: parseJsonMap(row['addons_json']?.toString()),
     );
+  }
+
+  /// Fetches games related to the current game by Series or Developer.
+  Future<List<UnifiedGamePayload>> getRelatedGames({
+    required String currentGameId,
+    List<NamedItem>? series,
+    List<NamedItem>? developers,
+    int limit = 12,
+  }) async {
+    final conditions = <String>[];
+    final args = <dynamic>[currentGameId];
+
+    if (series != null && series.isNotEmpty) {
+      for (final s in series) {
+        if (s.name.trim().isNotEmpty) {
+          conditions.add("series_json LIKE ?");
+          args.add('%"${s.name}"%');
+        }
+      }
+    }
+
+    if (developers != null && developers.isNotEmpty) {
+      for (final d in developers) {
+        if (d.name.trim().isNotEmpty) {
+          conditions.add("developers_json LIKE ?");
+          args.add('%"${d.name}"%');
+        }
+      }
+    }
+
+    if (conditions.isEmpty) return [];
+
+    final sql = '''
+      SELECT * FROM games
+      WHERE id != ? AND (${conditions.join(' OR ')})
+      ORDER BY sorting_name ASC
+      LIMIT $limit
+    ''';
+
+    try {
+      final rows = await database.db.rawQuery(sql, args);
+      return rows.map((r) => _rowToPayload(r)).toList();
+    } catch (e) {
+      debugPrint('Error getting related games: $e');
+      return [];
+    }
   }
 }

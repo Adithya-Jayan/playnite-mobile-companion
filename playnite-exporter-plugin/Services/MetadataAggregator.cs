@@ -1,6 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using Playnite.SDK;
 using Playnite.SDK.Models;
@@ -31,12 +34,7 @@ namespace PlayniteExporterPlugin.Services
             string userDataDir)
         {
             // Resolve Relational entities
-            NamedEntity? source = null;
-            if (game.SourceId != Guid.Empty && api.Database?.Sources != null)
-            {
-                var s = api.Database.Sources.Get(game.SourceId);
-                if (s != null) source = new NamedEntity { Id = s.Id, Name = s.Name };
-            }
+            NamedEntity? source = ResolveSource(game);
 
             NamedEntity? status = null;
             if (game.CompletionStatusId != Guid.Empty && api.Database?.CompletionStatuses != null)
@@ -80,7 +78,8 @@ namespace PlayniteExporterPlugin.Services
                 {
                     if (link != null && !string.IsNullOrEmpty(link.Url))
                     {
-                        links.Add(new LinkEntity { Name = link.Name ?? string.Empty, Url = link.Url });
+                        var sanitizedName = SanitizeLinkName(link.Name, link.Url);
+                        links.Add(new LinkEntity { Name = sanitizedName, Url = link.Url });
                     }
                 }
             }
@@ -92,7 +91,7 @@ namespace PlayniteExporterPlugin.Services
             var addons = await addonRegistry.ExtractAllAsync(game, userDataDir);
 
             // Duplicate copies & DuplicateHider resolution
-            var (isDuplicate, otherCopies) = ResolveDuplicateCopies(game);
+            var (isDuplicate, duplicateGroupId, otherCopies) = ResolveDuplicateCopies(game);
 
             var payload = new UnifiedGamePayload
             {
@@ -116,6 +115,7 @@ namespace PlayniteExporterPlugin.Services
                 InstallSizeBytes = (long?)game.InstallSize,
                 Hidden = game.Hidden,
                 IsDuplicate = isDuplicate,
+                DuplicateGroupId = duplicateGroupId,
                 OtherCopies = otherCopies,
                 Favorite = game.Favorite,
                 Version = game.Version,
@@ -233,21 +233,40 @@ namespace PlayniteExporterPlugin.Services
             return list;
         }
 
-        private static readonly Guid DuplicateHiderHiddenTagId = Guid.Parse("db1b6850-b7ff-45fd-bde7-72b5747ec132");
-        private static readonly Guid DuplicateHiderRevealedTagId = Guid.Parse("4584ccb9-1a4a-48b1-a1c7-4921bbcceaf8");
+        private Guid GetDuplicateHiderHiddenTagId()
+        {
+            if (api.Database?.Tags != null)
+            {
+                var tag = api.Database.Tags.FirstOrDefault(t =>
+                    string.Equals(t.Name, "[DH] Hidden", StringComparison.OrdinalIgnoreCase));
+                if (tag != null) return tag.Id;
+            }
+            return Guid.Parse("db1b6850-b7ff-45fd-bde7-72b5747ec132");
+        }
 
-        private (bool IsDuplicate, List<DuplicateCopyPayload> OtherCopies) ResolveDuplicateCopies(Game game)
+        public static Guid GenerateDuplicateGroupId(string name)
+        {
+            var clean = Regex.Replace((name ?? "").ToLowerInvariant(), @"[^a-z0-9]", "");
+            if (string.IsNullOrEmpty(clean)) clean = "empty";
+            using (var md5 = MD5.Create())
+            {
+                var hash = md5.ComputeHash(Encoding.UTF8.GetBytes(clean));
+                return new Guid(hash);
+            }
+        }
+
+        private (bool IsDuplicate, Guid? DuplicateGroupId, List<DuplicateCopyPayload> OtherCopies) ResolveDuplicateCopies(Game game)
         {
             var otherCopies = new List<DuplicateCopyPayload>();
-            bool isDuplicate = false;
+            var dhHiddenTagId = GetDuplicateHiderHiddenTagId();
+            bool hasDhHiddenTag = game.TagIds != null && game.TagIds.Contains(dhHiddenTagId);
 
-            // 1. Check DuplicateHider plugin's standard hidden tag ID
-            if (game.TagIds != null && game.TagIds.Contains(DuplicateHiderHiddenTagId))
-            {
-                isDuplicate = true;
-            }
+            // Secondary copy classification:
+            // Only games marked hidden WITH the [DH] Hidden tag are secondary duplicate copies.
+            // User-hidden games (without [DH] Hidden) and unhidden primary copies have is_duplicate = false.
+            bool isDuplicate = game.Hidden && hasDhHiddenTag;
 
-            // 2. Query DuplicateHider via reflection if active in Playnite's runtime
+            // 1. Query DuplicateHider via reflection if active in Playnite's runtime
             try
             {
                 Type? dhType = null;
@@ -274,10 +293,10 @@ namespace PlayniteExporterPlugin.Services
                                     if (item is Game copyGame && copyGame.Id != game.Id)
                                     {
                                         string sourceName = "Playnite";
-                                        if (copyGame.SourceId != Guid.Empty && api.Database?.Sources != null)
+                                        var resolvedSrc = ResolveSource(copyGame);
+                                        if (resolvedSrc != null && !string.IsNullOrEmpty(resolvedSrc.Name))
                                         {
-                                            var s = api.Database.Sources.Get(copyGame.SourceId);
-                                            if (s != null) sourceName = s.Name ?? "Playnite";
+                                            sourceName = resolvedSrc.Name;
                                         }
 
                                         otherCopies.Add(new DuplicateCopyPayload
@@ -291,11 +310,6 @@ namespace PlayniteExporterPlugin.Services
                                             InstallDirectory = copyGame.InstallDirectory,
                                             Hidden = copyGame.Hidden
                                         });
-
-                                        if (game.Hidden && !copyGame.Hidden)
-                                        {
-                                            isDuplicate = true;
-                                        }
                                     }
                                 }
                             }
@@ -308,7 +322,7 @@ namespace PlayniteExporterPlugin.Services
                 Logger.Debug($"DuplicateHider reflection resolution skipped: {ex.Message}");
             }
 
-            // 3. Fallback: match by normalized game name across database
+            // 2. Fallback: match by normalized game name across database
             if (otherCopies.Count == 0 && api.Database?.Games != null)
             {
                 var cleanName = (game.Name ?? "").Trim().ToLowerInvariant();
@@ -321,10 +335,10 @@ namespace PlayniteExporterPlugin.Services
                     foreach (var match in matches)
                     {
                         string sourceName = "Playnite";
-                        if (match.SourceId != Guid.Empty && api.Database.Sources != null)
+                        var resolvedSrc = ResolveSource(match);
+                        if (resolvedSrc != null && !string.IsNullOrEmpty(resolvedSrc.Name))
                         {
-                            var s = api.Database.Sources.Get(match.SourceId);
-                            if (s != null) sourceName = s.Name ?? "Playnite";
+                            sourceName = resolvedSrc.Name;
                         }
 
                         otherCopies.Add(new DuplicateCopyPayload
@@ -338,16 +352,108 @@ namespace PlayniteExporterPlugin.Services
                             InstallDirectory = match.InstallDirectory,
                             Hidden = match.Hidden
                         });
-
-                        if (game.Hidden && !match.Hidden)
-                        {
-                            isDuplicate = true;
-                        }
                     }
                 }
             }
 
-            return (isDuplicate, otherCopies);
+            Guid? duplicateGroupId = null;
+            if (isDuplicate || otherCopies.Count > 0)
+            {
+                duplicateGroupId = GenerateDuplicateGroupId(game.Name ?? string.Empty);
+            }
+
+            return (isDuplicate, duplicateGroupId, otherCopies);
+        }
+
+        public static string SanitizeLinkName(string? rawName, string url)
+        {
+            if (!string.IsNullOrWhiteSpace(rawName) &&
+                !string.Equals(rawName, "Uknown", StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(rawName, "Unknown", StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(rawName, "Store", StringComparison.OrdinalIgnoreCase))
+            {
+                return rawName!.Trim();
+            }
+
+            if (string.IsNullOrWhiteSpace(url)) return "Link";
+
+            if (Uri.TryCreate(url, UriKind.Absolute, out var uri))
+            {
+                var host = uri.Host.ToLowerInvariant();
+                if (host.Contains("playstation.com")) return "PlayStation Store";
+                if (host.Contains("xbox.com") || host.Contains("microsoft.com")) return "Xbox Store";
+                if (host.Contains("steampowered.com")) return "Steam";
+                if (host.Contains("steamcommunity.com")) return "Steam Community";
+                if (host.Contains("epicgames.com")) return "Epic Games Store";
+                if (host.Contains("gog.com")) return "GOG";
+                if (host.Contains("nintendo.com")) return "Nintendo eShop";
+                if (host.Contains("ea.com") || host.Contains("origin.com")) return "EA App";
+                if (host.Contains("ubisoft.com") || host.Contains("uplay.com")) return "Ubisoft Store";
+                if (host.Contains("itch.io")) return "itch.io";
+                if (host.Contains("pcgamingwiki.com")) return "PCGamingWiki";
+                if (host.Contains("howlongtobeat.com")) return "HowLongToBeat";
+            }
+
+            return !string.IsNullOrWhiteSpace(rawName) ? rawName! : "Store";
+        }
+
+        public NamedEntity? ResolveSource(Game game)
+        {
+            // 1. Direct SourceId mapping
+            if (game.SourceId != Guid.Empty && api.Database?.Sources != null)
+            {
+                var src = api.Database.Sources.Get(game.SourceId);
+                if (src != null) return new NamedEntity { Id = src.Id, Name = src.Name };
+            }
+
+            // 2. Library PluginId mapping
+            if (game.PluginId == Guid.Parse("cb91dfc9-b977-43bf-8e70-55f46e410fab"))
+                return new NamedEntity { Id = game.PluginId, Name = "Steam" };
+            if (game.PluginId == Guid.Parse("00000002-dbd1-46c6-b5d0-b1ba559d10e4"))
+                return new NamedEntity { Id = game.PluginId, Name = "Epic Games" };
+            if (game.PluginId == Guid.Parse("00000001-ebb2-4eec-abcb-7c89937a42bb"))
+                return new NamedEntity { Id = game.PluginId, Name = "GOG" };
+            if (game.PluginId == Guid.Parse("7e4fbb5e-2ae3-48d4-8ba0-6b30e7a4e287"))
+                return new NamedEntity { Id = game.PluginId, Name = "Xbox" };
+            if (game.PluginId == Guid.Parse("c2f038e5-8b92-4877-91f1-da9094155fc5"))
+                return new NamedEntity { Id = game.PluginId, Name = "Ubisoft Connect" };
+            if (game.PluginId == Guid.Parse("85dd7072-2f20-4e76-a007-41035e390724"))
+                return new NamedEntity { Id = game.PluginId, Name = "EA App" };
+
+            // 3. Platform Name Fallback (e.g., "PlayStation 5" -> "PlayStation")
+            if (game.PlatformIds != null && api.Database?.Platforms != null)
+            {
+                var platform = game.PlatformIds
+                    .Select(id => api.Database.Platforms.Get(id))
+                    .FirstOrDefault(p => p != null);
+
+                if (platform != null && !string.IsNullOrWhiteSpace(platform.Name))
+                {
+                    if (platform.Name.IndexOf("PlayStation", StringComparison.OrdinalIgnoreCase) >= 0)
+                        return new NamedEntity { Id = platform.Id, Name = "PlayStation" };
+                    if (platform.Name.IndexOf("Xbox", StringComparison.OrdinalIgnoreCase) >= 0)
+                        return new NamedEntity { Id = platform.Id, Name = "Xbox" };
+                    if (platform.Name.IndexOf("Nintendo", StringComparison.OrdinalIgnoreCase) >= 0)
+                        return new NamedEntity { Id = platform.Id, Name = "Nintendo" };
+                }
+            }
+
+            // 4. Storefront link domain inference
+            if (game.Links != null)
+            {
+                var storeLink = game.Links.FirstOrDefault(l => !string.IsNullOrEmpty(l?.Url));
+                if (storeLink != null && Uri.TryCreate(storeLink.Url, UriKind.Absolute, out var uri))
+                {
+                    var host = uri.Host.ToLowerInvariant();
+                    if (host.Contains("playstation.com")) return new NamedEntity { Id = Guid.Empty, Name = "PlayStation" };
+                    if (host.Contains("xbox.com") || host.Contains("microsoft.com")) return new NamedEntity { Id = Guid.Empty, Name = "Xbox" };
+                    if (host.Contains("steampowered.com")) return new NamedEntity { Id = Guid.Empty, Name = "Steam" };
+                    if (host.Contains("epicgames.com")) return new NamedEntity { Id = Guid.Empty, Name = "Epic Games" };
+                    if (host.Contains("gog.com")) return new NamedEntity { Id = Guid.Empty, Name = "GOG" };
+                }
+            }
+
+            return null;
         }
     }
 }

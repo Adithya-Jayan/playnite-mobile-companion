@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:playnite_mobile_companion/core/config/app_theme.dart';
 import 'package:playnite_mobile_companion/core/database/daos/taxonomy_dao.dart';
 import 'package:playnite_mobile_companion/features/library/domain/game_filter_criteria.dart';
+import 'package:playnite_mobile_companion/features/settings/data/gallery_settings_repository.dart';
 
 class FilterDrawer extends StatefulWidget {
   final GameFilterCriteria currentCriteria;
@@ -28,8 +29,15 @@ class _FilterDrawerState extends State<FilterDrawer> {
   late Set<String> _completionStatuses;
   late bool? _isInstalled;
   late bool? _isFavorite;
-  late bool _includeHidden;
   double _minScore = 0;
+  double _maxHltbHours = 0; // 0 = Any / Unlimited
+
+  // Utility filters
+  late bool _showHiddenOnly;
+  late bool _missingCoversOnly;
+  late bool _duplicateCopiesOnly;
+  late bool _missingMicrotrailersOnly;
+  late bool _unplayedOnly;
 
   @override
   void initState() {
@@ -40,8 +48,27 @@ class _FilterDrawerState extends State<FilterDrawer> {
     _completionStatuses = Set.from(widget.currentCriteria.completionStatuses);
     _isInstalled = widget.currentCriteria.isInstalled;
     _isFavorite = widget.currentCriteria.isFavorite;
-    _includeHidden = widget.currentCriteria.includeHidden;
     _minScore = (widget.currentCriteria.minScore ?? 0).toDouble();
+    _maxHltbHours = (widget.currentCriteria.hltbMaxHours ?? 0).toDouble();
+
+    _showHiddenOnly = widget.currentCriteria.showHiddenOnly;
+    _missingCoversOnly = widget.currentCriteria.missingCoversOnly;
+    _duplicateCopiesOnly = widget.currentCriteria.duplicateCopiesOnly;
+    _missingMicrotrailersOnly = widget.currentCriteria.missingMicrotrailersOnly;
+    _unplayedOnly = widget.currentCriteria.unplayedOnly;
+  }
+
+  String _getScoreLabel() {
+    switch (widget.currentCriteria.ratingScoreSource) {
+      case RatingScoreSource.community:
+        return 'Community Score';
+      case RatingScoreSource.composite:
+        return 'Composite Score';
+      case RatingScoreSource.critic:
+        return 'Critic Score';
+      case RatingScoreSource.user:
+        return 'User Score';
+    }
   }
 
   @override
@@ -99,108 +126,67 @@ class _FilterDrawerState extends State<FilterDrawer> {
                       setState(() => _isFavorite = val ? true : null);
                     },
                   ),
-                  SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('Show Hidden Games', style: TextStyle(fontSize: 14, color: AppTheme.textPrimary)),
-                    subtitle: const Text('Includes manually hidden & NSFW games', style: TextStyle(fontSize: 11, color: AppTheme.textMuted)),
-                    activeThumbColor: Colors.amberAccent,
-                    value: _includeHidden,
-                    onChanged: (val) {
-                      setState(() => _includeHidden = val);
-                    },
-                  ),
                   const Divider(),
 
-                  // Sources
-                  if (widget.taxonomies.sources.isNotEmpty) ...[
-                    _buildSectionHeader('Sources & Storefronts', _sources.length),
-                    Wrap(
-                      spacing: 6,
-                      runSpacing: 6,
-                      children: widget.taxonomies.sources.map((s) {
-                        final isSelected = _sources.contains(s);
-                        return FilterChip(
-                          label: Text(s),
-                          selected: isSelected,
-                          onSelected: (val) {
-                            setState(() {
-                              val ? _sources.add(s) : _sources.remove(s);
-                            });
-                          },
-                        );
-                      }).toList(),
+                  // Collapsible Sources & Storefronts
+                  if (widget.taxonomies.sources.isNotEmpty)
+                    _buildCollapsibleSection(
+                      title: 'Sources & Storefronts',
+                      items: widget.taxonomies.sources,
+                      selectedItems: _sources,
+                      onToggle: (item) {
+                        setState(() {
+                          _sources.contains(item) ? _sources.remove(item) : _sources.add(item);
+                        });
+                      },
                     ),
-                    const SizedBox(height: 16),
-                  ],
 
-                  // Completion Statuses
-                  if (widget.taxonomies.completionStatuses.isNotEmpty) ...[
-                    _buildSectionHeader('Completion Status', _completionStatuses.length),
-                    Wrap(
-                      spacing: 6,
-                      runSpacing: 6,
-                      children: widget.taxonomies.completionStatuses.map((cs) {
-                        final isSelected = _completionStatuses.contains(cs);
-                        return FilterChip(
-                          label: Text(cs),
-                          selected: isSelected,
-                          onSelected: (val) {
-                            setState(() {
-                              val ? _completionStatuses.add(cs) : _completionStatuses.remove(cs);
-                            });
-                          },
-                        );
-                      }).toList(),
+                  // Collapsible Completion Status
+                  if (widget.taxonomies.completionStatuses.isNotEmpty)
+                    _buildCollapsibleSection(
+                      title: 'Completion Status',
+                      items: widget.taxonomies.completionStatuses,
+                      selectedItems: _completionStatuses,
+                      onToggle: (item) {
+                        setState(() {
+                          _completionStatuses.contains(item)
+                              ? _completionStatuses.remove(item)
+                              : _completionStatuses.add(item);
+                        });
+                      },
                     ),
-                    const SizedBox(height: 16),
-                  ],
 
-                  // Platforms
-                  if (widget.taxonomies.platforms.isNotEmpty) ...[
-                    _buildSectionHeader('Platforms', _platforms.length),
-                    Wrap(
-                      spacing: 6,
-                      runSpacing: 6,
-                      children: widget.taxonomies.platforms.map((p) {
-                        final isSelected = _platforms.contains(p);
-                        return FilterChip(
-                          label: Text(p),
-                          selected: isSelected,
-                          onSelected: (val) {
-                            setState(() {
-                              val ? _platforms.add(p) : _platforms.remove(p);
-                            });
-                          },
-                        );
-                      }).toList(),
+                  // Collapsible Platforms
+                  if (widget.taxonomies.platforms.isNotEmpty)
+                    _buildCollapsibleSection(
+                      title: 'Platforms',
+                      items: widget.taxonomies.platforms,
+                      selectedItems: _platforms,
+                      onToggle: (item) {
+                        setState(() {
+                          _platforms.contains(item) ? _platforms.remove(item) : _platforms.add(item);
+                        });
+                      },
                     ),
-                    const SizedBox(height: 16),
-                  ],
 
-                  // Genres
-                  if (widget.taxonomies.genres.isNotEmpty) ...[
-                    _buildSectionHeader('Genres', _genres.length),
-                    Wrap(
-                      spacing: 6,
-                      runSpacing: 6,
-                      children: widget.taxonomies.genres.map((g) {
-                        final isSelected = _genres.contains(g);
-                        return FilterChip(
-                          label: Text(g),
-                          selected: isSelected,
-                          onSelected: (val) {
-                            setState(() {
-                              val ? _genres.add(g) : _genres.remove(g);
-                            });
-                          },
-                        );
-                      }).toList(),
+                  // Collapsible Genres
+                  if (widget.taxonomies.genres.isNotEmpty)
+                    _buildCollapsibleSection(
+                      title: 'Genres',
+                      items: widget.taxonomies.genres,
+                      selectedItems: _genres,
+                      onToggle: (item) {
+                        setState(() {
+                          _genres.contains(item) ? _genres.remove(item) : _genres.add(item);
+                        });
+                      },
                     ),
-                    const SizedBox(height: 16),
-                  ],
 
-                  // Minimum Score Slider
-                  _buildSectionHeader('Minimum Score: ${_minScore.toInt()}%', 0),
+                  const SizedBox(height: 8),
+                  const Divider(),
+
+                  // Rating Score Slider (defaults to Community Score)
+                  _buildScoreHeader(),
                   Slider(
                     value: _minScore,
                     min: 0,
@@ -209,6 +195,77 @@ class _FilterDrawerState extends State<FilterDrawer> {
                     activeColor: AppTheme.primary,
                     label: '${_minScore.toInt()}%',
                     onChanged: (val) => setState(() => _minScore = val),
+                  ),
+
+                  // HowLongToBeat Duration Filter Slider
+                  _buildHltbHeader(),
+                  Slider(
+                    value: _maxHltbHours,
+                    min: 0,
+                    max: 100,
+                    divisions: 20,
+                    activeColor: AppTheme.accentCyan,
+                    label: _maxHltbHours > 0 ? '${_maxHltbHours.toInt()}h' : 'Any',
+                    onChanged: (val) => setState(() => _maxHltbHours = val),
+                  ),
+
+                  const SizedBox(height: 8),
+                  const Divider(),
+
+                  // Dedicated Utility & Diagnostic Filters Section
+                  Theme(
+                    data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+                    child: ExpansionTile(
+                      initiallyExpanded: _showHiddenOnly || _missingCoversOnly || _duplicateCopiesOnly || _missingMicrotrailersOnly || _unplayedOnly,
+                      tilePadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.build_circle_outlined, color: AppTheme.primaryLight, size: 20),
+                      title: const Text(
+                        'Utility & Diagnostics',
+                        style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppTheme.textPrimary),
+                      ),
+                      children: [
+                        CheckboxListTile(
+                          dense: true,
+                          contentPadding: EdgeInsets.zero,
+                          title: const Text('Show Hidden Only', style: TextStyle(fontSize: 13, color: AppTheme.textPrimary)),
+                          activeColor: AppTheme.primary,
+                          value: _showHiddenOnly,
+                          onChanged: (v) => setState(() => _showHiddenOnly = v ?? false),
+                        ),
+                        CheckboxListTile(
+                          dense: true,
+                          contentPadding: EdgeInsets.zero,
+                          title: const Text('Missing Cover Art', style: TextStyle(fontSize: 13, color: AppTheme.textPrimary)),
+                          activeColor: AppTheme.primary,
+                          value: _missingCoversOnly,
+                          onChanged: (v) => setState(() => _missingCoversOnly = v ?? false),
+                        ),
+                        CheckboxListTile(
+                          dense: true,
+                          contentPadding: EdgeInsets.zero,
+                          title: const Text('DuplicateHider Secondary Copies', style: TextStyle(fontSize: 13, color: AppTheme.textPrimary)),
+                          activeColor: AppTheme.primary,
+                          value: _duplicateCopiesOnly,
+                          onChanged: (v) => setState(() => _duplicateCopiesOnly = v ?? false),
+                        ),
+                        CheckboxListTile(
+                          dense: true,
+                          contentPadding: EdgeInsets.zero,
+                          title: const Text('Missing Microtrailers', style: TextStyle(fontSize: 13, color: AppTheme.textPrimary)),
+                          activeColor: AppTheme.primary,
+                          value: _missingMicrotrailersOnly,
+                          onChanged: (v) => setState(() => _missingMicrotrailersOnly = v ?? false),
+                        ),
+                        CheckboxListTile(
+                          dense: true,
+                          contentPadding: EdgeInsets.zero,
+                          title: const Text('Unplayed Games (0 Hours)', style: TextStyle(fontSize: 13, color: AppTheme.textPrimary)),
+                          activeColor: AppTheme.primary,
+                          value: _unplayedOnly,
+                          onChanged: (v) => setState(() => _unplayedOnly = v ?? false),
+                        ),
+                      ],
+                    ),
                   ),
                 ],
               ),
@@ -234,11 +291,17 @@ class _FilterDrawerState extends State<FilterDrawer> {
                       completionStatuses: _completionStatuses,
                       isInstalled: _isInstalled,
                       isFavorite: _isFavorite,
-                      includeHidden: _includeHidden,
                       minScore: _minScore > 0 ? _minScore.toInt() : null,
+                      hltbMaxHours: _maxHltbHours > 0 ? _maxHltbHours.toInt() : null,
+                      showHiddenOnly: _showHiddenOnly,
+                      missingCoversOnly: _missingCoversOnly,
+                      duplicateCopiesOnly: _duplicateCopiesOnly,
+                      missingMicrotrailersOnly: _missingMicrotrailersOnly,
+                      unplayedOnly: _unplayedOnly,
                       clearInstalled: _isInstalled == null,
                       clearFavorite: _isFavorite == null,
                       clearScores: _minScore == 0,
+                      clearHltb: _maxHltbHours == 0,
                     );
                     widget.onApply(criteria);
                     Navigator.of(context).pop();
@@ -256,29 +319,114 @@ class _FilterDrawerState extends State<FilterDrawer> {
     );
   }
 
-  Widget _buildSectionHeader(String title, int count) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Row(
-        children: [
-          Text(
-            title,
-            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppTheme.textSecondary),
-          ),
-          if (count > 0) ...[
-            const SizedBox(width: 6),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-              decoration: BoxDecoration(
-                color: AppTheme.primary,
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Text(
-                '$count',
-                style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.white),
+  Widget _buildCollapsibleSection({
+    required String title,
+    required List<String> items,
+    required Set<String> selectedItems,
+    required ValueChanged<String> onToggle,
+  }) {
+    final count = selectedItems.length;
+
+    return Theme(
+      data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+      child: ExpansionTile(
+        initiallyExpanded: count > 0,
+        tilePadding: EdgeInsets.zero,
+        childrenPadding: const EdgeInsets.only(bottom: 12),
+        title: Row(
+          children: [
+            Text(
+              title,
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: AppTheme.textPrimary,
               ),
             ),
+            if (count > 0) ...[
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                decoration: BoxDecoration(
+                  color: AppTheme.primary,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text(
+                  '$count',
+                  style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white),
+                ),
+              ),
+            ],
           ],
+        ),
+        children: [
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: items.map((item) {
+                final isSelected = selectedItems.contains(item);
+                return FilterChip(
+                  label: Text(item),
+                  selected: isSelected,
+                  selectedColor: AppTheme.primary.withValues(alpha: 0.3),
+                  checkmarkColor: Colors.white,
+                  labelStyle: TextStyle(
+                    color: isSelected ? Colors.white : AppTheme.textSecondary,
+                    fontSize: 12,
+                  ),
+                  onSelected: (_) => onToggle(item),
+                );
+              }).toList(),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildScoreHeader() {
+    return Padding(
+      padding: const EdgeInsets.only(top: 8, bottom: 4),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            'Minimum ${_getScoreLabel()}',
+            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.textPrimary),
+          ),
+          Text(
+            _minScore > 0 ? '${_minScore.toInt()}%' : 'Any',
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.bold,
+              color: _minScore > 0 ? AppTheme.primaryLight : AppTheme.textMuted,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHltbHeader() {
+    return Padding(
+      padding: const EdgeInsets.only(top: 8, bottom: 4),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          const Text(
+            'Max Beat Time (HLTB)',
+            style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.textPrimary),
+          ),
+          Text(
+            _maxHltbHours > 0 ? 'Under ${_maxHltbHours.toInt()}h' : 'Any',
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.bold,
+              color: _maxHltbHours > 0 ? AppTheme.accentCyan : AppTheme.textMuted,
+            ),
+          ),
         ],
       ),
     );

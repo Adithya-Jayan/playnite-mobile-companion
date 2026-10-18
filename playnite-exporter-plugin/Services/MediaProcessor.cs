@@ -7,6 +7,7 @@ using Playnite.SDK.Models;
 using PlayniteExporterPlugin.Common;
 using PlayniteExporterPlugin.Configuration;
 using PlayniteExporterPlugin.Models;
+using Newtonsoft.Json.Linq;
 
 namespace PlayniteExporterPlugin.Services
 {
@@ -297,7 +298,66 @@ namespace PlayniteExporterPlugin.Services
                 }
             }
 
+            // 5. Fallback: Stream trailer directly from Steam CDN if ExtraMetadata cached SteamAppDetails
+            if (container.Trailer == null)
+            {
+                var steamTrailerUrl = TryGetSteamTrailerUrl(userDataDir, game.Id);
+                if (!string.IsNullOrEmpty(steamTrailerUrl))
+                {
+                    container.Trailer = new MediaTrailerPointer
+                    {
+                        RelativePath = null,
+                        Sha256 = null,
+                        SizeBytes = null,
+                        DurationSeconds = null,
+                        WebUrl = steamTrailerUrl
+                    };
+                }
+            }
+
             return (container, uploads);
+        }
+
+        private static string? TryGetSteamTrailerUrl(string userDataDir, Guid gameId)
+        {
+            try
+            {
+                var appDetailsPath = Path.Combine(
+                    userDataDir,
+                    "ExtensionsData",
+                    "705fdbca-e1fc-4004-b839-1d040b8b4429",
+                    $"{gameId}_SteamAppDetails.json"
+                );
+                if (!File.Exists(appDetailsPath)) return null;
+
+                var json = File.ReadAllText(appDetailsPath);
+                var root = JObject.Parse(json);
+                var movies = root["movies"] as JArray ?? root["data"]?["movies"] as JArray;
+                if (movies == null || movies.Count == 0) return null;
+
+                var firstMovie = movies[0];
+                var mp4Obj = firstMovie["mp4"] as JObject;
+                var url = mp4Obj?["480"]?.ToString() ?? mp4Obj?["max"]?.ToString();
+                if (string.IsNullOrEmpty(url))
+                {
+                    var webmObj = firstMovie["webm"] as JObject;
+                    url = webmObj?["480"]?.ToString() ?? webmObj?["max"]?.ToString();
+                }
+
+                if (!string.IsNullOrEmpty(url))
+                {
+                    if (url!.StartsWith("http://", StringComparison.OrdinalIgnoreCase))
+                    {
+                        url = "https://" + url.Substring(7);
+                    }
+                    return url;
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Debug(ex, $"Failed parsing Steam trailer stream for game {gameId}");
+            }
+            return null;
         }
 
         private static (int? Width, int? Height) GetImageDimensions(string filePath)

@@ -3,14 +3,15 @@
 # ==========================================
 
 # Build outputs and distributions
-dist/
+dist/*
+!dist/MobileDeltaSyncExporter.pext
+!dist/playnite-mobile-companion.apk
 build/
 bin/
 obj/
 **/bin/
 **/obj/
 **/build/
-**/dist/
 
 # Visual Studio & IDE files
 .vs/

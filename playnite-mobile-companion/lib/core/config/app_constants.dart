@@ -1,6 +1,6 @@
 /// Global application constants.
 class AppConstants {
-  static const String appName = 'Playnite Companion';
+  static const String appName = 'Playnite Mobile Companion';
   static const String appVersion = '1.0.0';
 
   // Remote Sync Endpoints and Names

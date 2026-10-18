@@ -1,5 +1,8 @@
+import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:playnite_mobile_companion/core/config/app_theme.dart';
+import 'package:playnite_mobile_companion/core/ui/playnite_cached_image.dart';
 import 'package:playnite_mobile_companion/core/utils/duration_formatter.dart';
 import 'package:playnite_mobile_companion/core/utils/media_url_resolver.dart';
 import 'package:playnite_mobile_companion/features/game_detail/presentation/game_detail_screen.dart';
@@ -9,6 +12,15 @@ class GameDetailsTile extends StatelessWidget {
   final UnifiedGamePayload game;
 
   const GameDetailsTile({super.key, required this.game});
+
+  static bool get _isTesting {
+    if (kIsWeb) return false;
+    try {
+      return Platform.environment.containsKey('FLUTTER_TEST');
+    } catch (_) {
+      return false;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -23,6 +35,15 @@ class GameDetailsTile extends StatelessWidget {
       child: InkWell(
         borderRadius: BorderRadius.circular(10),
         onTap: () {
+          final bgId = game.media.backgroundDriveFileId;
+          if (!_isTesting && bgId != null && bgId.isNotEmpty) {
+            final isDirectHttp = bgId.startsWith('http://') || bgId.startsWith('https://');
+            final streamUrl = isDirectHttp ? bgId : MediaUrlResolver.getDriveMediaStreamUrl(bgId);
+            final headers = (isDirectHttp && !streamUrl.contains('googleapis.com'))
+                ? <String, String>{}
+                : MediaUrlResolver.getAuthHeaders();
+            precacheImage(NetworkImage(streamUrl, headers: headers), context).catchError((_) {});
+          }
           Navigator.of(context).push(
             MaterialPageRoute(builder: (_) => GameDetailScreen(game: game)),
           );
@@ -38,14 +59,16 @@ class GameDetailsTile extends StatelessWidget {
                 child: SizedBox(
                   width: 65,
                   height: 90,
-                  child: (coverId != null && coverId.isNotEmpty)
-                      ? Image.network(
-                          MediaUrlResolver.getDriveThumbnailUrl(coverId, width: 200),
-                          headers: MediaUrlResolver.getAuthHeaders(),
-                          fit: BoxFit.cover,
-                          errorBuilder: (context, error, stackTrace) => _buildPlaceholder(),
-                        )
-                      : _buildPlaceholder(),
+                  child: PlayniteCachedImage(
+                    mediaId: coverId,
+                    fit: BoxFit.cover,
+                    memCacheWidth: 200,
+                    memCacheHeight: 280,
+                    maxWidthDiskCache: 300,
+                    maxHeightDiskCache: 400,
+                    placeholder: _buildPlaceholder(),
+                    errorWidget: _buildPlaceholder(),
+                  ),
                 ),
               ),
               const SizedBox(width: 14),

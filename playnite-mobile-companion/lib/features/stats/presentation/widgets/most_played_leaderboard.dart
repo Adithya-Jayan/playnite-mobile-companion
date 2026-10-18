@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:playnite_mobile_companion/core/config/app_theme.dart';
 import 'package:playnite_mobile_companion/core/database/daos/stats_dao.dart';
+import 'package:playnite_mobile_companion/core/ui/playnite_cached_image.dart';
 import 'package:playnite_mobile_companion/core/utils/duration_formatter.dart';
-import 'package:playnite_mobile_companion/core/utils/media_url_resolver.dart';
 
 class MostPlayedLeaderboard extends StatelessWidget {
   final List<TopPlayedGameEntry> topGames;
@@ -68,14 +68,14 @@ class MostPlayedLeaderboard extends StatelessWidget {
                         child: SizedBox(
                           width: 32,
                           height: 44,
-                          child: (game.coverDriveFileId != null && game.coverDriveFileId!.isNotEmpty)
-                              ? Image.network(
-                                  MediaUrlResolver.getDriveThumbnailUrl(game.coverDriveFileId!, width: 100),
-                                  headers: MediaUrlResolver.getAuthHeaders(),
-                                  fit: BoxFit.cover,
-                                  errorBuilder: (context, error, stackTrace) => _buildPlaceholder(),
-                                )
-                              : _buildPlaceholder(),
+                          child: PlayniteCachedImage(
+                            mediaId: game.coverDriveFileId,
+                            fit: BoxFit.cover,
+                            memCacheWidth: 96,
+                            memCacheHeight: 132,
+                            placeholder: _buildPlaceholder(),
+                            errorWidget: _buildPlaceholder(),
+                          ),
                         ),
                       ),
                     ],

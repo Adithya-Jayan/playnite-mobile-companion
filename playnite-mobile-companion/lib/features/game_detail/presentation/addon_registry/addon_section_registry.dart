@@ -70,9 +70,9 @@ class AddonSectionRegistry {
       }
     }
 
-    // 2. Discover unknown future addons in the game payload
+    // 2. Discover unknown future addons in the game payload (suppress redundant player_activities JSON)
     final unknownKeys = game.addons.keys
-        .where((key) => !_registry.containsKey(key))
+        .where((key) => !_registry.containsKey(key) && key != 'player_activities')
         .toList()
       ..sort();
 

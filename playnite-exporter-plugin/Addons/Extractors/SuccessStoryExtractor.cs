@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Security.Cryptography;
+using System.Text;
 using System.Threading.Tasks;
 using Newtonsoft.Json.Linq;
 using Playnite.SDK.Models;
@@ -43,6 +45,12 @@ namespace PlayniteExporterPlugin.Addons.Extractors
             var root = JObject.Parse(jsonContent);
             var itemsArray = root["Items"] as JArray;
 
+            string? storeUrl = null;
+            if (root["SourcesLink"] is JObject sourcesLink)
+            {
+                storeUrl = sourcesLink.Value<string>("Url");
+            }
+
             var itemsList = new List<object>();
             int unlockedCount = 0;
             int totalCount = 0;
@@ -73,6 +81,28 @@ namespace PlayniteExporterPlugin.Addons.Extractors
                     gamerscoreTotal += score;
                     if (isUnlocked) gamerscoreCurrent += score;
 
+                    bool noRarity = item.Value<bool?>("NoRarety") ?? false;
+                    double? rarityPercent = null;
+                    if (!noRarity && item["Percent"] != null)
+                    {
+                        var rawPercent = item.Value<double?>("Percent");
+                        if (rawPercent.HasValue)
+                        {
+                            rarityPercent = Math.Round(rawPercent.Value, 2);
+                        }
+                    }
+
+                    var urlUnlocked = item.Value<string>("UrlUnlocked") ?? item.Value<string>("ImageUnlocked") ?? string.Empty;
+                    var urlLocked = item.Value<string>("UrlLocked") ?? item.Value<string>("ImageLocked") ?? string.Empty;
+
+                    string? localIconUnlocked = null;
+                    if (!string.IsNullOrEmpty(urlUnlocked))
+                    {
+                        var hash = ComputeMd5(urlUnlocked);
+                        var localPath = Path.Combine(playniteUserDataDir, "cache", "SuccessStory", $"{hash}.jpg");
+                        if (File.Exists(localPath)) localIconUnlocked = localPath;
+                    }
+
                     object? progression = null;
                     if (item["Progression"] is JObject progObj)
                     {
@@ -87,10 +117,16 @@ namespace PlayniteExporterPlugin.Addons.Extractors
                         name = item.Value<string>("Name") ?? string.Empty,
                         api_name = item.Value<string>("ApiName") ?? string.Empty,
                         description = item.Value<string>("Description") ?? string.Empty,
-                        url_unlocked = item.Value<string>("UrlUnlocked") ?? string.Empty,
-                        url_locked = item.Value<string>("UrlLocked") ?? string.Empty,
+                        url_unlocked = urlUnlocked,
+                        url_locked = urlLocked,
+                        icon_unlocked = urlUnlocked,
+                        icon_locked = urlLocked,
+                        icon = urlUnlocked,
+                        local_icon_path = localIconUnlocked,
                         date_unlocked_utc = dateUnlockedUtc?.ToString("yyyy-MM-ddTHH:mm:ss.fffZ"),
-                        percent = Math.Round(item.Value<double?>("Percent") ?? 0.0, 2),
+                        percent = rarityPercent,
+                        rarity_percentage = rarityPercent,
+                        no_rarity = noRarity,
                         gamerscore = score,
                         is_hidden = item.Value<bool?>("IsHidden") ?? false,
                         category = item.Value<string>("Category") ?? "Base game",
@@ -122,6 +158,8 @@ namespace PlayniteExporterPlugin.Addons.Extractors
             return new
             {
                 has_achievements = totalCount > 0,
+                store_url = storeUrl,
+                sources_link = storeUrl,
                 total_count = totalCount,
                 unlocked_count = unlockedCount,
                 locked_count = lockedCount,
@@ -131,8 +169,23 @@ namespace PlayniteExporterPlugin.Addons.Extractors
                 last_refresh_utc = lastRefreshUtc,
                 estimate_time_min = estimateTimeMin,
                 estimate_time_max = estimateTimeMax,
-                items = itemsList
+                items = itemsList,
+                achievements = itemsList
             };
+        }
+
+        private static string ComputeMd5(string input)
+        {
+            using (var md5 = MD5.Create())
+            {
+                var bytes = md5.ComputeHash(Encoding.UTF8.GetBytes(input));
+                var sb = new StringBuilder(bytes.Length * 2);
+                for (int i = 0; i < bytes.Length; i++)
+                {
+                    sb.Append(bytes[i].ToString("x2"));
+                }
+                return sb.ToString();
+            }
         }
     }
 }

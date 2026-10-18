@@ -1,9 +1,13 @@
+import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:playnite_mobile_companion/core/config/app_theme.dart';
 import 'package:playnite_mobile_companion/core/utils/duration_formatter.dart';
 import 'package:playnite_mobile_companion/features/sync/domain/sync_models.dart';
 import 'package:playnite_mobile_companion/core/database/app_database.dart';
 import 'package:playnite_mobile_companion/core/database/daos/game_dao.dart';
+import 'package:playnite_mobile_companion/core/ui/playnite_cached_image.dart';
+import 'package:playnite_mobile_companion/core/utils/media_url_resolver.dart';
 import 'addon_registry/addon_section_registry.dart';
 import 'widgets/external_links_card.dart';
 import 'widgets/metadata_chips_row.dart';
@@ -23,6 +27,16 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
   bool _isDescriptionExpanded = false;
   DuplicateCopyPayload? _selectedCopy;
   late Map<String, dynamic> _addons;
+  List<UnifiedGamePayload> _relatedGames = [];
+
+  static bool get _isTesting {
+    if (kIsWeb) return false;
+    try {
+      return Platform.environment.containsKey('FLUTTER_TEST');
+    } catch (_) {
+      return false;
+    }
+  }
 
   @override
   void initState() {
@@ -30,6 +44,27 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
     _addons = widget.game.addons;
     if (_addons.isEmpty) {
       _loadAddons();
+    }
+    // Defer related games to next frame so hero background & primary game details render instantly
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _loadRelatedGames();
+      }
+    });
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_isTesting) return;
+    final bgId = widget.game.media.backgroundDriveFileId;
+    if (bgId != null && bgId.isNotEmpty) {
+      final isDirectHttp = bgId.startsWith('http://') || bgId.startsWith('https://');
+      final streamUrl = isDirectHttp ? bgId : MediaUrlResolver.getDriveMediaStreamUrl(bgId);
+      final headers = (isDirectHttp && !streamUrl.contains('googleapis.com'))
+          ? <String, String>{}
+          : MediaUrlResolver.getAuthHeaders();
+      precacheImage(NetworkImage(streamUrl, headers: headers), context).catchError((_) {});
     }
   }
 
@@ -44,6 +79,24 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
       }
     } catch (e) {
       debugPrint('Error loading addons on demand: $e');
+    }
+  }
+
+  Future<void> _loadRelatedGames() async {
+    try {
+      if (AppDatabase.instance.isOpen) {
+        final dao = GameDao(AppDatabase.instance);
+        final related = await dao.getRelatedGames(
+          currentGameId: widget.game.id,
+          series: widget.game.series,
+          developers: widget.game.developers,
+        );
+        if (mounted && related.isNotEmpty) {
+          setState(() => _relatedGames = related);
+        }
+      }
+    } catch (e) {
+      debugPrint('Error loading related games: $e');
     }
   }
 
@@ -78,6 +131,8 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
             flexibleSpace: FlexibleSpaceBar(
               background: MicrotrailerPlayer(
                 microtrailerDriveFileId: game.media.microtrailerDriveFileId,
+                trailerDriveFileId: game.media.trailerDriveFileId,
+                trailerWebUrl: game.media.trailerWebUrl,
                 backgroundDriveFileId: game.media.backgroundDriveFileId,
                 logoDriveFileId: game.media.logoDriveFileId,
                 height: 250,
@@ -131,6 +186,9 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
                 // Description Card
                 if (game.description != null && game.description!.trim().isNotEmpty)
                   _buildDescriptionCard(game.description!),
+
+                // Related Games (Same Series / Developer)
+                _buildRelatedGamesCard(game),
 
                 // User Notes Card (if present)
                 if (game.notes != null && game.notes!.trim().isNotEmpty)
@@ -191,6 +249,107 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
                   ),
                 ),
               ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRelatedGamesCard(UnifiedGamePayload currentGame) {
+    if (_relatedGames.isEmpty) return const SizedBox.shrink();
+
+    final hasSeries = currentGame.series.isNotEmpty;
+    final seriesName = hasSeries ? currentGame.series.first.name : null;
+    final devName = currentGame.developers.isNotEmpty ? currentGame.developers.first.name : null;
+
+    final String title;
+    if (seriesName != null && devName != null) {
+      title = 'More in $seriesName & by $devName';
+    } else if (seriesName != null) {
+      title = 'More in $seriesName';
+    } else if (devName != null) {
+      title = 'More by $devName';
+    } else {
+      title = 'Related Games';
+    }
+
+    return Card(
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.auto_awesome_motion, color: AppTheme.primaryLight, size: 18),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: AppTheme.textPrimary),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              height: 150,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                itemCount: _relatedGames.length,
+                separatorBuilder: (context, index) => const SizedBox(width: 10),
+                itemBuilder: (context, index) {
+                  final related = _relatedGames[index];
+                  return GestureDetector(
+                    onTap: () {
+                      final bgId = related.media.backgroundDriveFileId;
+                      if (bgId != null && bgId.isNotEmpty) {
+                        final isDirectHttp = bgId.startsWith('http://') || bgId.startsWith('https://');
+                        final streamUrl = isDirectHttp ? bgId : MediaUrlResolver.getDriveMediaStreamUrl(bgId);
+                        final headers = (isDirectHttp && !streamUrl.contains('googleapis.com'))
+                            ? <String, String>{}
+                            : MediaUrlResolver.getAuthHeaders();
+                        precacheImage(NetworkImage(streamUrl, headers: headers), context).catchError((_) {});
+                      }
+                      Navigator.of(context).push(
+                        MaterialPageRoute(builder: (_) => GameDetailScreen(game: related)),
+                      );
+                    },
+                    child: SizedBox(
+                      width: 88,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(6),
+                            child: SizedBox(
+                              width: 88,
+                              height: 115,
+                              child: PlayniteCachedImage(
+                                mediaId: related.media.coverDriveFileId,
+                                fit: BoxFit.cover,
+                                memCacheWidth: 180,
+                                memCacheHeight: 240,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            related.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppTheme.textPrimary),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
           ],
         ),
       ),

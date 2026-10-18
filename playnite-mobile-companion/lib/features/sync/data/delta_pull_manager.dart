@@ -93,6 +93,7 @@ class DeltaPullManager {
 
       // Fast-path: 0 downloads needed!
       if (diff.isNoOp) {
+        await _backfillMediaDriveFileIds(remoteIndex);
         stopwatch.stop();
         onProgress?.call(const SyncProgress(
           phase: SyncPhase.completed,
@@ -143,7 +144,53 @@ class DeltaPullManager {
             downloadedManifest = parsed;
             itemName = 'manifest.json';
           } else if (parsed is Map<String, dynamic>) {
-            payload = UnifiedGamePayload.fromJson(parsed);
+            final rawPayload = UnifiedGamePayload.fromJson(parsed);
+
+            // Resolve Drive File IDs from remoteIndex.entries for all media pointers
+            final media = rawPayload.media;
+            String? resolveMediaId(String? relPath, String? sha256, String? existingId) {
+              if (existingId != null && existingId.isNotEmpty) {
+                return existingId;
+              }
+              if (relPath != null && relPath.isNotEmpty) {
+                final match = remoteIndex.entries[relPath];
+                if (match != null && match.driveFileId.isNotEmpty) {
+                  return match.driveFileId;
+                }
+              }
+              if (sha256 != null && sha256.isNotEmpty) {
+                final match = remoteIndex.entries.values.firstWhere(
+                  (e) => e.sha256 == sha256 && e.driveFileId.isNotEmpty,
+                  orElse: () => const IndexEntry(
+                    relativePath: '',
+                    sha256: '',
+                    sizeBytes: 0,
+                    modifiedUtc: '',
+                    driveFileId: '',
+                    mimeType: '',
+                    category: '',
+                  ),
+                );
+                if (match.driveFileId.isNotEmpty) {
+                  return match.driveFileId;
+                }
+              }
+              return relPath;
+            }
+
+            final resolvedMedia = media.copyWith(
+              coverDriveFileId: resolveMediaId(media.coverRelativePath, media.coverSha256, media.coverDriveFileId),
+              backgroundDriveFileId: resolveMediaId(media.backgroundRelativePath, media.backgroundSha256, media.backgroundDriveFileId),
+              iconDriveFileId: resolveMediaId(media.iconRelativePath, media.iconSha256, media.iconDriveFileId),
+              logoDriveFileId: remoteIndex.entries['media/logos/${rawPayload.id}.png']?.driveFileId ??
+                  media.logoDriveFileId,
+              microtrailerDriveFileId: remoteIndex.entries['media/microtrailers/${rawPayload.id}.mp4']?.driveFileId ??
+                  media.microtrailerDriveFileId,
+              trailerDriveFileId: remoteIndex.entries['media/trailers/${rawPayload.id}.mp4']?.driveFileId ??
+                  media.trailerDriveFileId,
+            );
+
+            payload = rawPayload.copyWith(media: resolvedMedia);
             if (payload.name.isNotEmpty) {
               itemName = payload.name;
             }
@@ -263,6 +310,9 @@ class DeltaPullManager {
         }
       });
 
+      // Backfill missing media drive file IDs for all library games using remoteIndex
+      await _backfillMediaDriveFileIds(remoteIndex);
+
       stopwatch.stop();
       onProgress?.call(SyncProgress(
         phase: SyncPhase.completed,
@@ -291,6 +341,73 @@ class DeltaPullManager {
       return SyncReport.failure(e.toString(), durationMs: stopwatch.elapsedMilliseconds);
     } finally {
       await BackgroundSyncService.releaseWakeLock();
+    }
+  }
+
+  /// Backfills Google Drive file IDs for media (covers, backgrounds, icons, logos, trailers)
+  /// on existing library games in SQLite using the remote SyncIndex.
+  Future<void> _backfillMediaDriveFileIds(SyncIndex remoteIndex) async {
+    try {
+      final shaMap = <String, IndexEntry>{};
+      for (final entry in remoteIndex.entries.values) {
+        if (entry.sha256.isNotEmpty && entry.driveFileId.isNotEmpty) {
+          shaMap[entry.sha256] = entry;
+        }
+      }
+
+      final rows = await database.db.query(
+        'games',
+        columns: [
+          'id',
+          'cover_sha256',
+          'background_sha256',
+          'icon_sha256',
+          'cover_drive_file_id',
+          'background_drive_file_id',
+          'icon_drive_file_id',
+        ],
+        where: 'cover_drive_file_id IS NULL OR background_drive_file_id IS NULL OR icon_drive_file_id IS NULL',
+      );
+
+      if (rows.isEmpty) return;
+
+      final batch = database.db.batch();
+      for (final row in rows) {
+        final id = row['id'] as String;
+        final coverSha = row['cover_sha256'] as String?;
+        final bgSha = row['background_sha256'] as String?;
+        final iconSha = row['icon_sha256'] as String?;
+
+        final updates = <String, dynamic>{};
+        if (coverSha != null && shaMap.containsKey(coverSha)) {
+          updates['cover_drive_file_id'] = shaMap[coverSha]!.driveFileId;
+        }
+        if (bgSha != null && shaMap.containsKey(bgSha)) {
+          updates['background_drive_file_id'] = shaMap[bgSha]!.driveFileId;
+        }
+        if (iconSha != null && shaMap.containsKey(iconSha)) {
+          updates['icon_drive_file_id'] = shaMap[iconSha]!.driveFileId;
+        }
+        final logoEntry = remoteIndex.entries['media/logos/$id.png'];
+        if (logoEntry != null && logoEntry.driveFileId.isNotEmpty) {
+          updates['logo_drive_file_id'] = logoEntry.driveFileId;
+        }
+        final microEntry = remoteIndex.entries['media/microtrailers/$id.mp4'];
+        if (microEntry != null && microEntry.driveFileId.isNotEmpty) {
+          updates['microtrailer_drive_file_id'] = microEntry.driveFileId;
+        }
+        final trailerEntry = remoteIndex.entries['media/trailers/$id.mp4'];
+        if (trailerEntry != null && trailerEntry.driveFileId.isNotEmpty) {
+          updates['trailer_drive_file_id'] = trailerEntry.driveFileId;
+        }
+
+        if (updates.isNotEmpty) {
+          batch.update('games', updates, where: 'id = ?', whereArgs: [id]);
+        }
+      }
+      await batch.commit(noResult: true);
+    } catch (e) {
+      debugPrint('Media backfill warning: $e');
     }
   }
 }
