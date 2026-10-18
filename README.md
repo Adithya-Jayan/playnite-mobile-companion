@@ -146,7 +146,7 @@ Playnite_Addon/
 |   |-- building.md                        # Prerequisites & compilation commands (.pext / .apk)
 |   |-- installation-and-usage.md          # Installation, first export & usage walkthrough
 |   +-- architecture-and-specs.md          # Delta-sync protocol, data schema & architecture
-|-- dist/                                  # Packaged distribution artifacts (git-ignored)
+|-- dist/                                  # Packaged distribution artifacts (.pext & .apk)
 |   |-- MobileDeltaSyncExporter.pext       # Ready-to-install Playnite extension
 |   +-- playnite-mobile-companion.apk      # Ready-to-install Android companion app
 |-- playnite-exporter-plugin/              # Playnite C# .NET Desktop Addon
