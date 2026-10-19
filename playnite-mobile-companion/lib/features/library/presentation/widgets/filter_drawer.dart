@@ -26,11 +26,13 @@ class _FilterDrawerState extends State<FilterDrawer> {
   late Set<String> _platforms;
   late Set<String> _sources;
   late Set<String> _genres;
+  late Set<String> _tags;
   late Set<String> _completionStatuses;
   late bool? _isInstalled;
   late bool? _isFavorite;
   double _minScore = 0;
   double _maxHltbHours = 0; // 0 = Any / Unlimited
+  String _tagSearchQuery = '';
 
   // Utility filter mode (single select)
   late UtilityFilterMode _utilityMode;
@@ -41,6 +43,7 @@ class _FilterDrawerState extends State<FilterDrawer> {
     _platforms = Set.from(widget.currentCriteria.platforms);
     _sources = Set.from(widget.currentCriteria.sources);
     _genres = Set.from(widget.currentCriteria.genres);
+    _tags = Set.from(widget.currentCriteria.tags);
     _completionStatuses = Set.from(widget.currentCriteria.completionStatuses);
     _isInstalled = widget.currentCriteria.isInstalled;
     _isFavorite = widget.currentCriteria.isFavorite;
@@ -174,6 +177,10 @@ class _FilterDrawerState extends State<FilterDrawer> {
                       },
                     ),
 
+                  // Searchable Tags
+                  if (widget.taxonomies.tags.isNotEmpty)
+                    _buildSearchableTagsSection(),
+
                   const SizedBox(height: 8),
                   const Divider(),
 
@@ -288,6 +295,7 @@ class _FilterDrawerState extends State<FilterDrawer> {
                       platforms: _platforms,
                       sources: _sources,
                       genres: _genres,
+                      tags: _tags,
                       completionStatuses: _completionStatuses,
                       isInstalled: _isInstalled,
                       isFavorite: _isFavorite,
@@ -423,6 +431,120 @@ class _FilterDrawerState extends State<FilterDrawer> {
               color: _maxHltbHours > 0 ? AppTheme.accentCyan : AppTheme.textMuted,
             ),
           ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSearchableTagsSection() {
+    final allTags = widget.taxonomies.tags;
+    final count = _tags.length;
+    final query = _tagSearchQuery.trim().toLowerCase();
+    final filteredTags = query.isEmpty
+        ? allTags
+        : allTags.where((t) => t.toLowerCase().contains(query)).toList();
+
+    return Theme(
+      data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+      child: ExpansionTile(
+        initiallyExpanded: count > 0,
+        tilePadding: EdgeInsets.zero,
+        childrenPadding: const EdgeInsets.only(bottom: 12),
+        title: Row(
+          children: [
+            const Text(
+              'Tags',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: AppTheme.textPrimary,
+              ),
+            ),
+            if (count > 0) ...[
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                decoration: BoxDecoration(
+                  color: AppTheme.primary,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text(
+                  '$count',
+                  style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white),
+                ),
+              ),
+            ],
+          ],
+        ),
+        children: [
+          // Quick tag search box
+          Container(
+            height: 38,
+            margin: const EdgeInsets.only(bottom: 8),
+            decoration: BoxDecoration(
+              color: AppTheme.background,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: AppTheme.dividerColor),
+            ),
+            child: TextField(
+              style: const TextStyle(fontSize: 13, color: AppTheme.textPrimary),
+              decoration: InputDecoration(
+                hintText: 'Quick filter tags...',
+                hintStyle: const TextStyle(fontSize: 12, color: AppTheme.textMuted),
+                prefixIcon: const Icon(Icons.search, size: 16, color: AppTheme.textMuted),
+                prefixIconConstraints: const BoxConstraints(minWidth: 32),
+                suffixIcon: _tagSearchQuery.isNotEmpty
+                    ? IconButton(
+                        icon: const Icon(Icons.clear, size: 16, color: AppTheme.textMuted),
+                        padding: EdgeInsets.zero,
+                        onPressed: () => setState(() => _tagSearchQuery = ''),
+                      )
+                    : null,
+                border: InputBorder.none,
+                contentPadding: const EdgeInsets.symmetric(vertical: 8),
+              ),
+              onChanged: (val) => setState(() => _tagSearchQuery = val),
+            ),
+          ),
+          if (filteredTags.isEmpty)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 8.0),
+              child: Text(
+                'No tags found matching query',
+                style: TextStyle(fontSize: 12, color: AppTheme.textMuted),
+              ),
+            )
+          else
+            Align(
+              alignment: Alignment.centerLeft,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 220),
+                child: SingleChildScrollView(
+                  child: Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: filteredTags.map((tag) {
+                      final isSelected = _tags.contains(tag);
+                      return FilterChip(
+                        label: Text(tag),
+                        selected: isSelected,
+                        selectedColor: AppTheme.primary.withValues(alpha: 0.3),
+                        checkmarkColor: Colors.white,
+                        labelStyle: TextStyle(
+                          color: isSelected ? Colors.white : AppTheme.textSecondary,
+                          fontSize: 12,
+                        ),
+                        onSelected: (_) {
+                          setState(() {
+                            isSelected ? _tags.remove(tag) : _tags.add(tag);
+                          });
+                        },
+                      );
+                    }).toList(),
+                  ),
+                ),
+              ),
+            ),
         ],
       ),
     );

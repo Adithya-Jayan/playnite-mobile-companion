@@ -114,6 +114,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
             ),
             flexibleSpace: FlexibleSpaceBar(
               background: MicrotrailerPlayer(
+                gameId: game.id,
                 microtrailerDriveFileId: game.media.microtrailerDriveFileId,
                 trailerDriveFileId: game.media.trailerDriveFileId,
                 trailerWebUrl: game.media.trailerWebUrl,

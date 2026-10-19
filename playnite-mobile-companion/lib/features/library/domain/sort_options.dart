@@ -8,6 +8,7 @@ enum SortField {
   criticScore,    // critic_score
   releaseDate,    // release_date
   userScore,      // user_score
+  random,         // RANDOM()
 }
 
 enum SortDirection {
@@ -33,9 +34,12 @@ class SortOption {
   static const releaseDesc = SortOption(field: SortField.releaseDate, direction: SortDirection.descending);
   static const addedDesc = SortOption(field: SortField.addedDate, direction: SortDirection.descending);
   static const scoreDesc = SortOption(field: SortField.userScore, direction: SortDirection.descending);
+  static const random = SortOption(field: SortField.random);
 
   String get label {
     switch (field) {
+      case SortField.random:
+        return 'Random';
       case SortField.title:
         return direction == SortDirection.ascending ? 'Title (A-Z)' : 'Title (Z-A)';
       case SortField.addedDate:
@@ -58,8 +62,13 @@ class SortOption {
   }
 
   String toSqlOrderBy() {
+    if (field == SortField.random) {
+      return 'RANDOM()';
+    }
     final dir = direction == SortDirection.ascending ? 'ASC' : 'DESC';
     switch (field) {
+      case SortField.random:
+        return 'RANDOM()';
       case SortField.title:
         return 'sorting_name COLLATE NOCASE $dir';
       case SortField.addedDate:

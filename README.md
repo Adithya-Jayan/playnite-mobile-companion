@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/applogo.png" width="120" alt="Playnite Mobile Companion Logo" />
+</p>
+
 # Playnite Mobile Companion & Delta Sync
 
 [![Playnite](https://img.shields.io/badge/Playnite-Repository-orange.svg)](https://github.com/JosefNemec/Playnite)

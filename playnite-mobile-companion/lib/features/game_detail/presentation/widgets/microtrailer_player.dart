@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:playnite_mobile_companion/core/config/app_theme.dart';
+import 'package:playnite_mobile_companion/core/services/playnite_image_loader.dart';
 import 'package:playnite_mobile_companion/core/ui/playnite_cached_image.dart';
 import 'package:playnite_mobile_companion/core/utils/media_url_resolver.dart';
 import 'package:playnite_mobile_companion/features/settings/data/gallery_settings_repository.dart';
@@ -11,6 +12,7 @@ import 'package:video_player/video_player.dart';
 /// Microtrailer preview player that auto-plays a muted, looping video header.
 /// Features an auto-fading touch overlay with Play/Pause, Mute/Unmute, and a scrub bar.
 class MicrotrailerPlayer extends StatefulWidget {
+  final String? gameId;
   final String? microtrailerDriveFileId;
   final String? trailerDriveFileId;
   final String? trailerWebUrl;
@@ -21,6 +23,7 @@ class MicrotrailerPlayer extends StatefulWidget {
 
   const MicrotrailerPlayer({
     super.key,
+    this.gameId,
     this.microtrailerDriveFileId,
     this.trailerDriveFileId,
     this.trailerWebUrl,
@@ -39,6 +42,7 @@ class _MicrotrailerPlayerState extends State<MicrotrailerPlayer> {
   bool _isInitialized = false;
   bool _hasError = false;
   bool _isMuted = true;
+  bool _hasAudio = false;
   bool _isDisposed = false;
   bool _showOverlay = true;
   Timer? _overlayTimer;
@@ -77,26 +81,90 @@ class _MicrotrailerPlayerState extends State<MicrotrailerPlayer> {
     }
   }
 
-  Future<void> _initVideo() async {
-    final videoSource = (widget.microtrailerDriveFileId != null && widget.microtrailerDriveFileId!.isNotEmpty)
-        ? widget.microtrailerDriveFileId
-        : ((widget.trailerWebUrl != null && widget.trailerWebUrl!.isNotEmpty)
-            ? widget.trailerWebUrl
-            : widget.trailerDriveFileId);
+  static Future<bool> _detectMp4HasAudio(File file) async {
+    try {
+      final length = await file.length();
+      final sampleSize = length > 262144 ? 262144 : length; // read first 256KB
+      final bytes = await file.openRead(0, sampleSize).fold<List<int>>([], (p, e) => p..addAll(e));
+      // ASCII 'soun' (0x73, 0x6F, 0x75, 0x6E) marks the sound media handler atom in MP4 moov/trak
+      final pattern = [0x73, 0x6F, 0x75, 0x6E];
+      final limit = bytes.length - 3;
+      for (int i = 0; i < limit; i++) {
+        if (bytes[i] == pattern[0] &&
+            bytes[i + 1] == pattern[1] &&
+            bytes[i + 2] == pattern[2] &&
+            bytes[i + 3] == pattern[3]) {
+          return true;
+        }
+      }
+      return false;
+    } catch (_) {
+      return false;
+    }
+  }
 
-    if (videoSource == null || videoSource.isEmpty || _isTesting) return;
+  Future<void> _initVideo() async {
+    if (_isTesting) return;
+
+    // 1. Fast-Path: Check local disk cache (instant, 100% offline)
+    File? localFile;
+    final loader = PlayniteImageLoader.instance;
+    final candidates = <String>[];
+    if (widget.microtrailerDriveFileId != null && widget.microtrailerDriveFileId!.isNotEmpty) {
+      candidates.add(widget.microtrailerDriveFileId!);
+    }
+    if (widget.gameId != null && widget.gameId!.isNotEmpty) {
+      candidates.add('media/microtrailers/${widget.gameId}.mp4');
+    }
+    if (widget.trailerDriveFileId != null && widget.trailerDriveFileId!.isNotEmpty) {
+      candidates.add(widget.trailerDriveFileId!);
+    }
+    if (widget.gameId != null && widget.gameId!.isNotEmpty) {
+      candidates.add('media/trailers/${widget.gameId}.mp4');
+    }
+
+    for (final c in candidates) {
+      final f = loader.getCachedFileSync(c);
+      if (f != null && f.existsSync() && f.lengthSync() > 0) {
+        localFile = f;
+        break;
+      }
+    }
 
     try {
-      final isDirectHttp = videoSource.startsWith('http://') || videoSource.startsWith('https://');
-      final streamUrl = isDirectHttp ? videoSource : MediaUrlResolver.getDriveMediaStreamUrl(videoSource);
-      final headers = (isDirectHttp && !streamUrl.contains('googleapis.com'))
-          ? <String, String>{}
-          : MediaUrlResolver.getAuthHeaders();
+      VideoPlayerController controller;
+      bool hasAudio = false;
 
-      final controller = VideoPlayerController.networkUrl(
-        Uri.parse(streamUrl),
-        httpHeaders: headers,
-      );
+      if (localFile != null) {
+        controller = VideoPlayerController.file(localFile);
+        hasAudio = await _detectMp4HasAudio(localFile);
+      } else {
+        // 2. Stream fallback: Try official store/web trailer first, then Google Drive stream
+        String? streamUrl;
+        final headers = <String, String>{
+          'User-Agent': 'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
+        };
+
+        if (widget.trailerWebUrl != null && widget.trailerWebUrl!.isNotEmpty) {
+          streamUrl = widget.trailerWebUrl;
+          hasAudio = true; // Web full cinematic trailers typically contain audio
+        } else if (widget.microtrailerDriveFileId != null && widget.microtrailerDriveFileId!.isNotEmpty) {
+          streamUrl = MediaUrlResolver.getDriveMediaStreamUrl(widget.microtrailerDriveFileId!);
+          headers.addAll(MediaUrlResolver.getAuthHeaders());
+          hasAudio = false; // Microtrailers are looping silent previews
+        } else if (widget.trailerDriveFileId != null && widget.trailerDriveFileId!.isNotEmpty) {
+          streamUrl = MediaUrlResolver.getDriveMediaStreamUrl(widget.trailerDriveFileId!);
+          headers.addAll(MediaUrlResolver.getAuthHeaders());
+          hasAudio = true;
+        }
+
+        if (streamUrl == null || streamUrl.isEmpty) return;
+
+        controller = VideoPlayerController.networkUrl(
+          Uri.parse(streamUrl),
+          httpHeaders: headers,
+        );
+      }
 
       _controller = controller;
       await controller.initialize();
@@ -117,6 +185,7 @@ class _MicrotrailerPlayerState extends State<MicrotrailerPlayer> {
       setState(() {
         _isInitialized = true;
         _hasError = false;
+        _hasAudio = hasAudio;
       });
 
       _startOverlayTimer();
@@ -324,34 +393,36 @@ class _MicrotrailerPlayerState extends State<MicrotrailerPlayer> {
                                   _formatDuration(_controller!.value.duration),
                                   style: const TextStyle(color: Colors.white70, fontSize: 11),
                                 ),
-                                const SizedBox(width: 8),
-                                // Mute / Unmute Button right beside progress bar
-                                GestureDetector(
-                                  onTap: _toggleMute,
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                    decoration: BoxDecoration(
-                                      color: Colors.black.withValues(alpha: 0.65),
-                                      borderRadius: BorderRadius.circular(4),
-                                      border: Border.all(color: Colors.white24, width: 0.8),
-                                    ),
-                                    child: Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Icon(
-                                          _isMuted ? Icons.volume_off : Icons.volume_up,
-                                          size: 15,
-                                          color: _isMuted ? Colors.white70 : AppTheme.primaryLight,
-                                        ),
-                                        const SizedBox(width: 4),
-                                        Text(
-                                          _isMuted ? 'MUTE' : 'UNMUTE',
-                                          style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.white),
-                                        ),
-                                      ],
+                                if (_hasAudio) ...[
+                                  const SizedBox(width: 8),
+                                  // Mute / Unmute Button right beside progress bar
+                                  GestureDetector(
+                                    onTap: _toggleMute,
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                      decoration: BoxDecoration(
+                                        color: Colors.black.withValues(alpha: 0.65),
+                                        borderRadius: BorderRadius.circular(4),
+                                        border: Border.all(color: Colors.white24, width: 0.8),
+                                      ),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Icon(
+                                            _isMuted ? Icons.volume_off : Icons.volume_up,
+                                            size: 15,
+                                            color: _isMuted ? Colors.white70 : AppTheme.primaryLight,
+                                          ),
+                                          const SizedBox(width: 4),
+                                          Text(
+                                            _isMuted ? 'MUTE' : 'UNMUTE',
+                                            style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.white),
+                                          ),
+                                        ],
+                                      ),
                                     ),
                                   ),
-                                ),
+                                ],
                               ],
                             ),
                           ),
