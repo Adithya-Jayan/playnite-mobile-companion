@@ -3,6 +3,7 @@ import 'package:playnite_mobile_companion/core/config/app_theme.dart';
 import 'package:playnite_mobile_companion/core/database/app_database.dart';
 import 'package:playnite_mobile_companion/features/settings/presentation/gallery_settings_screen.dart';
 import 'package:playnite_mobile_companion/features/sync/presentation/sync_settings_screen.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class SettingsScreen extends StatelessWidget {
   final AppDatabase database;
@@ -130,6 +131,32 @@ class SettingsScreen extends StatelessWidget {
                     'Version 1.1.0 • Delta Sync Protocol',
                     style: TextStyle(fontSize: 12, color: AppTheme.textMuted),
                   ),
+                ),
+                const Divider(height: 1, color: Colors.white10),
+                ListTile(
+                  leading: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.1),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.code, color: Colors.white, size: 20),
+                  ),
+                  title: const Text(
+                    'GitHub Repository',
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: AppTheme.textPrimary),
+                  ),
+                  subtitle: const Text(
+                    'Adithya-Jayan/playnite-mobile-companion',
+                    style: TextStyle(fontSize: 12, color: AppTheme.textMuted),
+                  ),
+                  trailing: const Icon(Icons.open_in_new, color: AppTheme.textMuted, size: 18),
+                  onTap: () async {
+                    final uri = Uri.parse('https://github.com/Adithya-Jayan/playnite-mobile-companion');
+                    if (await canLaunchUrl(uri)) {
+                      await launchUrl(uri, mode: LaunchMode.externalApplication);
+                    }
+                  },
                 ),
               ],
             ),

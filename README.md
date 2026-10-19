@@ -29,6 +29,10 @@ An offline-first mobile companion system for **[Playnite](https://github.com/Jos
 
 ## Parts of the Project
 
+<p align="center">
+  <img src="docs/banner.png" alt="Playnite Mobile Companion & Desktop Exporter Bridge" width="100%" />
+</p>
+
 The project is split into two complementary components:
 
 ```
