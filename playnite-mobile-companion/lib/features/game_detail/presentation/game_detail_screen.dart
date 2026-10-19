@@ -7,6 +7,7 @@ import 'package:playnite_mobile_companion/core/database/daos/game_dao.dart';
 import 'package:playnite_mobile_companion/core/services/playnite_image_loader.dart';
 import 'package:playnite_mobile_companion/core/ui/playnite_cached_image.dart';
 import 'package:playnite_mobile_companion/core/utils/media_url_resolver.dart';
+import 'package:playnite_mobile_companion/features/settings/data/gallery_settings_repository.dart';
 import 'addon_registry/addon_section_registry.dart';
 import 'widgets/external_links_card.dart';
 import 'widgets/metadata_chips_row.dart';
@@ -27,8 +28,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
   DuplicateCopyPayload? _selectedCopy;
   late Map<String, dynamic> _addons;
   List<UnifiedGamePayload> _relatedGames = [];
-
-
+  GallerySettings? _gallerySettings;
 
   @override
   void initState() {
@@ -44,12 +44,27 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
     if (_addons.isEmpty) {
       _loadAddons();
     }
+    _loadGallerySettings();
     // Defer related games to next frame so hero background & primary game details render instantly
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         _loadRelatedGames();
       }
     });
+  }
+
+  Future<void> _loadGallerySettings() async {
+    try {
+      if (AppDatabase.instance.isOpen) {
+        final repo = GallerySettingsRepository(AppDatabase.instance);
+        final settings = await repo.loadSettings();
+        if (mounted) {
+          setState(() => _gallerySettings = settings);
+        }
+      }
+    } catch (e) {
+      debugPrint('Error loading gallery settings for game detail screen: $e');
+    }
   }
 
   Future<void> _loadAddons() async {
@@ -101,6 +116,8 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
             expandedHeight: 250,
             pinned: true,
             backgroundColor: AppTheme.surface,
+            surfaceTintColor: Colors.transparent,
+            scrolledUnderElevation: 0,
             leading: IconButton(
               icon: Container(
                 padding: const EdgeInsets.all(6),
@@ -121,6 +138,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
                 backgroundDriveFileId: game.media.backgroundDriveFileId,
                 logoDriveFileId: game.media.logoDriveFileId,
                 height: 250,
+                gallerySettings: _gallerySettings,
               ),
             ),
           ),

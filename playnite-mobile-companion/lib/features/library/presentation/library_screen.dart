@@ -337,6 +337,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
 
   PreferredSizeWidget _buildLibraryAppBar() {
     return AppBar(
+      surfaceTintColor: Colors.transparent,
+      scrolledUnderElevation: 0,
       leading: Padding(
         padding: const EdgeInsets.only(left: 14),
         child: Center(

@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:playnite_mobile_companion/core/config/app_theme.dart';
+import 'package:playnite_mobile_companion/core/database/app_database.dart';
 import 'package:playnite_mobile_companion/core/services/playnite_image_loader.dart';
 import 'package:playnite_mobile_companion/core/ui/playnite_cached_image.dart';
 import 'package:playnite_mobile_companion/core/utils/media_url_resolver.dart';
@@ -44,8 +45,9 @@ class _MicrotrailerPlayerState extends State<MicrotrailerPlayer> {
   bool _isMuted = true;
   bool _hasAudio = false;
   bool _isDisposed = false;
-  bool _showOverlay = true;
+  bool _showOverlay = false;
   Timer? _overlayTimer;
+  GallerySettings? _localSettings;
 
   static bool get _isTesting {
     if (kIsWeb) return false;
@@ -56,20 +58,44 @@ class _MicrotrailerPlayerState extends State<MicrotrailerPlayer> {
     }
   }
 
-  bool get _autoPlay => widget.gallerySettings?.autoPlayMicrotrailers ?? true;
-  bool get _defaultMuted => widget.gallerySettings?.microtrailerMuted ?? true;
-  bool get _showScrubBar => widget.gallerySettings?.showVideoScrubBar ?? true;
+  GallerySettings? get _effectiveSettings => widget.gallerySettings ?? _localSettings;
+
+  bool get _autoPlay => _effectiveSettings?.autoPlayMicrotrailers ?? true;
+  bool get _defaultMuted => _effectiveSettings?.microtrailerMuted ?? true;
+  bool get _showScrubBar => _effectiveSettings?.showVideoScrubBar ?? true;
 
   @override
   void initState() {
     super.initState();
     _isMuted = _defaultMuted;
+    if (widget.gallerySettings == null) {
+      _loadFallbackSettings();
+    }
     _initVideo();
+  }
+
+  Future<void> _loadFallbackSettings() async {
+    try {
+      if (AppDatabase.instance.isOpen) {
+        final repo = GallerySettingsRepository(AppDatabase.instance);
+        final settings = await repo.loadSettings();
+        if (mounted && !_isDisposed) {
+          setState(() {
+            _localSettings = settings;
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint('MicrotrailerPlayer: error loading fallback gallery settings: $e');
+    }
   }
 
   @override
   void didUpdateWidget(covariant MicrotrailerPlayer oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.gallerySettings != widget.gallerySettings) {
+      setState(() {});
+    }
     if (oldWidget.microtrailerDriveFileId != widget.microtrailerDriveFileId ||
         oldWidget.trailerWebUrl != widget.trailerWebUrl ||
         oldWidget.trailerDriveFileId != widget.trailerDriveFileId) {
@@ -187,8 +213,6 @@ class _MicrotrailerPlayerState extends State<MicrotrailerPlayer> {
         _hasError = false;
         _hasAudio = hasAudio;
       });
-
-      _startOverlayTimer();
     } catch (e) {
       debugPrint('Microtrailer playback warning: $e');
       if (mounted && !_isDisposed) {
@@ -221,6 +245,8 @@ class _MicrotrailerPlayerState extends State<MicrotrailerPlayer> {
     });
     if (_showOverlay) {
       _startOverlayTimer();
+    } else {
+      _overlayTimer?.cancel();
     }
   }
 
@@ -380,9 +406,14 @@ class _MicrotrailerPlayerState extends State<MicrotrailerPlayer> {
                                                   _controller!.value.duration.inMilliseconds)
                                               .clamp(0.0, 1.0)
                                           : 0.0,
+                                      onChangeStart: (val) {
+                                        _overlayTimer?.cancel();
+                                      },
                                       onChanged: (val) {
                                         final targetMs = (val * _controller!.value.duration.inMilliseconds).round();
                                         _controller!.seekTo(Duration(milliseconds: targetMs));
+                                      },
+                                      onChangeEnd: (val) {
                                         _startOverlayTimer();
                                       },
                                     ),
@@ -395,36 +426,16 @@ class _MicrotrailerPlayerState extends State<MicrotrailerPlayer> {
                                 ),
                                 if (_hasAudio) ...[
                                   const SizedBox(width: 8),
-                                  // Mute / Unmute Button right beside progress bar
-                                  GestureDetector(
-                                    onTap: _toggleMute,
-                                    child: Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                      decoration: BoxDecoration(
-                                        color: Colors.black.withValues(alpha: 0.65),
-                                        borderRadius: BorderRadius.circular(4),
-                                        border: Border.all(color: Colors.white24, width: 0.8),
-                                      ),
-                                      child: Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          Icon(
-                                            _isMuted ? Icons.volume_off : Icons.volume_up,
-                                            size: 15,
-                                            color: _isMuted ? Colors.white70 : AppTheme.primaryLight,
-                                          ),
-                                          const SizedBox(width: 4),
-                                          Text(
-                                            _isMuted ? 'MUTE' : 'UNMUTE',
-                                            style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.white),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ),
+                                  _buildMuteButton(),
                                 ],
                               ],
                             ),
+                          )
+                        else if (_hasAudio)
+                          Positioned(
+                            bottom: 8,
+                            right: 12,
+                            child: _buildMuteButton(),
                           ),
                       ],
                     ),
@@ -433,6 +444,35 @@ class _MicrotrailerPlayerState extends State<MicrotrailerPlayer> {
               ),
             ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildMuteButton() {
+    return GestureDetector(
+      onTap: _toggleMute,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: 0.65),
+          borderRadius: BorderRadius.circular(4),
+          border: Border.all(color: Colors.white24, width: 0.8),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              _isMuted ? Icons.volume_off : Icons.volume_up,
+              size: 15,
+              color: _isMuted ? Colors.white70 : AppTheme.primaryLight,
+            ),
+            const SizedBox(width: 4),
+            Text(
+              _isMuted ? 'MUTE' : 'UNMUTE',
+              style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.white),
+            ),
+          ],
+        ),
       ),
     );
   }

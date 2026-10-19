@@ -37,6 +37,8 @@ class AppTheme {
       ),
       appBarTheme: const AppBarTheme(
         backgroundColor: surface,
+        surfaceTintColor: Colors.transparent,
+        scrolledUnderElevation: 0,
         elevation: 0,
         centerTitle: false,
         titleTextStyle: TextStyle(
