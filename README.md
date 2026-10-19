@@ -92,7 +92,7 @@ The project is split into two complementary components:
 | <img src="docs/screenshots/Desktop_Oauth2ConfigPage.png" width="460" alt="Desktop OAuth2 & Sync Settings" /> | <img src="docs/screenshots/Desktop_SyncInProgress.png" width="460" alt="Sync in Progress" /> |
 
 <p align="center">
-  <img src="docs/screenshots/Desktop_Sync_Library_now_option.png" width="940" alt="Playnite Main Menu Delta Sync Trigger" />
+  <img src="docs/screenshots/Desktop_Sync_Library_now_option.png" width="60%" alt="Playnite Main Menu Delta Sync Trigger" />
   <br />
   <em>Playnite Main Menu Integration & Delta Sync Trigger</em>
 </p>
