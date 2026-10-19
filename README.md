@@ -65,6 +65,36 @@ The project is split into two complementary components:
 
 ---
 
+## Screenshots
+
+### 📱 Android Mobile Companion
+
+| Library Grid View | Multi-Criteria Filters | Offline Storage Settings |
+|:---:|:---:|:---:|
+| <img src="docs/screenshots/Min_Library_Grid_View.png" width="280" alt="Library Grid View" /> | <img src="docs/screenshots/FilterDraw.png" width="280" alt="Filter Drawer" /> | <img src="docs/screenshots/SyncAndStorageSettings.png" width="280" alt="Sync & Storage Settings" /> |
+
+| Game Detail (Hero & Micro-trailer) | Addon Showcase (Achievements & HLTB) |
+|:---:|:---:|
+| <img src="docs/screenshots/GameHeroSection.png" width="430" alt="Game Detail Hero Section" /> | <img src="docs/screenshots/GameDetails_Achievements_howlongtobeat_Playsessions.png" width="430" alt="Achievements & HLTB" /> |
+
+| Global Statistics & Completion Donut | Playtime Breakdown & Most Played |
+|:---:|:---:|
+| <img src="docs/screenshots/LibraryStats1_TotPlaytime_Completion_PlaytimeByStorefront.png" width="430" alt="Statistics Overview" /> | <img src="docs/screenshots/LibraryStats2_PlaytimebyPlatform_MostPlayedGames.png" width="430" alt="Playtime by Platform" /> |
+
+### 🖥️ Playnite Desktop Exporter Addon
+
+| Desktop Settings & Google Drive OAuth2 | Real-time Synchronization Progress |
+|:---:|:---:|
+| <img src="docs/screenshots/Desktop_Oauth2ConfigPage.png" width="460" alt="Desktop OAuth2 & Sync Settings" /> | <img src="docs/screenshots/Desktop_SyncInProgress.png" width="460" alt="Sync in Progress" /> |
+
+<p align="center">
+  <img src="docs/screenshots/Desktop_Sync_Library_now_option.png" width="940" alt="Playnite Main Menu Delta Sync Trigger" />
+  <br />
+  <em>Playnite Main Menu Integration & Delta Sync Trigger</em>
+</p>
+
+---
+
 ## Architectural Flow
 
 ```mermaid

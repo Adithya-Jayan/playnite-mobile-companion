@@ -62,6 +62,18 @@ Before mobile synchronization can occur, run an initial export to build the clou
    ```
 5. When complete, a notification will confirm that all games, metadata, and media have been committed.
 
+<p align="center">
+  <img src="screenshots/Desktop_Sync_Library_now_option.png" width="700" alt="Main Menu Sync Library Now" />
+  <br />
+  <em>Triggering Initial Export from Playnite Main Menu</em>
+</p>
+
+<p align="center">
+  <img src="screenshots/Desktop_SyncInProgress.png" width="700" alt="Sync in Progress Dialog" />
+  <br />
+  <em>Real-time Progress Bar & ETA</em>
+</p>
+
 ---
 
 ### Automated Background Delta-Sync
@@ -119,6 +131,10 @@ adb install dist/playnite-mobile-companion.apk
   - Genre & Tags
   - Critic & Community Score Ranges
 
+| Library Grid View | Multi-Criteria Filter Drawer |
+|:---:|:---:|
+| <img src="screenshots/Min_Library_Grid_View.png" width="320" alt="Library Grid View" /> | <img src="screenshots/FilterDraw.png" width="320" alt="Filter Drawer" /> |
+
 ---
 
 ### Rich Game Details & Addon Views
@@ -132,6 +148,10 @@ Tapping any game opens the Game Detail Screen:
   - **DLC Listings (CheckDlc):** View owned and unowned downloadable content.
   - **Links:** Direct hyperlinks to Steam, IGDB, PCGamingWiki, and custom URLs.
 
+| Hero Section & Micro-trailer | Addon Showcase (Achievements & HLTB) |
+|:---:|:---:|
+| <img src="screenshots/GameHeroSection.png" width="320" alt="Hero Section & Micro-trailer" /> | <img src="screenshots/GameDetails_Achievements_howlongtobeat_Playsessions.png" width="320" alt="Achievements & HLTB" /> |
+
 ---
 
 ### Global Statistics Dashboard
@@ -141,6 +161,10 @@ Tap the **Stats** navigation tab to view aggregate statistics for your entire co
 - Playtime breakdown by platform and launcher
 - Completion status distribution donut chart
 - Recent play activity timeline
+
+| Total Playtime & Completion Rate | Playtime by Platform & Most Played |
+|:---:|:---:|
+| <img src="screenshots/LibraryStats1_TotPlaytime_Completion_PlaytimeByStorefront.png" width="320" alt="Stats Overview" /> | <img src="screenshots/LibraryStats2_PlaytimebyPlatform_MostPlayedGames.png" width="320" alt="Playtime by Platform" /> |
 
 ---
 

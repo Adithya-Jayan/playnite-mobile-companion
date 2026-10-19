@@ -95,6 +95,10 @@ You need an OAuth Client ID to allow the Desktop Addon and Mobile App to authent
    ```
 8. Click **Save** to persist your settings.
 
+<p align="center">
+  <img src="screenshots/Desktop_Oauth2ConfigPage.png" width="750" alt="Playnite Addon OAuth2 Configuration" />
+</p>
+
 ---
 
 ## 3. Configuring the Flutter Mobile Companion
@@ -110,6 +114,10 @@ You can connect the mobile app to the same Google Drive folder using either of t
    - An in-app browser opens the Google authorization flow.
    - Sign in with your whitelisted Google account and grant folder permissions.
 6. Once returned, tap **Run Delta Sync Now**. Your games and media will synchronize.
+
+<p align="center">
+  <img src="screenshots/SyncAndStorageSettings.png" width="340" alt="Mobile Companion Sync Settings" />
+</p>
 
 ### Method B: QR / Pairing Payload from Desktop
 1. In the Playnite Extension Settings, click **Copy Mobile Pairing Payload**.
