@@ -128,7 +128,7 @@ class SettingsScreen extends StatelessWidget {
                     style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: AppTheme.textPrimary),
                   ),
                   subtitle: const Text(
-                    'Version 1.1.0 • Delta Sync Protocol',
+                    'Version 1.2.0 • Delta Sync Protocol',
                     style: TextStyle(fontSize: 12, color: AppTheme.textMuted),
                   ),
                 ),
