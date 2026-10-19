@@ -77,17 +77,13 @@ The project is split into two complementary components:
 
 ### 📱 Android Mobile Companion
 
-| Library Grid View | Multi-Criteria Filters | Offline Storage Settings |
+| Library Grid View | Multi-Criteria Filters | Game Detail & Video | Achievements & HLTB |
+|:---:|:---:|:---:|:---:|
+| <img src="docs/screenshots/Min_Library_Grid_View.png" width="225" alt="Library Grid View" /> | <img src="docs/screenshots/FilterDraw.png" width="225" alt="Filter Drawer" /> | <img src="docs/screenshots/GameHeroSection.png" width="225" alt="Game Detail Hero Section" /> | <img src="docs/screenshots/GameDetails_Achievements_howlongtobeat_Playsessions.png" width="225" alt="Achievements & HLTB" /> |
+
+| Global Statistics & Donut | Playtime Breakdown | Cloud & Storage Settings |
 |:---:|:---:|:---:|
-| <img src="docs/screenshots/Min_Library_Grid_View.png" width="280" alt="Library Grid View" /> | <img src="docs/screenshots/FilterDraw.png" width="280" alt="Filter Drawer" /> | <img src="docs/screenshots/SyncAndStorageSettings.png" width="280" alt="Sync & Storage Settings" /> |
-
-| Game Detail (Hero & Micro-trailer) | Addon Showcase (Achievements & HLTB) |
-|:---:|:---:|
-| <img src="docs/screenshots/GameHeroSection.png" width="430" alt="Game Detail Hero Section" /> | <img src="docs/screenshots/GameDetails_Achievements_howlongtobeat_Playsessions.png" width="430" alt="Achievements & HLTB" /> |
-
-| Global Statistics & Completion Donut | Playtime Breakdown & Most Played |
-|:---:|:---:|
-| <img src="docs/screenshots/LibraryStats1_TotPlaytime_Completion_PlaytimeByStorefront.png" width="430" alt="Statistics Overview" /> | <img src="docs/screenshots/LibraryStats2_PlaytimebyPlatform_MostPlayedGames.png" width="430" alt="Playtime by Platform" /> |
+| <img src="docs/screenshots/LibraryStats1_TotPlaytime_Completion_PlaytimeByStorefront.png" width="235" alt="Statistics Overview" /> | <img src="docs/screenshots/LibraryStats2_PlaytimebyPlatform_MostPlayedGames.png" width="235" alt="Playtime by Platform" /> | <img src="docs/screenshots/SyncAndStorageSettings.png" width="235" alt="Sync & Storage Settings" /> |
 
 ### 🖥️ Playnite Desktop Exporter Addon
 
