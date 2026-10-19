@@ -1,0 +1,16 @@
+AddonId: "MobileDeltaSyncExporter_d3b07384-d113-4c90-951b-10f88a91a92a"
+Packages:
+  - Version: 1.2.0
+    RequiredApiVersion: 6.0.0
+    ReleaseDate: 2026-10-19
+    PackageUrl: https://github.com/Adithya-Jayan/playnite-mobile-companion/releases/download/v1.2.0/MobileDeltaSyncExporter.pext
+    Changelog:
+      - Added high-resolution custom app logo & mascot branding
+      - Alphabet fast-scroll scrubber synchronization with haptic indexing
+      - Video player streaming fixes for direct web and Google Drive trailers
+      - Controls clean auto-fade by default on playback
+      - Honored Gallery Settings scrub bar toggle with decoupled audio controls
+      - Top app bar scroll tint fix (retains deep gray surface)
+      - Added Random game sort and top bar random picker
+      - Added expandable Tag filter and fixed Missing Cover utility filter
+      - Added in-app GitHub repository link
