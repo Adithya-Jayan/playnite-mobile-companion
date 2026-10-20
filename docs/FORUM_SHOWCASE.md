@@ -1,15 +1,6 @@
-# Playnite Community Showcase Post
+<!-- TODO: For posting into forums/discord etc -->
 
-> **Where to post:**
-> * **Reddit (Official Community):** [r/playnite](https://www.reddit.com/r/playnite/) (flair: *Add-on / Extension*)
-> * **Official Playnite Discord:** [discord.gg/BrtABqe](https://discord.gg/BrtABqe) (`#extensions-and-themes` / `#showcase`)
-> * **Official Add-ons Directory:** [playnite.link/addons.html](https://playnite.link/addons.html) (via our open [PR #705](https://github.com/JosefNemec/PlayniteAddonDatabase/pull/705))
-> 
-> **Post Title:** `[Extension] Mobile Delta Sync & Android Companion App (Offline-First, Micro-Trailers & Stats)`
-
----
-
-## Post Body (Copy and Paste into Forum Topic)
+# Playnite Mobile Companion & Delta Sync
 
 ![Playnite Mobile Companion Banner](https://raw.githubusercontent.com/Adithya-Jayan/playnite-mobile-companion/master/docs/banner.png)
 
