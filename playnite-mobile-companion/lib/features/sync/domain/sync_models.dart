@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:playnite_mobile_companion/core/config/app_constants.dart';
 
 /// Represents a single entry in sync_index.json
 class IndexEntry {
@@ -30,7 +31,7 @@ class IndexEntry {
       modifiedUtc: json['modified_utc'] as String? ?? '',
       driveFileId: json['drive_file_id'] as String? ?? '',
       mimeType: json['mime_type'] as String? ?? 'application/octet-stream',
-      category: json['category'] as String? ?? 'unknown',
+      category: AppConstants.normalizeCategory(json['category'] as String? ?? 'unknown'),
       gameId: json['game_id'] as String?,
     );
   }

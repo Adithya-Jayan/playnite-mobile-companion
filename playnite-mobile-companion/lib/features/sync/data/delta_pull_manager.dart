@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
+import 'package:playnite_mobile_companion/core/config/app_constants.dart';
 import 'package:playnite_mobile_companion/core/database/app_database.dart';
 import 'package:playnite_mobile_companion/core/database/daos/game_dao.dart';
 import 'package:playnite_mobile_companion/core/database/daos/sync_meta_dao.dart';
@@ -45,10 +46,9 @@ class DeltaPullManager {
     var totalBytes = 0;
 
     bool isVideoEntry(IndexEntry entry) {
-      final cat = entry.category.toLowerCase();
+      final cat = AppConstants.normalizeCategory(entry.category);
       final path = entry.relativePath.toLowerCase();
-      return cat == 'microtrailer' ||
-          cat == 'trailer' ||
+      return AppConstants.isVideoCategory(cat) ||
           path.contains('/microtrailers/') ||
           path.contains('/trailers/') ||
           path.endsWith('.mp4') ||
@@ -57,21 +57,16 @@ class DeltaPullManager {
     }
 
     bool shouldIncludeEntry(IndexEntry entry) {
-      if (entry.category == 'game_metadata' || entry.category == 'manifest') {
+      final cat = AppConstants.normalizeCategory(entry.category);
+      if (cat == AppConstants.categoryGameMetadata || cat == AppConstants.categoryManifest) {
         return true;
       }
       if (mediaTier == MediaStorageTier.cacheOnly) {
         return false;
       }
 
-      final cat = entry.category.toLowerCase();
       final path = entry.relativePath.toLowerCase();
-      final isMedia = cat == 'cover' ||
-          cat == 'background' ||
-          cat == 'icon' ||
-          cat == 'logo' ||
-          cat == 'media' ||
-          cat == 'achievement_icon' ||
+      final isMedia = AppConstants.isMediaCategory(cat) ||
           isVideoEntry(entry) ||
           path.startsWith('media/');
 
@@ -93,11 +88,12 @@ class DeltaPullManager {
         continue;
       }
 
+      final cat = AppConstants.normalizeCategory(entry.category);
       final local = localMap[entry.relativePath];
       if (local == null || local.sha256 != entry.sha256) {
         toDownload.add(entry);
         totalBytes += entry.sizeBytes;
-      } else if (entry.category != 'game_metadata' && entry.category != 'manifest') {
+      } else if (cat != AppConstants.categoryGameMetadata && cat != AppConstants.categoryManifest) {
         // For media entries matching local database sha256, verify that the physical file
         // still exists in the local disk cache. If missing or cleared, re-download!
         final onDisk = PlayniteImageLoader.instance.getCachedFileSync(entry.driveFileId) != null ||
@@ -209,7 +205,8 @@ class DeltaPullManager {
           final index = nextIndex++;
           final entry = diff.toDownload[index];
           final fileIdentifier = entry.driveFileId.isNotEmpty ? entry.driveFileId : entry.relativePath;
-          final isMetadataOrManifest = entry.category == 'manifest' || entry.category == 'game_metadata';
+          final cat = AppConstants.normalizeCategory(entry.category);
+          final isMetadataOrManifest = cat == AppConstants.categoryManifest || cat == AppConstants.categoryGameMetadata;
 
           UnifiedGamePayload? payload;
           String itemName = entry.relativePath.split('/').last;
@@ -219,7 +216,7 @@ class DeltaPullManager {
               final jsonText = await driveService.downloadFileText(fileIdentifier);
               final dynamic parsed = jsonDecode(jsonText);
 
-              if (entry.category == 'manifest' && parsed is Map<String, dynamic>) {
+              if (cat == AppConstants.categoryManifest && parsed is Map<String, dynamic>) {
                 downloadedManifest = parsed;
                 itemName = 'manifest.json';
               } else if (parsed is Map<String, dynamic>) {
@@ -564,18 +561,14 @@ class DeltaPullManager {
       int completeOfflineBytes = 0;
 
       for (final entry in remoteIndex.entries.values) {
-        final cat = entry.category.toLowerCase();
+        final cat = AppConstants.normalizeCategory(entry.category);
         final path = entry.relativePath.toLowerCase();
-        final isVideo = entry.mimeType.startsWith('video/') ||
+        final isVideo = AppConstants.isVideoCategory(cat) ||
+            entry.mimeType.startsWith('video/') ||
             path.endsWith('.mp4') ||
             path.endsWith('.webm') ||
             path.endsWith('.mkv');
-        final isMedia = cat == 'cover' ||
-            cat == 'background' ||
-            cat == 'icon' ||
-            cat == 'logo' ||
-            cat == 'media' ||
-            cat == 'achievement_icon' ||
+        final isMedia = AppConstants.isMediaCategory(cat) ||
             isVideo ||
             path.startsWith('media/');
 
