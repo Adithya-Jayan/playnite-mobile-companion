@@ -3,6 +3,7 @@ import 'package:playnite_mobile_companion/features/settings/data/gallery_setting
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:playnite_mobile_companion/core/database/app_database.dart';
+import 'package:playnite_mobile_companion/features/game_detail/presentation/game_detail_screen.dart';
 import 'package:playnite_mobile_companion/features/game_detail/presentation/widgets/microtrailer_player.dart';
 import 'package:playnite_mobile_companion/features/sync/data/sync_config_repository.dart';
 import 'package:playnite_mobile_companion/features/sync/domain/sync_config.dart';
@@ -429,6 +430,94 @@ void main() {
 
       final state = tester.state<MicrotrailerPlayerState>(find.byType(MicrotrailerPlayer));
       expect(state.controller, isNull);
+    });
+  });
+
+  group('GameDetailScreen Watch Full Trailer Action Button Tests', () {
+    testWidgets('1. Renders Watch Full Trailer button when trailerWebUrl is present, and tapping it plays full trailer', (tester) async {
+      tester.view.physicalSize = const Size(800, 2400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      final fakeController = FakeVideoPlayerController();
+      MicrotrailerPlayer.enableInTests = true;
+      MicrotrailerPlayer.testControllerFactory = (uri, headers) => fakeController;
+
+      final game = UnifiedGamePayload(
+        id: 'game_with_steam_trailer',
+        gameId: 'steam_485510',
+        pluginId: 'steam_plugin',
+        name: 'Nioh: Complete Edition',
+        sortingName: 'Nioh: Complete Edition',
+        playtimeSeconds: 3600,
+        media: const MediaPayload(
+          trailerWebUrl: 'https://video.akamai.steamstatic.com/store_trailers/256697361/movie_max.mp4',
+        ),
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: GameDetailScreen(game: game),
+        ),
+      );
+      await tester.runAsync(() async {
+        await Future.delayed(const Duration(milliseconds: 100));
+      });
+      await tester.pump();
+
+      // "Watch Full Trailer" button must be rendered
+      expect(find.byKey(const Key('watch_trailer_button')), findsOneWidget);
+      expect(find.text('Watch Full Trailer'), findsOneWidget);
+
+      // Hero Watch Trailer pill is also rendered on games without microtrailer
+      expect(find.byKey(const Key('hero_watch_trailer_pill')), findsOneWidget);
+
+      // Tap Watch Full Trailer button
+      await tester.tap(find.byKey(const Key('watch_trailer_button')));
+      await tester.pump();
+      await tester.runAsync(() async {
+        await Future.delayed(const Duration(milliseconds: 100));
+      });
+      await tester.pumpAndSettle();
+
+      expect(fakeController.initializeCalled, isTrue);
+      expect(fakeController.playCalled, isTrue);
+    });
+
+    testWidgets('2. Does not render Watch Full Trailer button when neither trailerWebUrl nor trailerDriveFileId is present', (tester) async {
+      tester.view.physicalSize = const Size(800, 2400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      final game = UnifiedGamePayload(
+        id: 'game_without_trailer',
+        gameId: 'simple_game',
+        pluginId: 'generic_plugin',
+        name: 'Simple Indie Game',
+        sortingName: 'Simple Indie Game',
+        playtimeSeconds: 1200,
+        media: const MediaPayload(),
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: GameDetailScreen(game: game),
+        ),
+      );
+      await tester.runAsync(() async {
+        await Future.delayed(const Duration(milliseconds: 100));
+      });
+      await tester.pump();
+
+      expect(find.byKey(const Key('watch_trailer_button')), findsNothing);
+      expect(find.text('Watch Full Trailer'), findsNothing);
+
+      await tester.runAsync(() async {
+        await Future.delayed(const Duration(milliseconds: 100));
+      });
+      await tester.pumpAndSettle();
     });
   });
 }

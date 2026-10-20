@@ -28,6 +28,7 @@ class GallerySettings {
   final bool autoPlayMicrotrailers;
   final bool microtrailerMuted;
   final bool showVideoScrubBar;
+  final bool autoStreamTrailersInHero;
 
   /// Backwards-compatible getter: true if either hidden category is included.
   bool get showHiddenGames => includeUserHiddenGames || includeDuplicateHiderGames;
@@ -42,6 +43,7 @@ class GallerySettings {
     this.autoPlayMicrotrailers = true,
     this.microtrailerMuted = true,
     this.showVideoScrubBar = true,
+    this.autoStreamTrailersInHero = false,
   });
 
   GallerySettings copyWith({
@@ -54,6 +56,7 @@ class GallerySettings {
     bool? autoPlayMicrotrailers,
     bool? microtrailerMuted,
     bool? showVideoScrubBar,
+    bool? autoStreamTrailersInHero,
   }) {
     return GallerySettings(
       includeUserHiddenGames: includeUserHiddenGames ?? showHiddenGames ?? this.includeUserHiddenGames,
@@ -64,6 +67,7 @@ class GallerySettings {
       autoPlayMicrotrailers: autoPlayMicrotrailers ?? this.autoPlayMicrotrailers,
       microtrailerMuted: microtrailerMuted ?? this.microtrailerMuted,
       showVideoScrubBar: showVideoScrubBar ?? this.showVideoScrubBar,
+      autoStreamTrailersInHero: autoStreamTrailersInHero ?? this.autoStreamTrailersInHero,
     );
   }
 
@@ -77,6 +81,7 @@ class GallerySettings {
         'autoPlayMicrotrailers': autoPlayMicrotrailers,
         'microtrailerMuted': microtrailerMuted,
         'showVideoScrubBar': showVideoScrubBar,
+        'autoStreamTrailersInHero': autoStreamTrailersInHero,
       };
 
   factory GallerySettings.fromJson(Map<String, dynamic> json) {
@@ -105,6 +110,7 @@ class GallerySettings {
       autoPlayMicrotrailers: json['autoPlayMicrotrailers'] as bool? ?? true,
       microtrailerMuted: json['microtrailerMuted'] as bool? ?? true,
       showVideoScrubBar: json['showVideoScrubBar'] as bool? ?? true,
+      autoStreamTrailersInHero: json['autoStreamTrailersInHero'] as bool? ?? json['auto_stream_trailers_in_hero'] as bool? ?? false,
     );
   }
 }

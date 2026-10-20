@@ -259,25 +259,25 @@ namespace PlayniteExporterPlugin.Services
                 }
 
                 // Trailer
-                if (settings.SyncTrailers)
+                var trailerPath = Path.Combine(extraMetaDir, "VideoTrailer.mp4");
+                if (File.Exists(trailerPath))
                 {
-                    var trailerPath = Path.Combine(extraMetaDir, "VideoTrailer.mp4");
-                    if (File.Exists(trailerPath))
+                    try
                     {
-                        try
+                        var (hash, _, _, length) = GetOrComputeMedia(trailerPath, isImage: false);
+                        var relPath = $"media/trailers/{game.Id}.mp4";
+
+                        container.Trailer = new MediaTrailerPointer
                         {
-                            var (hash, _, _, length) = GetOrComputeMedia(trailerPath, isImage: false);
-                            var relPath = $"media/trailers/{game.Id}.mp4";
+                            RelativePath = relPath,
+                            Sha256 = hash,
+                            SizeBytes = length,
+                            DurationSeconds = null,
+                            WebUrl = null
+                        };
 
-                            container.Trailer = new MediaTrailerPointer
-                            {
-                                RelativePath = relPath,
-                                Sha256 = hash,
-                                SizeBytes = length,
-                                DurationSeconds = null,
-                                WebUrl = null
-                            };
-
+                        if (settings.SyncTrailers)
+                        {
                             uploads.Add(new PlannedUpload(
                                 relPath,
                                 string.Empty,
@@ -290,28 +290,35 @@ namespace PlayniteExporterPlugin.Services
                                 sourceFilePath: trailerPath
                             ));
                         }
-                        catch (Exception ex)
-                        {
-                            Logger.Warn(ex, $"Failed resolving trailer for {game.Name}");
-                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.Warn(ex, $"Failed resolving trailer for {game.Name}");
                     }
                 }
             }
 
             // 5. Fallback: Stream trailer directly from Steam CDN if ExtraMetadata cached SteamAppDetails
-            if (container.Trailer == null)
+            if (container.Trailer == null || string.IsNullOrEmpty(container.Trailer.WebUrl))
             {
                 var steamTrailerUrl = TryGetSteamTrailerUrl(userDataDir, game.Id);
                 if (!string.IsNullOrEmpty(steamTrailerUrl))
                 {
-                    container.Trailer = new MediaTrailerPointer
+                    if (container.Trailer == null)
                     {
-                        RelativePath = null,
-                        Sha256 = null,
-                        SizeBytes = null,
-                        DurationSeconds = null,
-                        WebUrl = steamTrailerUrl
-                    };
+                        container.Trailer = new MediaTrailerPointer
+                        {
+                            RelativePath = null,
+                            Sha256 = null,
+                            SizeBytes = null,
+                            DurationSeconds = null,
+                            WebUrl = steamTrailerUrl
+                        };
+                    }
+                    else
+                    {
+                        container.Trailer.WebUrl = steamTrailerUrl;
+                    }
                 }
             }
 
@@ -332,16 +339,28 @@ namespace PlayniteExporterPlugin.Services
 
                 var json = File.ReadAllText(appDetailsPath);
                 var root = JObject.Parse(json);
-                var movies = root["movies"] as JArray ?? root["data"]?["movies"] as JArray;
+                JArray? movies = root["movies"] as JArray ?? root["data"]?["movies"] as JArray;
+                if (movies == null || movies.Count == 0)
+                {
+                    // Steam AppDetails is frequently keyed by Steam AppId (e.g. { "485510": { "data": { "movies": [...] } } })
+                    foreach (var prop in root.Properties())
+                    {
+                        if (prop.Value is JObject appObj)
+                        {
+                            movies = appObj["data"]?["movies"] as JArray ?? appObj["movies"] as JArray;
+                            if (movies != null && movies.Count > 0) break;
+                        }
+                    }
+                }
                 if (movies == null || movies.Count == 0) return null;
 
                 var firstMovie = movies[0];
                 var mp4Obj = firstMovie["mp4"] as JObject;
-                var url = mp4Obj?["480"]?.ToString() ?? mp4Obj?["max"]?.ToString();
+                var url = mp4Obj?["max"]?.ToString() ?? mp4Obj?["480"]?.ToString();
                 if (string.IsNullOrEmpty(url))
                 {
                     var webmObj = firstMovie["webm"] as JObject;
-                    url = webmObj?["480"]?.ToString() ?? webmObj?["max"]?.ToString();
+                    url = webmObj?["max"]?.ToString() ?? webmObj?["480"]?.ToString();
                 }
 
                 if (!string.IsNullOrEmpty(url))

@@ -9,6 +9,7 @@ import 'package:playnite_mobile_companion/core/database/daos/sync_meta_dao.dart'
 import 'package:playnite_mobile_companion/core/network/google_drive_api_service.dart';
 import 'package:playnite_mobile_companion/core/services/background_sync_service.dart';
 import 'package:playnite_mobile_companion/core/utils/media_url_resolver.dart';
+import 'package:playnite_mobile_companion/features/settings/data/gallery_settings_repository.dart';
 import 'package:playnite_mobile_companion/features/sync/data/demo_library_data.dart';
 import 'package:playnite_mobile_companion/features/sync/data/sync_config_repository.dart';
 import 'package:playnite_mobile_companion/features/sync/domain/sync_models.dart';
@@ -1497,6 +1498,13 @@ class _SyncSettingsScreenState extends State<SyncSettingsScreen> {
                 _config = _config.copyWith(autoStreamTrailersInHero: val);
               });
               await _saveSettings(showToast: false);
+              try {
+                final galRepo = GallerySettingsRepository(widget.database);
+                final galSettings = await galRepo.loadSettings();
+                if (galSettings.autoStreamTrailersInHero != val) {
+                  await galRepo.saveSettings(galSettings.copyWith(autoStreamTrailersInHero: val));
+                }
+              } catch (_) {}
             },
           ),
         ),

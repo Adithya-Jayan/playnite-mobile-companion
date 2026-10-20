@@ -4,6 +4,7 @@ import 'package:playnite_mobile_companion/core/database/app_database.dart';
 import 'package:playnite_mobile_companion/core/services/playnite_image_loader.dart';
 import 'package:playnite_mobile_companion/core/utils/duration_formatter.dart';
 import 'package:playnite_mobile_companion/features/settings/data/gallery_settings_repository.dart';
+import 'package:playnite_mobile_companion/features/sync/data/sync_config_repository.dart';
 import 'package:playnite_mobile_companion/features/sync/presentation/widgets/sync_dialog.dart';
 
 class GallerySettingsScreen extends StatefulWidget {
@@ -65,6 +66,13 @@ class _GallerySettingsScreenState extends State<GallerySettingsScreen> {
 
     setState(() => _settings = newSettings);
     await _repo.saveSettings(newSettings);
+    try {
+      final syncRepo = SyncConfigRepository(widget.database);
+      final syncConfig = await syncRepo.loadConfig();
+      if (syncConfig.autoStreamTrailersInHero != newSettings.autoStreamTrailersInHero) {
+        await syncRepo.saveConfig(syncConfig.copyWith(autoStreamTrailersInHero: newSettings.autoStreamTrailersInHero));
+      }
+    } catch (_) {}
     widget.onSettingsChanged?.call();
 
     // Check tier transitions
@@ -483,6 +491,13 @@ class _GallerySettingsScreenState extends State<GallerySettingsScreen> {
                           value: _settings.showVideoScrubBar,
                           activeThumbColor: AppTheme.primary,
                           onChanged: (v) => _updateSettings(_settings.copyWith(showVideoScrubBar: v)),
+                        ),
+                        SwitchListTile(
+                          title: const Text('Auto-stream Full Trailers in Hero', style: TextStyle(fontSize: 14, color: AppTheme.textPrimary)),
+                          subtitle: const Text('Stream heavy full trailers automatically when microtrailers are unavailable (uses data)', style: TextStyle(fontSize: 12, color: AppTheme.textMuted)),
+                          value: _settings.autoStreamTrailersInHero,
+                          activeThumbColor: AppTheme.primary,
+                          onChanged: (v) => _updateSettings(_settings.copyWith(autoStreamTrailersInHero: v)),
                         ),
                       ],
                     ),

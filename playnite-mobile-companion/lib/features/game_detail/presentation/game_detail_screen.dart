@@ -25,12 +25,20 @@ class GameDetailScreen extends StatefulWidget {
 }
 
 class _GameDetailScreenState extends State<GameDetailScreen> {
+  final GlobalKey<MicrotrailerPlayerState> _heroPlayerKey = GlobalKey<MicrotrailerPlayerState>();
+  final ScrollController _scrollController = ScrollController();
   bool _isDescriptionExpanded = false;
   DuplicateCopyPayload? _selectedCopy;
   late Map<String, dynamic> _addons;
   List<UnifiedGamePayload> _relatedGames = [];
   GallerySettings? _gallerySettings;
   bool _autoStreamTrailersInHero = false;
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
 
   @override
   void initState() {
@@ -65,7 +73,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
         if (mounted) {
           setState(() {
             _gallerySettings = settings;
-            _autoStreamTrailersInHero = syncConfig.autoStreamTrailersInHero;
+            _autoStreamTrailersInHero = settings.autoStreamTrailersInHero || syncConfig.autoStreamTrailersInHero;
           });
         }
       }
@@ -117,6 +125,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
     return Scaffold(
       backgroundColor: AppTheme.background,
       body: CustomScrollView(
+        controller: _scrollController,
         slivers: [
           // Dynamic Hero Header with Looping Microtrailer & Transparent Logo
           SliverAppBar(
@@ -138,6 +147,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
             ),
             flexibleSpace: FlexibleSpaceBar(
               background: MicrotrailerPlayer(
+                key: _heroPlayerKey,
                 gameId: game.id,
                 microtrailerDriveFileId: game.media.microtrailerDriveFileId,
                 trailerDriveFileId: game.media.trailerDriveFileId,
@@ -188,6 +198,47 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
                 // Metadata badges (Platform, Source, Genres, Status)
                 MetadataChipsRow(game: game),
 
+                // Trailer Action Button (if full trailer stream or file is available)
+                if (_hasFullTrailer(game)) ...[
+                  const SizedBox(height: 10),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        key: const Key('watch_trailer_button'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: AppTheme.primaryLight,
+                          side: const BorderSide(color: AppTheme.primary, width: 1.2),
+                          backgroundColor: AppTheme.primary.withValues(alpha: 0.08),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
+                        ),
+                        icon: const Icon(Icons.play_circle_fill_rounded, size: 20, color: AppTheme.primaryLight),
+                        label: const Text(
+                          'Watch Full Trailer',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            letterSpacing: 0.3,
+                            color: Colors.white,
+                          ),
+                        ),
+                        onPressed: () {
+                          if (_scrollController.hasClients && _scrollController.offset > 0) {
+                            _scrollController.animateTo(
+                              0,
+                              duration: const Duration(milliseconds: 300),
+                              curve: Curves.easeOut,
+                            );
+                          }
+                          _heroPlayerKey.currentState?.playFullTrailer();
+                        },
+                      ),
+                    ),
+                  ),
+                ],
+
                 // Multi-Store copies switcher (DuplicateHider)
                 if (game.otherCopies.isNotEmpty) _buildStoreCopiesSwitcher(game),
 
@@ -218,6 +269,17 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
         ],
       ),
     );
+  }
+
+  bool _hasFullTrailer(UnifiedGamePayload game) {
+    if (game.media.trailerDriveFileId != null && game.media.trailerDriveFileId!.isNotEmpty) {
+      return true;
+    }
+    if (game.media.trailerWebUrl != null && game.media.trailerWebUrl!.isNotEmpty) {
+      return true;
+    }
+    final cached = PlayniteImageLoader.instance.getCachedFileSync('media/trailers/${game.id}.mp4');
+    return cached != null && cached.existsSync() && cached.lengthSync() > 0;
   }
 
   Widget _buildDescriptionCard(String rawHtml) {
