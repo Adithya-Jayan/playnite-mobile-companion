@@ -116,6 +116,44 @@ void main() {
       expect(find.text('Very Positive'), findsOneWidget);
     });
 
+    testWidgets('GameDetailScreen renders fail-soft single-game view when addons and DuplicateHider are absent/null', (tester) async {
+      final vanillaGame = UnifiedGamePayload(
+        id: 'vanilla-id',
+        gameId: '12345',
+        pluginId: 'steam-plugin',
+        name: 'Vanilla Indie Game',
+        sortingName: 'Vanilla Indie Game',
+        playtimeSeconds: 7200,
+        playCount: 2,
+        isInstalled: true,
+        favorite: false,
+        // isDuplicate: false (default)
+        // duplicateGroupId: null (default)
+        // otherCopies: const [] (default)
+        // addons: const {} (default)
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: GameDetailScreen(game: vanillaGame),
+        ),
+      );
+      await tester.pump();
+
+      // Title & playtime render cleanly
+      expect(find.text('Vanilla Indie Game'), findsOneWidget);
+      expect(find.text('2h'), findsOneWidget);
+
+      // Verify no duplicate copy dropdown/selector is displayed
+      expect(find.text('Other Editions'), findsNothing);
+      expect(find.text('Duplicate Copies'), findsNothing);
+
+      // Verify no addon cards crash or display empty blank states
+      expect(find.text('Achievements'), findsNothing);
+      expect(find.text('HowLongToBeat'), findsNothing);
+      expect(find.text('Activity'), findsNothing);
+    });
+
     testWidgets('Stats dashboard widgets render playtime, charts, leaderboard and activity', (tester) async {
       const stats = LibraryStats(
         totalGames: 42,

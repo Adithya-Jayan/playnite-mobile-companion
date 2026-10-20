@@ -44,7 +44,7 @@ PlayniteSync/
     ├── logos/
     │   └── {game_id}.png              # Transparent official game title logo (RGBA PNG)
     ├── microtrailers/
-    │   └── {game_id}.mp4              # 6-second 60fps SD looping preview (~2 MB)
+    │   └── {game_id}.mp4              # Standard 6.0s 60fps SD looping preview (~2 MB)
     └── trailers/                      # (Optional / On-Demand streaming only)
         └── {game_id}.mp4              # Full HD cinematic trailer (~40 MB)
 ```
@@ -145,7 +145,7 @@ The root index file is the single authoritative source of truth for the entire s
 | `entries[path].modified_utc` | `string` (ISO-8601) | Last modified UTC timestamp of local file. |
 | `entries[path].drive_file_id` | `string` | Google Drive File ID. Allows direct O(1) file retrieval on mobile without calling `files.list`. |
 | `entries[path].mime_type` | `string` | Media/Content MIME type (`application/json`, `image/webp`, `image/png`, `video/mp4`). |
-| `entries[path].category` | `string` (enum) | `manifest`, `game_metadata`, `cover`, `background`, `logo`, `microtrailer`, `trailer`. |
+| `entries[path].category` | `string` (enum) | `manifest`, `game_metadata`, `cover`, `background`, `logo`, `microtrailer` (6.0s default duration), `trailer`. |
 | `entries[path].game_id` | `string?` (GUID) | Target Playnite game GUID, or `null` for global files. |
 
 ---
@@ -224,11 +224,12 @@ A core requirement of this ecosystem is that **adding, removing, disabling, or c
 
 #### 2. Forward/Backward Compatibility & Open Content Contract
 - In `GAME_PAYLOAD_SCHEMA.json`, the `addons` container is modeled as a polymorphic, open dictionary (`additionalProperties: true`).
+- **DuplicateHider & Multi-Copy Fail-Soft Invariants:** Duplicate grouping fields (`is_duplicate`, `duplicate_group_id`, `other_copies`) are modeled as optional/nullable properties. When DuplicateHider is not installed or when games have no duplicate editions, `is_duplicate` defaults to `false`, `duplicate_group_id` is `null`, and `other_copies` is empty (`[]`). Both the desktop exporter and mobile app operate without errors, rendering clean single-game layouts.
 - Standard known addons have strict typed schemas (`success_story`, `how_long_to_beat`, `game_activity`, `check_dlc`, `extra_metadata`, `system_checker`, `steam_reviews`).
 - Any new or third-party addon added in the future can write to `addons[custom_addon_key]` without requiring a bump to the core schema version.
 - When an addon is removed by the user:
   - If a game is re-synced, the removed addon key is omitted from `addons`.
-  - The mobile app's delta parser updates the local SQLite/Drift record, removing or clearing the corresponding child entity rows.
+  - The mobile app's delta parser updates the local SQLite (`sqflite` - ADR 0001) record, removing or clearing the corresponding child entity rows.
 
 #### 3. Mobile UI Dynamic Feature Registry (`AddonSectionRegistry`)
 - The Flutter mobile companion never hardcodes assumed addon presence.
@@ -332,14 +333,14 @@ sequenceDiagram
 
 ## 6. Pull Protocol: Google Drive $\to$ Flutter Mobile Companion
 
-The mobile app reads the delta index, determines what local data is missing or outdated, pulls only the delta documents, applies them inside an SQLite/Drift database transaction, and lazily caches media according to user network policies.
+The mobile app reads the delta index, determines what local data is missing or outdated, pulls only the delta documents, applies them inside an atomic `sqflite` transaction (ratified in ADR 0001), and lazily caches media according to user network policies.
 
 ```mermaid
 sequenceDiagram
     autonumber
     participant App as Mobile App (Flutter UI)
     participant PullMgr as DeltaPullManager
-    participant Drift as Drift (Local SQLite DB)
+    participant DB as SQLite DB (sqflite - ADR 0001)
     participant Drive as Google Drive Cloud API
     participant MediaMgr as Tiered MediaCacheManager
 
@@ -347,8 +348,8 @@ sequenceDiagram
     PullMgr->>Drive: Download sync_index.json (using Drive File ID / query)
     Drive-->>PullMgr: Remote sync_index.json (~95 KB)
     
-    PullMgr->>Drift: Query Local Sync State (Stored File Hashes)
-    Drift-->>PullMgr: Local Sync State Map
+    PullMgr->>DB: Query Local Sync State (Stored File Hashes)
+    DB-->>PullMgr: Local Sync State Map
     
     PullMgr->>PullMgr: Compute Pull Diff
     Note over PullMgr: Calculate to_download_games, to_delete_games, to_update_manifest
@@ -356,7 +357,7 @@ sequenceDiagram
     opt Manifest Changed (or Missing)
         PullMgr->>Drive: Download manifest.json (via drive_file_id)
         Drive-->>PullMgr: Remote manifest.json
-        PullMgr->>Drift: Upsert Taxonomy, Sources, Platforms, Summary
+        PullMgr->>DB: Upsert Taxonomy, Sources, Platforms, Summary
     end
 
     alt No Game Changes Detected
@@ -367,13 +368,13 @@ sequenceDiagram
             Drive-->>PullMgr: GamePayload JSON
         end
 
-        PullMgr->>Drift: Begin SQLite Transaction
-        PullMgr->>Drift: Batch Upsert Game Entities & Addon Tables
+        PullMgr->>DB: Begin SQLite Transaction
+        PullMgr->>DB: Batch Upsert Game Entities & Addon Tables
         opt Games Deleted
-            PullMgr->>Drift: Cascade Delete Removed Game Records
+            PullMgr->>DB: Cascade Delete Removed Game Records
         end
-        PullMgr->>Drift: Update Local Sync State Table (Hashes & Timestamps)
-        PullMgr->>Drift: Commit SQLite Transaction
+        PullMgr->>DB: Update Local Sync State Table (Hashes & Timestamps)
+        PullMgr->>DB: Commit SQLite Transaction
         PullMgr-->>App: UI Reactive Stream Updates (Instant 60/120fps display)
     end
 
@@ -397,7 +398,7 @@ sequenceDiagram
 - The index is fetched directly via Drive media download (`alt=media`). Payload is $\approx 50\text{ KB} - 150\text{ KB}$.
 
 #### Step 2: Local SQLite Diff Engine
-- The app queries its local `sync_meta` table in SQLite/Drift:
+- The app queries its local `sync_meta` table in SQLite (`sqflite`):
   `SELECT relative_path, sha256 FROM sync_meta;`
 - It performs a set diff against `sync_index.json`:
   $$\text{GamesToDownload} = \{ p \in \text{RemoteEntries} \mid p \notin \text{LocalEntries} \lor \text{RemoteEntries}[p].\text{sha256} \ne \text{LocalEntries}[p].\text{sha256} \}$$
@@ -405,8 +406,8 @@ sequenceDiagram
 
 #### Step 3: Batch Ingestion & Transactional Integrity
 - The app downloads only the files in $\text{GamesToDownload}$ using their respective `drive_file_id` properties in parallel (up to 4 concurrent HTTP streams).
-- All downloaded game payloads are deserialized and passed to Drift.
-- Drift executes a **single atomic transaction**:
+- All downloaded game payloads are deserialized and ingested into the SQLite store via `sqflite`.
+- The database engine executes a **single atomic transaction**:
   1. Upsert into `games` table.
   2. Clear and re-populate relational child rows (`game_platforms`, `game_genres`, `game_tags`, `game_links`).
   3. Upsert addon records (`achievements`, `play_sessions`, `how_long_to_beat`, `dlc_items`, `system_requirements`).
@@ -429,7 +430,7 @@ To preserve device battery, cellular data quotas, and local flash storage, media
 ├─────────┼───────────────────┼─────────────┼─────────────┼──────────────┤
 │ Tier 2  │ Background Fanart │ 300-800 KB  │ Viewport /  │ Wi-Fi Only   │
 │         │ & Microtrailers   │ 1.5-2.5 MB  │ Background  │ (Configurable│
-│         │ (60fps MP4)       │             │ Prefetch    │ in Settings) │
+│         │ (6.0s 60fps MP4)  │             │ Prefetch    │ in Settings) │
 ├─────────┼───────────────────┼─────────────┼─────────────┼──────────────┤
 │ Tier 3  │ Full Trailers     │ 25-60 MB    │ Explicit    │ User Tap     │
 │         │ (HD 1080p MP4)    │             │ Streaming   │ (Never Auto- │
@@ -442,7 +443,7 @@ To preserve device battery, cellular data quotas, and local flash storage, media
    - The app constructs Google Drive direct media stream URLs using `drive_file_id` and the user's OAuth access token.
    - Successful downloads are cached in device storage up to a configurable budget (default: 500 MB LRU cache).
 2. **Tier 2 (Background & Prefetch Driven):**
-   - Microtrailers (`VideoMicrotrailer.mp4`) provide 6-second preview loops in the Game Detail screen.
+   - Microtrailers (`VideoMicrotrailer.mp4`) provide lightweight preview loops in the Game Detail screen with a standardized default duration of 6.0 seconds (`duration_seconds: 6.0`), encoded as ~2 MB SD 60fps MP4.
    - Users can choose to:
      - Pre-cache microtrailers for Favorites / Recently Played over Wi-Fi.
      - Stream microtrailers on-demand when opening the Game Detail view.
@@ -464,8 +465,8 @@ Because the Playnite desktop extension is the **exclusive writer** and the mobil
 |---|---|---|
 | **Plugin crashes while uploading media** | Some media files uploaded to Drive; `sync_index.json` not updated. | On next sync, plugin computes SHA-256; finds existing media on Drive (via search or retry); completes remaining uploads; commits `sync_index.json`. Zero data loss. |
 | **Plugin crashes while uploading game JSONs** | Some game JSONs uploaded; `sync_index.json` not updated. | Drive retains older `sync_index.json`. Mobile continues reading older valid state. On next sync, plugin re-evaluates dirty games, uploads remaining, commits index. |
-| **Mobile loses connection while downloading index** | Incomplete index download. | Download is aborted; local Drift database remains unchanged. Error caught; UI displays "Sync offline - showing cached library". |
-| **Mobile loses connection during game JSON batch** | Partial batch downloaded. | Drift transaction has not committed. Local DB rolls back. On next connection, diff engine detects which games are still missing and resumes downloading. |
+| **Mobile loses connection while downloading index** | Incomplete index download. | Download is aborted; local SQLite database remains unchanged. Error caught; UI displays "Sync offline - showing cached library". |
+| **Mobile loses connection during game JSON batch** | Partial batch downloaded. | SQLite transaction has not committed. Local DB rolls back. On next connection, diff engine detects which games are still missing and resumes downloading. |
 | **Google Drive API HTTP 429 / 503 (Rate Limited)** | Request rejected by Google. | Both plugin and mobile implement Exponential Backoff with Jitter: Wait $T = 2^n + \text{rand}(0, 1000)\text{ ms}$ for $n \in \{1, 2, 3, 4, 5\}$. |
 
 ---
