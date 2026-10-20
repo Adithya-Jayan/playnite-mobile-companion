@@ -265,12 +265,12 @@ void main() {
       MicrotrailerPlayer.testControllerFactory = (uri, headers) => fakeController;
 
       await tester.pumpWidget(
-        MaterialApp(
+        const MaterialApp(
           home: Scaffold(
             body: MicrotrailerPlayer(
               gameId: 'game_789',
               trailerDriveFileId: 'drive_heavy_trailer_id',
-              gallerySettings: const GallerySettings(),
+              gallerySettings: GallerySettings(),
               autoStreamTrailersInHero: true,
             ),
           ),
@@ -294,7 +294,7 @@ void main() {
       MicrotrailerPlayer.testControllerFactory = (uri, headers) => fakeController;
 
       await tester.pumpWidget(
-        MaterialApp(
+        const MaterialApp(
           home: Scaffold(
             body: MicrotrailerPlayer(
               gameId: 'game_abc',

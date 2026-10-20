@@ -28,7 +28,7 @@ void main() {
 
   group('AddonSectionRegistry & Graceful Degradation Tests', () {
     testWidgets('Addon Removal: Game without HLTB does not render HLTB section', (tester) async {
-      final gameWithoutHltb = UnifiedGamePayload(
+      final gameWithoutHltb = const UnifiedGamePayload(
         id: 'game-1',
         gameId: 'app-1',
         pluginId: 'p1',
@@ -63,7 +63,7 @@ void main() {
     });
 
     testWidgets('Future / Unknown Addon: Renders gracefully via FallbackAddonSection', (tester) async {
-      final gameWithFutureAddon = UnifiedGamePayload(
+      final gameWithFutureAddon = const UnifiedGamePayload(
         id: 'game-2',
         gameId: 'app-2',
         pluginId: 'p1',
@@ -98,7 +98,7 @@ void main() {
     testWidgets('Fault Tolerance: Exception inside addon buildSection does not crash screen', (tester) async {
       AddonSectionRegistry.register(_FaultySection());
 
-      final game = UnifiedGamePayload(
+      final game = const UnifiedGamePayload(
         id: 'game-3',
         gameId: 'app-3',
         pluginId: 'p1',

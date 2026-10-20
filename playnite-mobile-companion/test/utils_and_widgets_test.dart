@@ -53,7 +53,7 @@ void main() {
 
   group('UI Screens & Widgets Tests', () {
     testWidgets('GameDetailScreen renders title, playtime, external links and addon sections', (tester) async {
-      final game = UnifiedGamePayload(
+      final game = const UnifiedGamePayload(
         id: 'cyberpunk-id',
         gameId: '1091500',
         pluginId: 'steam-plugin',
@@ -66,16 +66,16 @@ void main() {
         favorite: true,
         userScore: 92,
         releaseDate: '2020-12-10',
-        source: const NamedItem(id: 'steam', name: 'Steam'),
-        completionStatus: const NamedItem(id: 'completed', name: 'Completed'),
-        platforms: const [NamedItem(id: 'pc', name: 'PC (Windows)')],
-        genres: const [NamedItem(id: 'rpg', name: 'RPG')],
-        developers: const [NamedItem(id: 'cdpr', name: 'CD PROJEKT RED')],
-        publishers: const [NamedItem(id: 'cdpr', name: 'CD PROJEKT RED')],
-        links: const [
+        source: NamedItem(id: 'steam', name: 'Steam'),
+        completionStatus: NamedItem(id: 'completed', name: 'Completed'),
+        platforms: [NamedItem(id: 'pc', name: 'PC (Windows)')],
+        genres: [NamedItem(id: 'rpg', name: 'RPG')],
+        developers: [NamedItem(id: 'cdpr', name: 'CD PROJEKT RED')],
+        publishers: [NamedItem(id: 'cdpr', name: 'CD PROJEKT RED')],
+        links: [
           LinkItem(name: 'Steam Store', url: 'https://store.steampowered.com/app/1091500/'),
         ],
-        media: const MediaPayload(
+        media: MediaPayload(
           microtrailerDriveFileId: 'mock-trailer',
           backgroundDriveFileId: 'mock-bg',
           logoDriveFileId: 'mock-logo',
@@ -117,7 +117,7 @@ void main() {
     });
 
     testWidgets('GameDetailScreen renders fail-soft single-game view when addons and DuplicateHider are absent/null', (tester) async {
-      final vanillaGame = UnifiedGamePayload(
+      final vanillaGame = const UnifiedGamePayload(
         id: 'vanilla-id',
         gameId: '12345',
         pluginId: 'steam-plugin',

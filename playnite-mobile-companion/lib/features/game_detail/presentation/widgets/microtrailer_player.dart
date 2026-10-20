@@ -297,10 +297,10 @@ class MicrotrailerPlayerState extends State<MicrotrailerPlayer> {
         return;
       }
 
-      controller.setLooping(true);
-      controller.setVolume(_isMuted ? 0.0 : 1.0);
+      await controller.setLooping(true);
+      await controller.setVolume(_isMuted ? 0.0 : 1.0);
       if (_autoPlay || playImmediately) {
-        controller.play();
+        await controller.play();
       }
 
       controller.addListener(_onVideoControllerTick);

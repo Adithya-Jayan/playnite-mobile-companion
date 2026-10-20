@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:playnite_mobile_companion/core/config/app_theme.dart';
@@ -135,7 +136,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
         });
       }
     } catch (_) {}
-    _loadLibrary();
+    unawaited(_loadLibrary());
   }
 
   @override
@@ -186,7 +187,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
         });
         _buildLetterIndexMap();
       }
-      _checkPendingSyncStatus();
+      unawaited(_checkPendingSyncStatus());
     } catch (e, stack) {
       debugPrint('Error loading games: $e\n$stack');
       final totalCount = await _gameDao.getGamesCount().catchError((_) => 0);
@@ -439,8 +440,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
               ),
             );
             if (mounted) {
-              _checkPendingSyncStatus();
-              _loadLibrary();
+              unawaited(_checkPendingSyncStatus());
+              unawaited(_loadLibrary());
             }
           },
         ),
@@ -1091,7 +1092,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                             ),
                           );
                           if (mounted) {
-                            _loadLibrary();
+                            unawaited(_loadLibrary());
                           }
                         },
                       ),
@@ -1117,7 +1118,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                             ),
                           );
                           if (mounted) {
-                            _loadLibrary();
+                            unawaited(_loadLibrary());
                           }
                         },
                       ),

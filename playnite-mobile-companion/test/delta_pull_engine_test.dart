@@ -178,21 +178,21 @@ void main() {
       final mockService = MockDriveService();
 
       // Seed 3 games
-      final g1 = UnifiedGamePayload(id: 'g1', gameId: 's1', pluginId: 'p', name: 'Game 1', sortingName: 'Game 1');
-      final g2 = UnifiedGamePayload(id: 'g2', gameId: 's2', pluginId: 'p', name: 'Game 2', sortingName: 'Game 2');
-      final g3 = UnifiedGamePayload(id: 'g3', gameId: 's3', pluginId: 'p', name: 'Game 3', sortingName: 'Game 3');
+      final g1 = const UnifiedGamePayload(id: 'g1', gameId: 's1', pluginId: 'p', name: 'Game 1', sortingName: 'Game 1');
+      final g2 = const UnifiedGamePayload(id: 'g2', gameId: 's2', pluginId: 'p', name: 'Game 2', sortingName: 'Game 2');
+      final g3 = const UnifiedGamePayload(id: 'g3', gameId: 's3', pluginId: 'p', name: 'Game 3', sortingName: 'Game 3');
 
       await gameDao.batchUpsertGames([g1, g2, g3]);
       await syncMetaDao.batchUpsertEntries([
-        IndexEntry(relativePath: 'games/g1.json', sha256: 'h1', sizeBytes: 100, modifiedUtc: '', driveFileId: 'd1', mimeType: 'json', category: 'game_metadata', gameId: 'g1'),
-        IndexEntry(relativePath: 'games/g2.json', sha256: 'h2', sizeBytes: 100, modifiedUtc: '', driveFileId: 'd2', mimeType: 'json', category: 'game_metadata', gameId: 'g2'),
-        IndexEntry(relativePath: 'games/g3.json', sha256: 'h3', sizeBytes: 100, modifiedUtc: '', driveFileId: 'd3', mimeType: 'json', category: 'game_metadata', gameId: 'g3'),
+        const IndexEntry(relativePath: 'games/g1.json', sha256: 'h1', sizeBytes: 100, modifiedUtc: '', driveFileId: 'd1', mimeType: 'json', category: 'game_metadata', gameId: 'g1'),
+        const IndexEntry(relativePath: 'games/g2.json', sha256: 'h2', sizeBytes: 100, modifiedUtc: '', driveFileId: 'd2', mimeType: 'json', category: 'game_metadata', gameId: 'g2'),
+        const IndexEntry(relativePath: 'games/g3.json', sha256: 'h3', sizeBytes: 100, modifiedUtc: '', driveFileId: 'd3', mimeType: 'json', category: 'game_metadata', gameId: 'g3'),
       ]);
 
       expect(await gameDao.getGamesCount(), equals(3));
 
       // Remote index now omits g2 (it was deleted on desktop)
-      mockService.mockIndex = SyncIndex(
+      mockService.mockIndex = const SyncIndex(
         version: '1.0.0',
         generator: 'plugin',
         generatedAtUtc: '',

@@ -33,7 +33,7 @@ void main() {
 
   group('Database, Normalization & Filtering Tests', () {
     test('Batch upsert normalizes child tables while preserving addonsJson container', () async {
-      final game = UnifiedGamePayload(
+      final game = const UnifiedGamePayload(
         id: 'cyberpunk-guid',
         gameId: '1091500',
         pluginId: 'steam-plugin',
@@ -44,10 +44,10 @@ void main() {
         isInstalled: true,
         favorite: true,
         userScore: 92,
-        source: const NamedItem(id: 'steam', name: 'Steam'),
-        completionStatus: const NamedItem(id: 'completed', name: 'Completed'),
-        platforms: const [NamedItem(id: 'pc', name: 'PC (Windows)')],
-        genres: const [NamedItem(id: 'rpg', name: 'RPG')],
+        source: NamedItem(id: 'steam', name: 'Steam'),
+        completionStatus: NamedItem(id: 'completed', name: 'Completed'),
+        platforms: [NamedItem(id: 'pc', name: 'PC (Windows)')],
+        genres: [NamedItem(id: 'rpg', name: 'RPG')],
         addons: {
           'how_long_to_beat': {
             'main_story_seconds': 93600,
@@ -119,7 +119,7 @@ void main() {
 
     test('Multi-criteria Filtering & Sorting across library', () async {
       final games = [
-        UnifiedGamePayload(
+        const UnifiedGamePayload(
           id: 'g1',
           gameId: 's1',
           pluginId: 'p',
@@ -129,12 +129,12 @@ void main() {
           userScore: 96,
           isInstalled: true,
           favorite: true,
-          source: const NamedItem(id: 'steam', name: 'Steam'),
-          completionStatus: const NamedItem(id: 'completed', name: 'Completed'),
-          platforms: const [NamedItem(id: 'pc', name: 'PC (Windows)')],
-          genres: const [NamedItem(id: 'rpg', name: 'RPG')],
+          source: NamedItem(id: 'steam', name: 'Steam'),
+          completionStatus: NamedItem(id: 'completed', name: 'Completed'),
+          platforms: [NamedItem(id: 'pc', name: 'PC (Windows)')],
+          genres: [NamedItem(id: 'rpg', name: 'RPG')],
         ),
-        UnifiedGamePayload(
+        const UnifiedGamePayload(
           id: 'g2',
           gameId: 's2',
           pluginId: 'p',
@@ -144,12 +144,12 @@ void main() {
           userScore: 95,
           isInstalled: false,
           favorite: true,
-          source: const NamedItem(id: 'steam', name: 'Steam'),
-          completionStatus: const NamedItem(id: 'beaten', name: 'Beaten'),
-          platforms: const [NamedItem(id: 'pc', name: 'PC (Windows)')],
-          genres: const [NamedItem(id: 'rpg', name: 'RPG'), NamedItem(id: 'action', name: 'Action')],
+          source: NamedItem(id: 'steam', name: 'Steam'),
+          completionStatus: NamedItem(id: 'beaten', name: 'Beaten'),
+          platforms: [NamedItem(id: 'pc', name: 'PC (Windows)')],
+          genres: [NamedItem(id: 'rpg', name: 'RPG'), NamedItem(id: 'action', name: 'Action')],
         ),
-        UnifiedGamePayload(
+        const UnifiedGamePayload(
           id: 'g3',
           gameId: 's3',
           pluginId: 'p',
@@ -159,10 +159,10 @@ void main() {
           userScore: 93,
           isInstalled: true,
           favorite: false,
-          source: const NamedItem(id: 'epic', name: 'Epic Games'),
-          completionStatus: const NamedItem(id: 'playing', name: 'Playing'),
-          platforms: const [NamedItem(id: 'switch', name: 'Nintendo Switch')],
-          genres: const [NamedItem(id: 'action', name: 'Action')],
+          source: NamedItem(id: 'epic', name: 'Epic Games'),
+          completionStatus: NamedItem(id: 'playing', name: 'Playing'),
+          platforms: [NamedItem(id: 'switch', name: 'Nintendo Switch')],
+          genres: [NamedItem(id: 'action', name: 'Action')],
         ),
       ];
 

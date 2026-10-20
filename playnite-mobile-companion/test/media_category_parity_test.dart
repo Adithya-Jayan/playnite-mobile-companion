@@ -249,7 +249,7 @@ void main() {
         database: AppDatabase.instance,
       );
 
-      final remoteIndex = SyncIndex(
+      final remoteIndex = const SyncIndex(
         version: '1.0.0',
         generator: 'playnite-exporter-plugin',
         generatedAtUtc: '2026-10-18T12:00:00Z',
@@ -258,7 +258,7 @@ void main() {
         totalEntries: 5,
         totalSizeBytes: 3000000,
         entries: {
-          'manifest.json': const IndexEntry(
+          'manifest.json': IndexEntry(
             relativePath: 'manifest.json',
             sha256: 'h-manifest',
             sizeBytes: 1000,
@@ -267,7 +267,7 @@ void main() {
             mimeType: 'application/json',
             category: 'manifest',
           ),
-          'games/g1.json': const IndexEntry(
+          'games/g1.json': IndexEntry(
             relativePath: 'games/g1.json',
             sha256: 'h-g1',
             sizeBytes: 5000,
@@ -276,7 +276,7 @@ void main() {
             mimeType: 'application/json',
             category: 'game_metadata',
           ),
-          'media/covers/cover1.jpg': const IndexEntry(
+          'media/covers/cover1.jpg': IndexEntry(
             relativePath: 'media/covers/cover1.jpg',
             sha256: 'h-cover',
             sizeBytes: 50000,
@@ -285,7 +285,7 @@ void main() {
             mimeType: 'image/jpeg',
             category: 'cover',
           ),
-          'media/logos/logo1.png': const IndexEntry(
+          'media/logos/logo1.png': IndexEntry(
             relativePath: 'media/logos/logo1.png',
             sha256: 'h-logo',
             sizeBytes: 30000,
@@ -294,7 +294,7 @@ void main() {
             mimeType: 'image/png',
             category: 'logo',
           ),
-          'media/microtrailers/g1.mp4': const IndexEntry(
+          'media/microtrailers/g1.mp4': IndexEntry(
             relativePath: 'media/microtrailers/g1.mp4',
             sha256: 'h-micro',
             sizeBytes: 2000000,
