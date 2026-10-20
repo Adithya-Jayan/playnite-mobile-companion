@@ -1,5 +1,17 @@
 AddonId: "MobileDeltaSyncExporter_d3b07384-d113-4c90-951b-10f88a91a92a"
 Packages:
+  - Version: 1.3.0
+    RequiredApiVersion: 6.0.0
+    ReleaseDate: 2026-10-20
+    PackageUrl: https://github.com/Adithya-Jayan/playnite-mobile-companion/releases/download/v1.3.0/MobileDeltaSyncExporter.pext
+    Changelog:
+      - Fixed Steam movie trailer extraction for games keyed by Steam AppID (e.g. Nioh)
+      - Added fallback local VideoTrailer pointer even when Drive video sync is disabled
+      - Added 'Auto-stream Full Trailers in Hero' toggle to Gallery & Display preferences
+      - Bidirectional settings synchronization between Gallery and Sync preferences
+      - Added dedicated 'Watch Full Trailer' action button in Game Detail screen
+      - Fixed hero preview floating 'Watch Trailer' pill visibility for games without microtrailers
+      - Ensured on-demand full trailer streaming plays unmuted with smooth auto-scroll to player
   - Version: 1.2.0
     RequiredApiVersion: 6.0.0
     ReleaseDate: 2026-10-19
