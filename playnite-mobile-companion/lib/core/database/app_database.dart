@@ -75,12 +75,18 @@ class AppDatabase {
             await db.execute("ALTER TABLE games ADD COLUMN other_copies_json TEXT NOT NULL DEFAULT '[]';");
           } catch (_) {}
         }
+        if (oldVersion < 3) {
+          try {
+            await _migrateLegacyCategories(db);
+          } catch (_) {}
+        }
       },
     );
 
     // Ensure columns and FTS table are verified or created even on pre-existing databases
     await _ensureColumnsExist(_db!);
     await _ensureFtsTable(_db!);
+    await _migrateLegacyCategories(_db!);
 
     // Sanitize any legacy oversized addons_json rows (e.g. games with >1,000 achievements)
     // to prevent Android SQLite CursorWindowAllocationException (2MB limit).
@@ -353,6 +359,31 @@ class AppDatabase {
     } catch (e2) {
       debugPrint('Neither FTS5 nor FTS4 supported on this SQLite engine: $e2');
       isFtsSupported = false;
+    }
+  }
+
+  /// Public migration entrypoint for legacy category normalization.
+  Future<void> migrateLegacyCategories({DatabaseExecutor? executor}) async {
+    await _migrateLegacyCategories(executor ?? db);
+  }
+
+  /// Migrates legacy 'media_' prefixed categories in sync_entries table to canonical desktop enum strings.
+  Future<void> _migrateLegacyCategories(DatabaseExecutor db) async {
+    try {
+      await db.execute('''
+        UPDATE sync_entries 
+        SET category = CASE category
+          WHEN '${AppConstants.legacyCategoryCover}' THEN '${AppConstants.categoryCover}'
+          WHEN '${AppConstants.legacyCategoryBackground}' THEN '${AppConstants.categoryBackground}'
+          WHEN '${AppConstants.legacyCategoryLogo}' THEN '${AppConstants.categoryLogo}'
+          WHEN '${AppConstants.legacyCategoryMicrotrailer}' THEN '${AppConstants.categoryMicrotrailer}'
+          WHEN '${AppConstants.legacyCategoryTrailer}' THEN '${AppConstants.categoryTrailer}'
+          ELSE category
+        END
+        WHERE category LIKE 'media_%';
+      ''');
+    } catch (e) {
+      debugPrint('Legacy category migration warning: $e');
     }
   }
 }

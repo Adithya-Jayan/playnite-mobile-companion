@@ -1,3 +1,4 @@
+import 'package:playnite_mobile_companion/core/config/app_constants.dart';
 import 'package:playnite_mobile_companion/core/database/app_database.dart';
 import 'package:playnite_mobile_companion/features/sync/domain/sync_models.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -33,7 +34,7 @@ class LocalSyncEntry {
       modifiedUtc: map['modified_utc'] as String,
       driveFileId: map['drive_file_id'] as String,
       mimeType: map['mime_type'] as String,
-      category: map['category'] as String,
+      category: AppConstants.normalizeCategory(map['category'] as String?),
       gameId: map['game_id'] as String?,
       lastSyncedUtc: map['last_synced_utc'] as String,
     );
