@@ -106,6 +106,67 @@
       "type": "boolean",
       "description": "Whether the game is hidden in user's library."
     },
+    "is_duplicate": {
+      "type": ["boolean", "null"],
+      "description": "Whether this game title is designated as a hidden secondary duplicate copy by DuplicateHider (default: false)."
+    },
+    "duplicate_group_id": {
+      "type": ["string", "null"],
+      "format": "uuid",
+      "description": "Identifier linking identical game titles owned across multiple platforms or storefronts into a unified Duplicate Group."
+    },
+    "other_copies": {
+      "type": ["array", "null"],
+      "description": "List of alternate duplicate copies of this game identified by DuplicateHider.",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "game_id",
+          "name",
+          "source_name",
+          "is_installed",
+          "playtime_seconds",
+          "hidden"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Playnite Game GUID of the duplicate copy."
+          },
+          "game_id": {
+            "type": "string",
+            "description": "Store external game identifier for this copy."
+          },
+          "name": {
+            "type": "string",
+            "description": "Display title of the duplicate copy."
+          },
+          "source_name": {
+            "type": "string",
+            "description": "Storefront or library source name (e.g. Steam, GOG, Epic)."
+          },
+          "is_installed": {
+            "type": "boolean",
+            "description": "Whether this duplicate copy is locally installed."
+          },
+          "playtime_seconds": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Playtime recorded on this specific copy in seconds."
+          },
+          "install_directory": {
+            "type": ["string", "null"],
+            "description": "Local installation directory on the host machine if installed."
+          },
+          "hidden": {
+            "type": "boolean",
+            "description": "Whether this duplicate copy is hidden."
+          }
+        }
+      }
+    },
     "favorite": {
       "type": "boolean",
       "description": "Whether the game is marked as favorite/starred."
@@ -327,7 +388,11 @@
             "relative_path": { "type": "string" },
             "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
             "size_bytes": { "type": "integer" },
-            "duration_seconds": { "type": "number" }
+            "duration_seconds": {
+              "type": "number",
+              "default": 6.0,
+              "description": "Duration of looping microtrailer clip in seconds (standard default: 6.0s)."
+            }
           },
           "required": ["relative_path", "sha256", "size_bytes"]
         },

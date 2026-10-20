@@ -59,6 +59,36 @@ namespace PlayniteExporterPlugin.Tests
         }
 
         [Fact]
+        public async Task StandaloneGame_WithoutAddonsOrDuplicateHider_ExportsAndSerializesCleanly()
+        {
+            var game = new Game("Standalone Vanilla Title") { Id = Guid.NewGuid() };
+
+            var (payload, _) = await aggregator.BuildGamePayloadAsync(game, userDir);
+
+            Assert.NotNull(payload);
+            Assert.Equal("Standalone Vanilla Title", payload.Name);
+            Assert.False(payload.IsDuplicate);
+            Assert.Null(payload.DuplicateGroupId);
+            Assert.NotNull(payload.OtherCopies);
+            Assert.Empty(payload.OtherCopies);
+            Assert.NotNull(payload.Addons);
+            Assert.Empty(payload.Addons);
+
+            var json = DeterministicJsonSerializer.Serialize(payload);
+            Assert.Contains("\"name\": \"Standalone Vanilla Title\"", json);
+            Assert.Contains("\"is_duplicate\": false", json);
+            Assert.Contains("\"other_copies\": []", json);
+            Assert.Contains("\"addons\": {}", json);
+
+            var roundTripped = DeterministicJsonSerializer.Deserialize<UnifiedGamePayload>(json);
+            Assert.NotNull(roundTripped);
+            Assert.False(roundTripped!.IsDuplicate);
+            Assert.Null(roundTripped.DuplicateGroupId);
+            Assert.Empty(roundTripped.OtherCopies);
+            Assert.Empty(roundTripped.Addons);
+        }
+
+        [Fact]
         public async Task CorruptedAddonJson_CatchesErrorInBoundary_ReturnsNullWithoutCrashing()
         {
             var game = new Game("Fault Tolerant Game") { Id = Guid.NewGuid() };

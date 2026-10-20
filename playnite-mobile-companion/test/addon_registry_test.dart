@@ -127,5 +127,48 @@ void main() {
       expect(find.text('Achievements (1 / 2)'), findsOneWidget);
       expect(find.text('Faulty Addon'), findsNothing);
     });
+
+    testWidgets('Absent Addons & DuplicateHider: Renders zero addon sections and default single-game state without error', (tester) async {
+      // JSON with absent addons, null duplicate fields, and absent other_copies
+      final rawJson = {
+        'schema_version': '1.0.0',
+        'id': 'vanilla-game-1',
+        'game_id': 'app-vanilla',
+        'plugin_id': 'p1',
+        'name': 'Vanilla Game',
+        'sorting_name': 'Vanilla Game',
+        'playtime_seconds': 3600,
+        'play_count': 1,
+        'is_installed': true,
+        'hidden': false,
+        'favorite': false,
+        'is_duplicate': null,
+        'duplicate_group_id': null,
+        // other_copies omitted
+        // addons omitted
+      };
+
+      final game = UnifiedGamePayload.fromJson(rawJson);
+      expect(game.isDuplicate, isFalse);
+      expect(game.duplicateGroupId, isNull);
+      expect(game.otherCopies, isEmpty);
+      expect(game.addons, isEmpty);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Builder(
+              builder: (context) {
+                final sections = AddonSectionRegistry.buildAvailableSections(context, game);
+                return ListView(children: sections);
+              },
+            ),
+          ),
+        ),
+      );
+
+      // Verify zero addon sections generated and zero crashes
+      expect(find.byType(ListView), findsOneWidget);
+    });
   });
 }

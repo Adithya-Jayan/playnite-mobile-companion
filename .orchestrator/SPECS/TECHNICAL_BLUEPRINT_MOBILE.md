@@ -14,7 +14,7 @@
 The `playnite-mobile-companion` is a high-performance, offline-first mobile application designed to browse, filter, search, and inspect the user's desktop Playnite library, media assets, and addon statistics on iOS and Android devices.
 
 ### 1.1 Core Architecture Principles
-1. **Offline-First Reactive Database (Drift / SQLite):** All game metadata, taxonomies, and addon statistics are stored locally in SQLite using **Drift**. UI queries run reactively with 60/120fps smoothness, zero network latency, and instant full-text search (FTS5).
+1. **Offline-First Reactive Database (`sqflite` / SQLite - ADR 0001):** As ratified in [`docs/adr/0001-sqflite-raw-sql-store.md`](file:///C:/Users/adith/Documents/Code/Playnite_Addon/docs/adr/0001-sqflite-raw-sql-store.md), all game metadata, taxonomies, and addon statistics are stored locally in SQLite using `sqflite` with raw SQL queries and denormalized JSON columns (`addons_json`, `platforms_json`, `links_json`, `other_copies_json`). UI queries run reactively with 60/120fps smoothness, zero network latency, and instant full-text search (FTS5/FTS4).
 2. **Strict Incremental Pull Protocol:** The mobile companion downloads only modified `games/{game_id}.json` files identified by diffing the remote `sync_index.json` against local hashes. A 1-game update downloads $< 15\text{ KB}$.
 3. **Dynamic Addon Widget Registry (`AddonSectionRegistry`):** Satisfying the critical requirement for resilient addon addition and removal, the UI dynamically renders addon sections based on available payload keys. If an addon is removed or disabled on desktop, its mobile tab or card simply vanishes without errors; if a new unknown addon arrives, the app gracefully ignores it or renders a safe fallback inspector.
 4. **Tiered Asynchronous Media Caching:** Covers and logos stream/cache on-demand; microtrailers prefetch or stream over Wi-Fi; full trailers stream strictly on demand.
@@ -30,10 +30,12 @@ The `playnite-mobile-companion` is a high-performance, offline-first mobile appl
 │                                                                        │
 │   ┌────────────────────────────────────────────────────────────────┐   │
 │   │               Presentation Layer (Flutter 3.x)                 │   │
-│   │  ├── LibraryScreen (Grid / List / Instant FTS5 Search)         │   │
+│   │  ├── LibraryScreen (Grid / List / Alphabet Scrubber / FTS5)    │   │
+│   │  │    └── Actions: 🎲 Surprise Me (Random Picker), Sort (Random)│   │
 │   │  ├── FilterDrawer (Platforms, Genres, Completion, Tags)        │   │
 │   │  ├── GameDetailScreen (Hero Header, Video Loop, Addon Tabs)    │   │
 │   │  │    └── AddonSectionRegistry (Dynamic Decoupled UI Cards)    │   │
+│   │  ├── GallerySettingsScreen (Scrub-Bar Toggle, Auto-Fade)       │   │
 │   │  └── StatsDashboardScreen (Playtime, Charts, Achievements)     │   │
 │   └───────────────────────────────┬────────────────────────────────┘   │
 │                                   │ State / Events                     │
@@ -46,11 +48,11 @@ The `playnite-mobile-companion` is a high-performance, offline-first mobile appl
 │                   │ Queries                       │ Sync Triggers      │
 │   ┌───────────────▼──────────────┐  ┌─────────────▼────────────────┐   │
 │   │      Data / Storage Layer    │  │       Delta Sync Engine      │   │
-│   │   (Drift / SQLite Database)  │  │     (DeltaPullManager)       │   │
-│   │  ├── GamesTable              │  │  ├── IndexDiffEngine         │   │
-│   │  ├── AddonTables             │  │  ├── BatchDownloadWorker     │   │
-│   │  ├── FullTextSearch (FTS5)   │  │  └── DriveOAuth2Client       │   │
-│   │  └── SyncMetaTable           │  │                              │   │
+│   │ (sqflite / SQLite - ADR 0001)│  │     (DeltaPullManager)       │   │
+│   │  ├── games (with JSON cols)  │  │  ├── IndexDiffEngine         │   │
+│   │  ├── Addon child tables      │  │  ├── BatchDownloadWorker     │   │
+│   │  ├── games_fts (FTS5 / FTS4) │  │  └── DriveOAuth2Client       │   │
+│   │  └── sync_entries / meta     │  │                              │   │
 │   └───────────────▲──────────────┘  └─────────────┬────────────────┘   │
 │                   │ Ingestion Transaction         │                    │
 │   ┌───────────────┴───────────────────────────────▼────────────────┐   │
@@ -84,16 +86,11 @@ playnite-mobile-companion/
 │   │
 │   ├── core/                                # Shared infrastructure & utilities
 │   │   ├── config/                          # App theme, constants, typography
-│   │   ├── database/                        # Drift database definitions & DAOs
-│   │   │   ├── app_database.dart            # Drift database class & migration runner
-│   │   │   ├── tables/
-│   │   │   │   ├── games_table.dart         # Core games schema
-│   │   │   │   ├── taxonomy_tables.dart     # Platforms, Genres, Sources, Tags
-│   │   │   │   ├── addon_tables.dart        # Achievements, Sessions, HLTB, DLC
-│   │   │   │   └── sync_meta_table.dart     # Local hash storage for delta diffs
+│   │   ├── database/                        # SQLite database & raw SQL DAOs (ADR 0001)
+│   │   │   ├── app_database.dart            # sqflite connection, schema creation & column validation
 │   │   │   └── daos/
-│   │   │       ├── game_dao.dart            # FTS5 search, filtering, and sorting
-│   │   │       ├── taxonomy_dao.dart        # Dictionaries & lookup tables
+│   │   │       ├── game_dao.dart            # Raw SQL queries, FTS5 search, filtering & sorting (Random, Playtime)
+│   │   │       ├── taxonomy_dao.dart        # Taxonomy dictionaries & distinct column lookups
 │   │   │       └── stats_dao.dart           # Aggregated playtime & completion metrics
 │   │   ├── network/
 │   │   │   ├── drive_auth_client.dart       # GoogleSignIn & OAuth2 authenticated client
@@ -119,15 +116,21 @@ playnite-mobile-companion/
 │       ├── library/                         # Game library browsing & filtering
 │       │   ├── domain/
 │       │   │   ├── game_filter_criteria.dart # Active filter selections
-│       │   │   └── sort_options.dart        # Title, Playtime, Last Played, Score
+│       │   │   └── sort_options.dart        # Title, Playtime, Last Played, Score, Random (RANDOM())
 │       │   ├── presentation/
-│       │   │   ├── library_screen.dart      # Main screen with Grid/List/Details toggle
+│       │   │   ├── library_screen.dart      # Main screen with Alphabet Scrubber & Random Surprise Me
 │       │   │   ├── library_controller.dart  # Riverpod provider for filtered games
 │       │   │   └── widgets/
 │       │   │       ├── game_card_grid.dart  # High-framerate grid item with WebP cover
 │       │   │       ├── game_list_tile.dart  # Compact row item with badges
 │       │   │       ├── library_search_bar.dart # Instant FTS5 input
 │       │   │       └── filter_bottom_sheet.dart # Multi-select platforms, genres, etc.
+│       │
+│       ├── settings/                        # User gallery & player preferences
+│       │   ├── data/
+│       │   │   └── gallery_settings_repository.dart # SharedPreferences store for video scrub bar
+│       │   └── presentation/
+│       │       └── gallery_settings_screen.dart # Gallery settings UI (showVideoScrubBar toggle)
 │       │
 │       ├── game_detail/                     # Detail view with dynamic addon registry
 │       │   ├── presentation/
@@ -159,83 +162,143 @@ playnite-mobile-companion/
 
 ---
 
-## 4. Local Database Architecture (Drift / SQLite)
+## 4. Local Database Architecture (sqflite / SQLite - ADR 0001)
 
-### 4.1 Schema Definitions (`core/database/tables/`)
+### 4.1 Decision & Rationale (Ratifying ADR 0001)
+As ratified in [`docs/adr/0001-sqflite-raw-sql-store.md`](file:///C:/Users/adith/Documents/Code/Playnite_Addon/docs/adr/0001-sqflite-raw-sql-store.md), `playnite-mobile-companion` adopts **`sqflite` with raw SQL queries and denormalized JSON columns** (`addons_json`, `platforms_json`, `links_json`, `other_copies_json`) instead of Drift ORM:
+- **Resilience to Addon Schema Drift:** Third-party Playnite plugins (SuccessStory, HowLongToBeat, GameActivity, DuplicateHider) frequently evolve their payload structures. Raw JSON storage guarantees zero SQLite table migration failures or deserialization crashes during app updates.
+- **High-Throughput Bulk Ingestion:** Bulk delta ingestion writes raw SQLite transaction batches directly, achieving $< 500\text{ ms}$ ingestion times for thousands of titles without ORM mapping overhead.
+- **Android Cursor Window Protection:** Mobile SQLite enforces a strict 2 MB `CursorWindow` limit. `GameDao` selectively projects only essential summary columns during library grid/list queries, completely omitting large `addons_json` blobs until the user opens the `GameDetailScreen`.
+- **Cross-Platform SQLite Engine:** Uses built-in Android/iOS SQLite engines, and `sqflite_common_ffi` for desktop testing, eliminating complex FFI compilation boundaries.
 
-```dart
-import 'package:drift/drift.dart';
+### 4.2 Schema Definitions (`lib/core/database/app_database.dart`)
 
-// Core Game Table
-@DataClassName('GameEntry')
-class GamesTable extends Table {
-  TextColumn get id => text()(); // Playnite UUID PK
-  TextColumn get gameId => text()(); // Store AppID (Steam, Epic, etc.)
-  TextColumn get pluginId => text()();
-  TextColumn get name => text()();
-  TextColumn get sortingName => text()();
-  TextColumn get description => text().nullable()();
-  TextColumn get notes => text().nullable()();
-  Int64Column get playtimeSeconds => int64().withDefault(const Constant(0))();
-  IntColumn get playCount => integer().withDefault(const Constant(0))();
-  DateTimeColumn get addedUtc => dateTime().nullable()();
-  DateTimeColumn get modifiedUtc => dateTime().nullable()();
-  DateTimeColumn get lastActivityUtc => dateTime().nullable()();
-  TextColumn get releaseDate => text().nullable()();
-  BoolColumn get isInstalled => boolean().withDefault(const Constant(false))();
-  BoolColumn get hidden => boolean().withDefault(const Constant(false))();
-  BoolColumn get favorite => boolean().withDefault(const Constant(false))();
-  IntColumn get userScore => integer().nullable()();
-  IntColumn get criticScore => integer().nullable()();
-  IntColumn get communityScore => integer().nullable()();
-  
-  // Primary relational Foreign Keys
-  TextColumn get sourceId => text().nullable()();
-  TextColumn get completionStatusId => text().nullable()();
+```sql
+-- 1. Core Games Table
+CREATE TABLE IF NOT EXISTS games (
+  id TEXT PRIMARY KEY,
+  game_id TEXT NOT NULL,
+  plugin_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  sorting_name TEXT NOT NULL,
+  description TEXT,
+  notes TEXT,
+  playtime_seconds INTEGER NOT NULL DEFAULT 0,
+  play_count INTEGER NOT NULL DEFAULT 0,
+  added_utc TEXT,
+  modified_utc TEXT,
+  last_activity_utc TEXT,
+  recent_activity_utc TEXT,
+  release_date TEXT,
+  is_installed INTEGER NOT NULL DEFAULT 0,
+  install_directory TEXT,
+  install_size_bytes INTEGER,
+  hidden INTEGER NOT NULL DEFAULT 0,
+  is_duplicate INTEGER NOT NULL DEFAULT 0,
+  duplicate_group_id TEXT,
+  other_copies_json TEXT NOT NULL DEFAULT '[]',
+  favorite INTEGER NOT NULL DEFAULT 0,
+  user_score INTEGER,
+  critic_score INTEGER,
+  community_score INTEGER,
+  version TEXT,
+  source_id TEXT,
+  source_name TEXT,
+  completion_status_id TEXT,
+  completion_status_name TEXT,
+  cover_drive_file_id TEXT,
+  cover_sha256 TEXT,
+  background_drive_file_id TEXT,
+  background_sha256 TEXT,
+  icon_drive_file_id TEXT,
+  icon_sha256 TEXT,
+  logo_drive_file_id TEXT,
+  microtrailer_drive_file_id TEXT,
+  trailer_drive_file_id TEXT,
+  trailer_web_url TEXT,
+  platforms_json TEXT NOT NULL DEFAULT '[]',
+  genres_json TEXT NOT NULL DEFAULT '[]',
+  categories_json TEXT NOT NULL DEFAULT '[]',
+  tags_json TEXT NOT NULL DEFAULT '[]',
+  developers_json TEXT NOT NULL DEFAULT '[]',
+  publishers_json TEXT NOT NULL DEFAULT '[]',
+  features_json TEXT NOT NULL DEFAULT '[]',
+  series_json TEXT NOT NULL DEFAULT '[]',
+  links_json TEXT NOT NULL DEFAULT '[]',
+  addons_json TEXT NOT NULL DEFAULT '{}'
+);
 
-  // Media references (Drive File IDs and hashes for direct streaming)
-  TextColumn get coverDriveFileId => text().nullable()();
-  TextColumn get coverSha256 => text().nullable()();
-  TextColumn get backgroundDriveFileId => text().nullable()();
-  TextColumn get logoDriveFileId => text().nullable()();
-  TextColumn get microtrailerDriveFileId => text().nullable()();
-  TextColumn get trailerDriveFileId => text().nullable()();
+-- Indexes for lightning-fast library sorting & filtering
+CREATE INDEX IF NOT EXISTS idx_games_sorting_name ON games(sorting_name);
+CREATE INDEX IF NOT EXISTS idx_games_playtime ON games(playtime_seconds DESC);
+CREATE INDEX IF NOT EXISTS idx_games_last_activity ON games(last_activity_utc DESC);
+CREATE INDEX IF NOT EXISTS idx_games_source ON games(source_name);
+CREATE INDEX IF NOT EXISTS idx_games_completion ON games(completion_status_name);
+CREATE INDEX IF NOT EXISTS idx_games_is_installed ON games(is_installed);
+CREATE INDEX IF NOT EXISTS idx_games_favorite ON games(favorite);
 
-  // Raw Addons JSON Container (Preserves future & custom addons without migration)
-  TextColumn get addonsJson => text().withDefault(const Constant('{}'))();
+-- 2. Full-Text Search (FTS5 / FTS4) Virtual Table
+CREATE VIRTUAL TABLE IF NOT EXISTS games_fts USING fts5(
+  name, sorting_name, description, notes, content='games', content_rowid='rowid'
+);
 
-  @override
-  Set<Column> get primaryKey => {id};
-}
+-- 3. Sync Entries Table (Local representation of sync_index.json)
+CREATE TABLE IF NOT EXISTS sync_entries (
+  relative_path TEXT PRIMARY KEY,
+  sha256 TEXT NOT NULL,
+  size_bytes INTEGER NOT NULL,
+  modified_utc TEXT NOT NULL,
+  drive_file_id TEXT NOT NULL,
+  mime_type TEXT NOT NULL,
+  category TEXT NOT NULL,
+  game_id TEXT,
+  last_synced_utc TEXT NOT NULL
+);
 
-// Full-Text Search (FTS5) Virtual Table for Instant Search
-class GamesFts extends Table {
-  TextColumn get name => text()();
-  TextColumn get sortingName => text()();
-  TextColumn get description => text()();
-  TextColumn get notes => text()();
-}
+-- 4. Manifest Meta Table (Library dictionaries & summary metrics)
+CREATE TABLE IF NOT EXISTS manifest_meta (
+  key TEXT PRIMARY KEY,
+  value_json TEXT NOT NULL,
+  updated_utc TEXT NOT NULL
+);
 
-// Local Sync Metadata for Delta Hashing
-class SyncMetaTable extends Table {
-  TextColumn get relativePath => text()(); // e.g. "games/{id}.json"
-  TextColumn get sha256 => text()();
-  Int64Column get sizeBytes => int64()();
-  DateTimeColumn get lastSyncedUtc => dateTime()();
-  TextColumn get driveFileId => text()();
-
-  @override
-  Set<Column> get primaryKey => {relativePath};
-}
+-- 5. Normalized Addon Tables for Fast Relational Views
+CREATE TABLE IF NOT EXISTS achievements (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  game_id TEXT NOT NULL,
+  api_name TEXT NOT NULL,
+  name TEXT NOT NULL,
+  description TEXT,
+  url_unlocked TEXT,
+  url_locked TEXT,
+  date_unlocked_utc TEXT,
+  percent REAL,
+  gamerscore REAL,
+  is_hidden INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS play_sessions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  game_id TEXT NOT NULL,
+  date_session_utc TEXT NOT NULL,
+  elapsed_seconds INTEGER NOT NULL,
+  action_name TEXT
+);
+CREATE TABLE IF NOT EXISTS hltb_data (
+  game_id TEXT PRIMARY KEY,
+  main_story_seconds INTEGER NOT NULL DEFAULT 0,
+  main_extra_seconds INTEGER NOT NULL DEFAULT 0,
+  completionist_seconds INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS dlc_items (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  game_id TEXT NOT NULL,
+  dlc_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  is_owned INTEGER NOT NULL DEFAULT 0,
+  price TEXT,
+  image_url TEXT
+);
 ```
-
-### 4.2 Normalized Addon Child Tables
-While the raw `addonsJson` column in `GamesTable` provides zero-cost extensibility for future plugins, high-cardinality known addons are unpacked into relational tables for instant queries:
-
-1. **`AchievementsTable`:** `gameId`, `apiName`, `name`, `description`, `urlUnlocked`, `urlLocked`, `dateUnlockedUtc`, `percent`, `gamerScore`, `isHidden`.
-2. **`PlaySessionsTable`:** `gameId`, `dateSessionUtc`, `elapsedSeconds`, `actionName`.
-3. **`HltbDataTable`:** `gameId`, `mainStorySeconds`, `mainExtraSeconds`, `completionistSeconds`.
-4. **`DlcItemsTable`:** `gameId`, `dlcId`, `name`, `isOwned`, `price`, `imageUrl`.
 
 ---
 
@@ -296,25 +359,31 @@ class DeltaPullManager {
       onProgress?.call(downloadedPayloads.length, toDownload.length);
     }
 
-    // 5. Atomic Batch Ingestion inside SQLite Transaction
-    await database.transaction(() async {
-      // Ingest Games & Child Addon Tables
-      await database.gameDao.batchUpsertGames(downloadedPayloads);
+    // 5. Atomic Batch Ingestion inside sqflite Transaction (ADR 0001)
+    await database.db.transaction((txn) async {
+      // Ingest Games & Normalized Child Addon Tables
+      await database.gameDao.batchUpsertGames(downloadedPayloads, executor: txn);
 
       // Cascade Delete removed games
       if (toDelete.isNotEmpty) {
-        final deletedIds = toDelete.map((p) => p.replaceAll('games/', '').replaceAll('.json', ''));
-        await database.gameDao.batchDeleteGames(deletedIds);
+        final deletedIds = toDelete.map((p) => p.replaceAll('games/', '').replaceAll('.json', '')).toList();
+        await database.gameDao.batchDeleteGames(deletedIds, executor: txn);
       }
 
       // Update Local Sync Meta
-      await database.syncMetaDao.batchUpsertMeta(toDownload.map((e) => SyncMetaCompanion(
-        relativePath: Value(e.relativePath),
-        sha256: Value(e.sha256),
-        sizeBytes: Value(BigInt.from(e.sizeBytes)),
-        lastSyncedUtc: Value(DateTime.now().toUtc()),
-        driveFileId: Value(e.driveFileId),
-      )));
+      for (final e in toDownload) {
+        await txn.insert('sync_entries', {
+          'relative_path': e.relativePath,
+          'sha256': e.sha256,
+          'size_bytes': e.sizeBytes,
+          'modified_utc': e.modifiedUtc,
+          'drive_file_id': e.driveFileId,
+          'mime_type': e.mimeType,
+          'category': e.category,
+          'game_id': e.gameId,
+          'last_synced_utc': DateTime.now().toUtc().toIso8601String(),
+        }, conflictAlgorithm: ConflictAlgorithm.replace);
+      }
     });
 
     return SyncReport.success(
@@ -477,6 +546,11 @@ class _MicrotrailerPlayerState extends State<MicrotrailerPlayer> {
 }
 ```
 
+### 7.3 Gallery Settings & Scrub-Bar Customization
+The companion application provides fine-grained user control over video playback and gallery UI ergonomics via `GallerySettingsRepository`:
+- **`showVideoScrubBar` Setting:** Persisted in `SharedPreferences` (default: `true`). When toggled off in `GallerySettingsScreen`, the `MicrotrailerPlayer` suppresses the bottom progress scrub bar and timestamps, presenting an uncluttered cinematic presentation while preserving touch auto-fade and decoupled audio mute/unmute controls.
+- **Alphabetical Fast-Scroll Scrubber:** On the `LibraryScreen`, when sorting alphabetically by Title and viewing $\ge 10$ games, an interactive vertical alphabet rail (`_buildAlphabetScrubber`) appears along the right display edge. Users can drag or tap to instantly jump across the library with haptic feedback and a floating bubble HUD (`_scrubbingLetter`).
+
 ---
 
 ## 8. Screen Specifications & UI Flow
@@ -487,18 +561,23 @@ class _MicrotrailerPlayerState extends State<MicrotrailerPlayer> {
 ├────────────────────────┤     ├────────────────────────┤     ├────────────────────────┤
 │ [Search games...     ] │     │ [ < Back ]   [Share]   │     │ Total Library Playtime │
 │ [Grid] [List] [Filter] │     │ ┌────────────────────┐ │     │ 5,125 Hours (213 Days) │
-├────────────────────────┤     │ │ Microtrailer Loop  │ │     ├────────────────────────┤
-│ ┌─────┐ ┌─────┐ ┌─────┐│     │ │   & Transparent    │ │     │ Completion Status      │
-│ │Cover│ │Cover│ │Cover││     │ │      Logo.png      │ │     │  Completed: 24%        │
-│ │ #1  │ │ #2  │ │ #3  ││     │ └────────────────────┘ │     │  Beaten:    18%        │
-│ └─────┘ └─────┘ └─────┘│────>│ Encased: Sci-Fi RPG    │     │  Playing:   8%         │
-│ ┌─────┐ ┌─────┐ ┌─────┐│Tap  │ ★ 86%  |  PC (Windows) │     │  Not Played:50%        │
-│ │Cover│ │Cover│ │Cover││     ├────────────────────────┤     ├────────────────────────┤
-│ │ #4  │ │ #5  │ │ #6  ││     │ [Achieve] [HLTB] [DLC] │     │ Top 5 Most Played      │
-│ └─────┘ └─────┘ └─────┘│     │  Main Story: 26.0h     │     │ 1. Cyberpunk (210h)    │
-│                        │     │  Extra:      39.8h     │     │ 2. The Witcher 3 (185h)│
+│ [🎲 Random] [Sort: A-Z]│     │ │ Microtrailer Loop  │ │     ├────────────────────────┤
+├────────────────────────┤     │ │   & Transparent    │ │     │ Completion Status      │
+│ ┌─────┐ ┌─────┐ ┌─────┐│     │ │      Logo.png      │ │     │  Completed: 24%        │
+│ │Cover│ │Cover│ │Cover││     │ └────────────────────┘ │     │  Beaten:    18%        │
+│ │ #1  │ │ #2  │ │ #3  ││     │ Encased: Sci-Fi RPG    │     │  Playing:   8%         │
+│ └─────┘ └─────┘ └─────┘│────>│ ★ 86%  |  PC (Windows) │     │  Not Played:50%        │
+│ ┌─────┐ ┌─────┐ ┌─────┐│Tap  ├────────────────────────┤     ├────────────────────────┤
+│ │Cover│ │Cover│ │Cover││     │ [Achieve] [HLTB] [DLC] │     │ Top 5 Most Played      │
+│ │ #4  │ │ #5  │ │ #6  ││     │  Main Story: 26.0h     │     │ 1. Cyberpunk (210h)    │
+│ └─────┘ └─────┘ └─────┘│     │  Extra:      39.8h     │     │ 2. The Witcher 3 (185h)│
 │                        │     │  Completion: 67.5h     │     │ 3. Elden Ring (142h)   │
 └────────────────────────┘     └────────────────────────┘     └────────────────────────┘
+
+### 8.1 Random Sorting & "Surprise Me" Game Picker
+To solve decision paralysis across large libraries (1,000+ titles):
+1. **Random Sort Option (`SortOption.random`):** Injects SQL `ORDER BY RANDOM()` in `GameDao.getFilteredGames()`, shuffling the library display.
+2. **"🎲 Surprise Me" Action Button:** Positioned directly in the `LibraryScreen` app bar, this action filters the eligible pool according to current active filter chips, randomly selects a title, and opens `GameDetailScreen` with an animated snackbar toast.
 ```
 
 ---
@@ -507,4 +586,35 @@ class _MicrotrailerPlayerState extends State<MicrotrailerPlayer> {
 1. **Delta Pull Verification:** Pulling updates when only 2 of 1,429 games have modified timestamps must transfer $< 30\text{ KB}$ and ingest in $< 500\text{ ms}$.
 2. **Addon Extensibility Test:** Injecting a mock `custom_future_addon` key into a game payload must parse without errors and render safely via `FallbackAddonSection`.
 3. **Addon Removal Test:** Removing `how_long_to_beat` from a game payload must instantly omit the HLTB tab on the detail screen with zero UI rendering errors.
-4. **Offline Resilience Test:** Launching the app in Airplane mode must immediately render the full cached library from Drift with 120fps scrolling.
+4. **Offline Resilience Test:** Launching the app in Airplane mode must immediately render the full cached library from `sqflite` with 120fps scrolling.
+
+---
+
+## 10. Playnite Toolbox Auto-Updater Manifest (`installer.yaml`)
+
+To provide automated desktop extension updates directly through Playnite's native Addon Manager without requiring manual `.pext` downloads or zip extractions, the desktop exporter exposes an `installer.yaml` manifest in the repository root:
+
+```yaml
+AddonId: "MobileDeltaSyncExporter_d3b07384-d113-4c90-951b-10f88a91a92a"
+Packages:
+  - Version: 1.2.0
+    RequiredApiVersion: 6.0.0
+    ReleaseDate: 2026-10-19
+    PackageUrl: https://github.com/Adithya-Jayan/playnite-mobile-companion/releases/download/v1.2.0/MobileDeltaSyncExporter.pext
+    Changelog:
+      - Added high-resolution custom app logo & mascot branding
+      - Alphabet fast-scroll scrubber synchronization with haptic indexing
+      - Video player streaming fixes for direct web and Google Drive trailers
+      - Controls clean auto-fade by default on playback
+      - Honored Gallery Settings scrub bar toggle with decoupled audio controls
+      - Top app bar scroll tint fix (retains deep gray surface)
+      - Added Random game sort and top bar random picker
+      - Added expandable Tag filter and fixed Missing Cover utility filter
+      - Added in-app GitHub repository link
+```
+
+### 10.1 Key Manifest Invariants
+- **`AddonId`:** Must strictly match the GUID declared in `extension.yaml` (`MobileDeltaSyncExporter_d3b07384-d113-4c90-951b-10f88a91a92a`).
+- **`RequiredApiVersion`:** Declares the minimum Playnite SDK API version (`6.0.0`) required for desktop compatibility.
+- **`PackageUrl`:** Points to the downloadable `.pext` binary asset attached to the tagged GitHub Release.
+- **`Playnite.Toolbox.exe` Compatibility:** When the user checks for addon updates in Playnite Desktop, Playnite queries this manifest, compares the installed version against `Packages[0].Version`, and downloads the update automatically.
