@@ -22,7 +22,7 @@ void main() {
     // Insert 1 test game
     final gameDao = GameDao(database);
     await gameDao.batchUpsertGames([
-      UnifiedGamePayload(
+      const UnifiedGamePayload(
         id: 'test-1',
         gameId: 'app-1',
         pluginId: 'p1',
@@ -30,7 +30,7 @@ void main() {
         sortingName: 'Cyberpunk 2077',
         playtimeSeconds: 72000,
         isInstalled: true,
-        source: const NamedItem(id: 'steam', name: 'Steam'),
+        source: NamedItem(id: 'steam', name: 'Steam'),
       ),
     ]);
   });

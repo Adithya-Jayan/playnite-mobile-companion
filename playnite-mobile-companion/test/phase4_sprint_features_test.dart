@@ -536,7 +536,7 @@ void main() {
         database: database,
       );
 
-      final remoteIndex = SyncIndex(
+      final remoteIndex = const SyncIndex(
         version: '1.0.0',
         generator: 'test',
         generatedAtUtc: '2026-10-18T12:00:00Z',
@@ -545,7 +545,7 @@ void main() {
         totalEntries: 5,
         totalSizeBytes: 35000000,
         entries: {
-          'manifest.json': const IndexEntry(
+          'manifest.json': IndexEntry(
             relativePath: 'manifest.json',
             sha256: 'sha-manifest',
             sizeBytes: 1000,
@@ -554,7 +554,7 @@ void main() {
             mimeType: 'application/json',
             category: 'manifest',
           ),
-          'games/g1.json': const IndexEntry(
+          'games/g1.json': IndexEntry(
             relativePath: 'games/g1.json',
             sha256: 'sha-g1',
             sizeBytes: 5000,
@@ -563,7 +563,7 @@ void main() {
             mimeType: 'application/json',
             category: 'game_metadata',
           ),
-          'media/covers/cover1.jpg': const IndexEntry(
+          'media/covers/cover1.jpg': IndexEntry(
             relativePath: 'media/covers/cover1.jpg',
             sha256: 'sha-cover1',
             sizeBytes: 50000,
@@ -572,7 +572,7 @@ void main() {
             mimeType: 'image/jpeg',
             category: 'cover',
           ),
-          'media/backgrounds/bg1.jpg': const IndexEntry(
+          'media/backgrounds/bg1.jpg': IndexEntry(
             relativePath: 'media/backgrounds/bg1.jpg',
             sha256: 'sha-bg1',
             sizeBytes: 250000,
@@ -581,7 +581,7 @@ void main() {
             mimeType: 'image/jpeg',
             category: 'background',
           ),
-          'media/microtrailers/g1.mp4': const IndexEntry(
+          'media/microtrailers/g1.mp4': IndexEntry(
             relativePath: 'media/microtrailers/g1.mp4',
             sha256: 'sha-vid1',
             sizeBytes: 2500000,
@@ -654,7 +654,7 @@ void main() {
     test('DeltaPullManager records dynamic media tier sizes into manifest_meta and repository loads them', () async {
       final mockDrive = MockDriveService();
       // Configure remote index with specific known byte sizes
-      mockDrive.mockIndex = SyncIndex(
+      mockDrive.mockIndex = const SyncIndex(
         version: '1.0.0',
         generator: 'test',
         generatedAtUtc: '2026-10-18T12:00:00Z',
@@ -663,7 +663,7 @@ void main() {
         totalEntries: 4,
         totalSizeBytes: 3056000,
         entries: {
-          'manifest.json': const IndexEntry(
+          'manifest.json': IndexEntry(
             relativePath: 'manifest.json',
             sha256: 'sha-m',
             sizeBytes: 1000,
@@ -672,7 +672,7 @@ void main() {
             mimeType: 'application/json',
             category: 'manifest',
           ),
-          'games/g1.json': const IndexEntry(
+          'games/g1.json': IndexEntry(
             relativePath: 'games/g1.json',
             sha256: 'sha-g1',
             sizeBytes: 5000,
@@ -681,7 +681,7 @@ void main() {
             mimeType: 'application/json',
             category: 'game_metadata',
           ),
-          'media/covers/cover1.jpg': const IndexEntry(
+          'media/covers/cover1.jpg': IndexEntry(
             relativePath: 'media/covers/cover1.jpg',
             sha256: 'sha-c1',
             sizeBytes: 500000, // 500 KB image
@@ -690,7 +690,7 @@ void main() {
             mimeType: 'image/jpeg',
             category: 'cover',
           ),
-          'media/microtrailers/g1.mp4': const IndexEntry(
+          'media/microtrailers/g1.mp4': IndexEntry(
             relativePath: 'media/microtrailers/g1.mp4',
             sha256: 'sha-v1',
             sizeBytes: 2550000, // ~2.55 MB video

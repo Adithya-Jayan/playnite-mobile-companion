@@ -344,7 +344,7 @@ void main() {
         'games/$indieId.json': jsonEncode(indiePayload),
       };
 
-      final remoteIndex = SyncIndex(
+      final remoteIndex = const SyncIndex(
         version: '1.0.0',
         generator: 'playnite-exporter-plugin',
         generatedAtUtc: '2026-10-15T18:00:00.000Z',
@@ -353,7 +353,7 @@ void main() {
         totalEntries: 4,
         totalSizeBytes: 12000,
         entries: {
-          'manifest.json': const IndexEntry(
+          'manifest.json': IndexEntry(
             relativePath: 'manifest.json',
             sha256: 'hash_manifest',
             sizeBytes: 1500,
@@ -362,7 +362,7 @@ void main() {
             mimeType: 'application/json',
             category: 'manifest',
           ),
-          'games/$witcherId.json': const IndexEntry(
+          'games/$witcherId.json': IndexEntry(
             relativePath: 'games/$witcherId.json',
             sha256: 'hash_witcher_v1',
             sizeBytes: 4500,
@@ -372,7 +372,7 @@ void main() {
             category: 'game_metadata',
             gameId: witcherId,
           ),
-          'games/$cyberpunkId.json': const IndexEntry(
+          'games/$cyberpunkId.json': IndexEntry(
             relativePath: 'games/$cyberpunkId.json',
             sha256: 'hash_cp_v1',
             sizeBytes: 3000,
@@ -382,7 +382,7 @@ void main() {
             category: 'game_metadata',
             gameId: cyberpunkId,
           ),
-          'games/$indieId.json': const IndexEntry(
+          'games/$indieId.json': IndexEntry(
             relativePath: 'games/$indieId.json',
             sha256: 'hash_indie_v1',
             sizeBytes: 1000,
@@ -520,7 +520,7 @@ void main() {
         'games/$cyberpunkId.json': jsonEncode(cyberpunkPayload),
       };
 
-      var remoteIndex = SyncIndex(
+      var remoteIndex = const SyncIndex(
         version: '1.0.0',
         generator: 'playnite-exporter-plugin',
         generatedAtUtc: '2026-10-15T18:00:00.000Z',
@@ -529,7 +529,7 @@ void main() {
         totalEntries: 3,
         totalSizeBytes: 7500,
         entries: {
-          'manifest.json': const IndexEntry(
+          'manifest.json': IndexEntry(
             relativePath: 'manifest.json',
             sha256: 'h_m',
             sizeBytes: 1000,
@@ -538,7 +538,7 @@ void main() {
             mimeType: 'application/json',
             category: 'manifest',
           ),
-          'games/$witcherId.json': const IndexEntry(
+          'games/$witcherId.json': IndexEntry(
             relativePath: 'games/$witcherId.json',
             sha256: 'h_w',
             sizeBytes: 4000,
@@ -548,7 +548,7 @@ void main() {
             category: 'game_metadata',
             gameId: witcherId,
           ),
-          'games/$cyberpunkId.json': const IndexEntry(
+          'games/$cyberpunkId.json': IndexEntry(
             relativePath: 'games/$cyberpunkId.json',
             sha256: 'h_cp',
             sizeBytes: 2500,
@@ -578,7 +578,7 @@ void main() {
 
       // Step B: Simulate C# orphan pruning on desktop: Witcher 3 was uninstalled/deleted from Playnite!
       // In remote sync_index.json, Witcher 3 is completely gone. Only Cyberpunk remains.
-      remoteIndex = SyncIndex(
+      remoteIndex = const SyncIndex(
         version: '1.0.0',
         generator: 'playnite-exporter-plugin',
         generatedAtUtc: '2026-10-15T18:05:00.000Z',
@@ -587,7 +587,7 @@ void main() {
         totalEntries: 2,
         totalSizeBytes: 3500,
         entries: {
-          'manifest.json': const IndexEntry(
+          'manifest.json': IndexEntry(
             relativePath: 'manifest.json',
             sha256: 'h_m',
             sizeBytes: 1000,
@@ -596,7 +596,7 @@ void main() {
             mimeType: 'application/json',
             category: 'manifest',
           ),
-          'games/$cyberpunkId.json': const IndexEntry(
+          'games/$cyberpunkId.json': IndexEntry(
             relativePath: 'games/$cyberpunkId.json',
             sha256: 'h_cp',
             sizeBytes: 2500,
@@ -650,7 +650,7 @@ void main() {
         'games/$witcherId.json': jsonEncode(witcherPayload),
       };
 
-      final remoteIndex = SyncIndex(
+      final remoteIndex = const SyncIndex(
         version: '1.0.0',
         generator: 'playnite-exporter-plugin',
         generatedAtUtc: '2026-10-15T18:00:00.000Z',
@@ -659,7 +659,7 @@ void main() {
         totalEntries: 2,
         totalSizeBytes: 5500,
         entries: {
-          'manifest.json': const IndexEntry(
+          'manifest.json': IndexEntry(
             relativePath: 'manifest.json',
             sha256: 'h_m',
             sizeBytes: 1000,
@@ -668,7 +668,7 @@ void main() {
             mimeType: 'application/json',
             category: 'manifest',
           ),
-          'games/$witcherId.json': const IndexEntry(
+          'games/$witcherId.json': IndexEntry(
             relativePath: 'games/$witcherId.json',
             sha256: 'hash_cover_v1',
             sizeBytes: 4500,
@@ -713,7 +713,7 @@ void main() {
       };
 
       service.remoteFiles['games/$witcherId.json'] = jsonEncode(updatedWitcherPayload);
-      service.remoteIndex = SyncIndex(
+      service.remoteIndex = const SyncIndex(
         version: '1.0.0',
         generator: 'playnite-exporter-plugin',
         generatedAtUtc: '2026-10-15T18:10:00.000Z',
@@ -722,7 +722,7 @@ void main() {
         totalEntries: 2,
         totalSizeBytes: 5500,
         entries: {
-          'manifest.json': const IndexEntry(
+          'manifest.json': IndexEntry(
             relativePath: 'manifest.json',
             sha256: 'h_m',
             sizeBytes: 1000,
@@ -731,7 +731,7 @@ void main() {
             mimeType: 'application/json',
             category: 'manifest',
           ),
-          'games/$witcherId.json': const IndexEntry(
+          'games/$witcherId.json': IndexEntry(
             relativePath: 'games/$witcherId.json',
             sha256: 'hash_cover_v2_modified',
             sizeBytes: 4500,
@@ -791,7 +791,7 @@ void main() {
         'games/$cyberpunkId.json': jsonEncode(cyberpunkPayload),
       };
 
-      final remoteIndex = SyncIndex(
+      final remoteIndex = const SyncIndex(
         version: '1.0.0',
         generator: 'playnite-exporter-plugin',
         generatedAtUtc: '2026-10-15T18:00:00.000Z',
@@ -800,7 +800,7 @@ void main() {
         totalEntries: 2,
         totalSizeBytes: 3500,
         entries: {
-          'manifest.json': const IndexEntry(
+          'manifest.json': IndexEntry(
             relativePath: 'manifest.json',
             sha256: 'h_m',
             sizeBytes: 1000,
@@ -809,7 +809,7 @@ void main() {
             mimeType: 'application/json',
             category: 'manifest',
           ),
-          'games/$cyberpunkId.json': const IndexEntry(
+          'games/$cyberpunkId.json': IndexEntry(
             relativePath: 'games/$cyberpunkId.json',
             sha256: 'h_cp',
             sizeBytes: 2500,
@@ -840,7 +840,7 @@ void main() {
       // Now add Witcher 3, but inject corrupt JSON into the download
       service.remoteFiles['games/$witcherId.json'] = 'corrupt content';
       service.corruptFilePath = 'games/$witcherId.json';
-      service.remoteIndex = SyncIndex(
+      service.remoteIndex = const SyncIndex(
         version: '1.0.0',
         generator: 'playnite-exporter-plugin',
         generatedAtUtc: '2026-10-15T18:05:00.000Z',
@@ -849,7 +849,7 @@ void main() {
         totalEntries: 3,
         totalSizeBytes: 7500,
         entries: {
-          'manifest.json': const IndexEntry(
+          'manifest.json': IndexEntry(
             relativePath: 'manifest.json',
             sha256: 'h_m',
             sizeBytes: 1000,
@@ -858,7 +858,7 @@ void main() {
             mimeType: 'application/json',
             category: 'manifest',
           ),
-          'games/$cyberpunkId.json': const IndexEntry(
+          'games/$cyberpunkId.json': IndexEntry(
             relativePath: 'games/$cyberpunkId.json',
             sha256: 'h_cp',
             sizeBytes: 2500,
@@ -868,7 +868,7 @@ void main() {
             category: 'game_metadata',
             gameId: cyberpunkId,
           ),
-          'games/$witcherId.json': const IndexEntry(
+          'games/$witcherId.json': IndexEntry(
             relativePath: 'games/$witcherId.json',
             sha256: 'h_w_corrupt',
             sizeBytes: 4000,
@@ -908,7 +908,7 @@ void main() {
         'games/$cyberpunkId.json': jsonEncode(cyberpunkPayload),
       };
 
-      final remoteIndex = SyncIndex(
+      final remoteIndex = const SyncIndex(
         version: '1.0.0',
         generator: 'playnite-exporter-plugin',
         generatedAtUtc: '2026-10-15T18:00:00.000Z',
@@ -917,7 +917,7 @@ void main() {
         totalEntries: 3,
         totalSizeBytes: 7000,
         entries: {
-          'manifest.json': const IndexEntry(
+          'manifest.json': IndexEntry(
             relativePath: 'manifest.json',
             sha256: 'h_m',
             sizeBytes: 1000,
@@ -926,7 +926,7 @@ void main() {
             mimeType: 'application/json',
             category: 'manifest',
           ),
-          'games/$witcherId.json': const IndexEntry(
+          'games/$witcherId.json': IndexEntry(
             relativePath: 'games/$witcherId.json',
             sha256: 'h_w',
             sizeBytes: 4000,
@@ -936,7 +936,7 @@ void main() {
             category: 'game_metadata',
             gameId: witcherId,
           ),
-          'games/$cyberpunkId.json': const IndexEntry(
+          'games/$cyberpunkId.json': IndexEntry(
             relativePath: 'games/$cyberpunkId.json',
             sha256: 'h_cp',
             sizeBytes: 2000,

@@ -111,7 +111,7 @@ class _AchievementsSectionWidgetState extends State<_AchievementsSectionWidget> 
             : null);
 
     // Filter
-    var filtered = achievements.where((a) {
+    final filtered = achievements.where((a) {
       final isUnlocked = _isAchievementUnlocked(a);
       if (_filter == 'Unlocked') return isUnlocked;
       if (_filter == 'Locked') return !isUnlocked;

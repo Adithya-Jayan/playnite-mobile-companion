@@ -187,7 +187,7 @@ class _StartupErrorScreenState extends State<StartupErrorScreen> {
     try {
       await widget.database.init();
       if (mounted) {
-        Navigator.of(context).pushReplacement(
+        await Navigator.of(context).pushReplacement(
           MaterialPageRoute(
             builder: (_) => LibraryScreen(database: widget.database),
           ),
