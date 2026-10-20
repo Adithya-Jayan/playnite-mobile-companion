@@ -28,6 +28,10 @@ _Avoid_: Teaser, preview clip, short video
 A high-definition video with full audio meant strictly for on-demand playback upon explicit user interaction.
 _Avoid_: Long trailer, trailer video
 
+**Watch Trailer Pill**:
+A subtle, translucent floating play pill rendered in the hero header when a game only possesses a full trailer, initiating on-demand video streaming upon explicit user tap.
+_Avoid_: Play button overlay, trailer popup, big play icon
+
 ### Taxonomy & Addons
 
 **Addon Data Extractor**:

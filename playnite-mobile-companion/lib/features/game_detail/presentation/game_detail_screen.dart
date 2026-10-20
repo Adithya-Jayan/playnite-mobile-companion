@@ -8,6 +8,7 @@ import 'package:playnite_mobile_companion/core/services/playnite_image_loader.da
 import 'package:playnite_mobile_companion/core/ui/playnite_cached_image.dart';
 import 'package:playnite_mobile_companion/core/utils/media_url_resolver.dart';
 import 'package:playnite_mobile_companion/features/settings/data/gallery_settings_repository.dart';
+import 'package:playnite_mobile_companion/features/sync/data/sync_config_repository.dart';
 import 'addon_registry/addon_section_registry.dart';
 import 'widgets/external_links_card.dart';
 import 'widgets/metadata_chips_row.dart';
@@ -29,6 +30,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
   late Map<String, dynamic> _addons;
   List<UnifiedGamePayload> _relatedGames = [];
   GallerySettings? _gallerySettings;
+  bool? _autoStreamTrailersInHero;
 
   @override
   void initState() {
@@ -58,8 +60,13 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
       if (AppDatabase.instance.isOpen) {
         final repo = GallerySettingsRepository(AppDatabase.instance);
         final settings = await repo.loadSettings();
+        final syncRepo = SyncConfigRepository(AppDatabase.instance);
+        final syncConfig = await syncRepo.loadConfig();
         if (mounted) {
-          setState(() => _gallerySettings = settings);
+          setState(() {
+            _gallerySettings = settings;
+            _autoStreamTrailersInHero = syncConfig.autoStreamTrailersInHero;
+          });
         }
       }
     } catch (e) {
@@ -139,6 +146,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
                 logoDriveFileId: game.media.logoDriveFileId,
                 height: 250,
                 gallerySettings: _gallerySettings,
+                autoStreamTrailersInHero: _autoStreamTrailersInHero,
               ),
             ),
           ),

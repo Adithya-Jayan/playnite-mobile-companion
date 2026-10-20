@@ -566,6 +566,10 @@ class _SyncSettingsScreenState extends State<SyncSettingsScreen> {
           _buildBackgroundSyncCard(),
           const SizedBox(height: 20),
 
+          // Section: Media / Preferences
+          _buildMediaPreferencesCard(),
+          const SizedBox(height: 20),
+
           // Section 7: Sync Action & Maintenance
           _buildActionsSection(),
           const SizedBox(height: 40),
@@ -1456,6 +1460,44 @@ class _SyncSettingsScreenState extends State<SyncSettingsScreen> {
                 ],
               ),
             ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildMediaPreferencesCard() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Media / Preferences',
+          style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppTheme.textPrimary),
+        ),
+        const SizedBox(height: 8),
+        Container(
+          decoration: BoxDecoration(
+            color: AppTheme.surface,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: SwitchListTile(
+            secondary: const Icon(Icons.video_library_outlined, color: AppTheme.primaryLight),
+            title: const Text(
+              'Auto-stream full trailers in hero banner',
+              style: TextStyle(color: AppTheme.textPrimary, fontSize: 14, fontWeight: FontWeight.w600),
+            ),
+            subtitle: const Text(
+              'When disabled, full trailers only play when you tap Watch Trailer to save mobile data',
+              style: TextStyle(fontSize: 12, color: AppTheme.textMuted),
+            ),
+            value: _config.autoStreamTrailersInHero,
+            activeThumbColor: AppTheme.primaryLight,
+            onChanged: (val) async {
+              setState(() {
+                _config = _config.copyWith(autoStreamTrailersInHero: val);
+              });
+              await _saveSettings(showToast: false);
+            },
           ),
         ),
       ],

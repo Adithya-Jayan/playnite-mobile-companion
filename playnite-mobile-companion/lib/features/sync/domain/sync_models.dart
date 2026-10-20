@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:playnite_mobile_companion/core/config/app_constants.dart';
+export 'sync_config.dart';
 
 /// Represents a single entry in sync_index.json
 class IndexEntry {
@@ -764,95 +765,6 @@ enum SyncStorageType {
   googleDrive,
   localFolder,
   demo,
-}
-
-/// Configuration settings for sync operations
-class SyncConfiguration {
-  final SyncStorageType storageType;
-  final String googleDriveFolderName;
-  final String googleDriveFolderId;
-  final String googleClientId;
-  final String googleClientSecret;
-  final String googleRefreshToken;
-  final String googleAccessToken;
-  final String localFolderPath;
-  final String? lastSyncUtc;
-
-  const SyncConfiguration({
-    this.storageType = SyncStorageType.googleDrive,
-    this.googleDriveFolderName = 'PlayniteSync',
-    this.googleDriveFolderId = '',
-    this.googleClientId = '',
-    this.googleClientSecret = '',
-    this.googleRefreshToken = '',
-    this.googleAccessToken = '',
-    this.localFolderPath = '',
-    this.lastSyncUtc,
-  });
-
-  bool get isGoogleDriveConfigured =>
-      storageType == SyncStorageType.googleDrive &&
-      (googleAccessToken.isNotEmpty || googleRefreshToken.isNotEmpty);
-
-  SyncConfiguration copyWith({
-    SyncStorageType? storageType,
-    String? googleDriveFolderName,
-    String? googleDriveFolderId,
-    String? googleClientId,
-    String? googleClientSecret,
-    String? googleRefreshToken,
-    String? googleAccessToken,
-    String? localFolderPath,
-    String? lastSyncUtc,
-  }) {
-    return SyncConfiguration(
-      storageType: storageType ?? this.storageType,
-      googleDriveFolderName: googleDriveFolderName ?? this.googleDriveFolderName,
-      googleDriveFolderId: googleDriveFolderId ?? this.googleDriveFolderId,
-      googleClientId: googleClientId ?? this.googleClientId,
-      googleClientSecret: googleClientSecret ?? this.googleClientSecret,
-      googleRefreshToken: googleRefreshToken ?? this.googleRefreshToken,
-      googleAccessToken: googleAccessToken ?? this.googleAccessToken,
-      localFolderPath: localFolderPath ?? this.localFolderPath,
-      lastSyncUtc: lastSyncUtc ?? this.lastSyncUtc,
-    );
-  }
-
-  Map<String, dynamic> toJson() => {
-    'storage_type': storageType.name,
-    'google_drive_folder_name': googleDriveFolderName,
-    'google_drive_folder_id': googleDriveFolderId,
-    'google_client_id': googleClientId,
-    'google_client_secret': googleClientSecret,
-    'google_refresh_token': googleRefreshToken,
-    'google_access_token': googleAccessToken,
-    'local_folder_path': localFolderPath,
-    'last_sync_utc': lastSyncUtc,
-  };
-
-  factory SyncConfiguration.fromJson(Map<String, dynamic> json) {
-    SyncStorageType type = SyncStorageType.googleDrive;
-    final typeStr = json['storage_type'] as String?;
-    if (typeStr != null) {
-      for (final t in SyncStorageType.values) {
-        if (t.name == typeStr) {
-          type = t;
-          break;
-        }
-      }
-    }
-    return SyncConfiguration(
-      storageType: type,
-      googleDriveFolderName: json['google_drive_folder_name'] as String? ?? 'PlayniteSync',
-      googleDriveFolderId: json['google_drive_folder_id'] as String? ?? '',
-      googleClientId: json['google_client_id'] as String? ?? '',
-      googleClientSecret: json['google_client_secret'] as String? ?? '',
-      googleRefreshToken: json['google_refresh_token'] as String? ?? '',
-      googleAccessToken: json['google_access_token'] as String? ?? '',
-      localFolderPath: json['local_folder_path'] as String? ?? '',
-      lastSyncUtc: json['last_sync_utc'] as String?,
-    );
-  }
 }
 
 class DuplicateCopyPayload {
