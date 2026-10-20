@@ -86,7 +86,7 @@ class AppDatabase {
     // Ensure columns and FTS table are verified or created even on pre-existing databases
     await _ensureColumnsExist(_db!);
     await _ensureFtsTable(_db!);
-    await _migrateLegacyCategories(_db!);
+
 
     // Sanitize any legacy oversized addons_json rows (e.g. games with >1,000 achievements)
     // to prevent Android SQLite CursorWindowAllocationException (2MB limit).

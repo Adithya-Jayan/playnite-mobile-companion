@@ -30,7 +30,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
   late Map<String, dynamic> _addons;
   List<UnifiedGamePayload> _relatedGames = [];
   GallerySettings? _gallerySettings;
-  bool? _autoStreamTrailersInHero;
+  bool _autoStreamTrailersInHero = false;
 
   @override
   void initState() {

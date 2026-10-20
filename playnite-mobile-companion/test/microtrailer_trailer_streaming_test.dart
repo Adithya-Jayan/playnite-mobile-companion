@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:playnite_mobile_companion/features/settings/data/gallery_settings_repository.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -330,6 +331,104 @@ void main() {
 
       expect(find.byKey(const Key('hero_watch_trailer_pill')), findsNothing);
       expect(find.text('Watch Trailer'), findsNothing);
+    });
+
+    testWidgets('6. Rebuilding with autoStreamTrailersInHero changing from false to true triggers video init', (tester) async {
+      final fakeController = FakeVideoPlayerController();
+      MicrotrailerPlayer.enableInTests = true;
+      MicrotrailerPlayer.testControllerFactory = (uri, headers) => fakeController;
+
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: Scaffold(
+            body: MicrotrailerPlayer(
+              gameId: 'game_async_config',
+              trailerWebUrl: 'https://example.com/trailer.mp4',
+              autoStreamTrailersInHero: false,
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(find.byKey(const Key('hero_watch_trailer_pill')), findsOneWidget);
+      expect(fakeController.initializeCalled, isFalse);
+
+      // Rebuild with autoStreamTrailersInHero: true (as happens when config loads from SQLite)
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: Scaffold(
+            body: MicrotrailerPlayer(
+              gameId: 'game_async_config',
+              trailerWebUrl: 'https://example.com/trailer.mp4',
+              autoStreamTrailersInHero: true,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(fakeController.initializeCalled, isTrue);
+      expect(fakeController.playCalled, isTrue);
+      expect(find.byKey(const Key('hero_watch_trailer_pill')), findsNothing);
+    });
+
+    testWidgets('7. Cached local trailer file is not auto-played when autoStream is false, shows pill and plays on tap', (tester) async {
+      final tempDir = Directory.systemTemp.createTempSync('trailer_local_test');
+      final trailerFile = File('${tempDir.path}/local_trailer.mp4');
+      trailerFile.writeAsBytesSync([0, 0, 0, 24, 0x66, 0x74, 0x79, 0x70]);
+
+      final fakeController = FakeVideoPlayerController();
+      MicrotrailerPlayer.enableInTests = true;
+      MicrotrailerPlayer.testControllerFactory = (uri, headers) => fakeController;
+
+      try {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: MicrotrailerPlayer(
+                gameId: 'local_game_test',
+                trailerDriveFileId: trailerFile.path,
+                autoStreamTrailersInHero: false,
+              ),
+            ),
+          ),
+        );
+        await tester.pump();
+
+        // Must show watch trailer pill, must NOT auto-play
+        expect(find.byKey(const Key('hero_watch_trailer_pill')), findsOneWidget);
+        expect(find.text('Watch Trailer'), findsOneWidget);
+        expect(fakeController.initializeCalled, isFalse);
+
+        // Tap Watch Trailer
+        await tester.tap(find.text('Watch Trailer'));
+        await tester.pump();
+        await tester.pumpAndSettle();
+
+        expect(fakeController.initializeCalled, isTrue);
+        expect(fakeController.playCalled, isTrue);
+        expect(find.byKey(const Key('hero_watch_trailer_pill')), findsNothing);
+      } finally {
+        tempDir.deleteSync(recursive: true);
+      }
+    });
+
+    testWidgets('8. MicrotrailerPlayer does not access or require open AppDatabase instance', (tester) async {
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: Scaffold(
+            body: MicrotrailerPlayer(
+              gameId: 'isolated_game',
+              autoStreamTrailersInHero: false,
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      final state = tester.state<MicrotrailerPlayerState>(find.byType(MicrotrailerPlayer));
+      expect(state.controller, isNull);
     });
   });
 }

@@ -128,7 +128,7 @@ playnite-mobile-companion/
 │       │
 │       ├── settings/                        # User gallery & player preferences
 │       │   ├── data/
-│       │   │   └── gallery_settings_repository.dart # SharedPreferences store for video scrub bar
+│       │   │   └── gallery_settings_repository.dart # SQLite manifest_meta store for video scrub bar (ADR 0001)
 │       │   └── presentation/
 │       │       └── gallery_settings_screen.dart # Gallery settings UI (showVideoScrubBar toggle)
 │       │
@@ -548,7 +548,7 @@ class _MicrotrailerPlayerState extends State<MicrotrailerPlayer> {
 
 ### 7.3 Gallery Settings & Scrub-Bar Customization
 The companion application provides fine-grained user control over video playback and gallery UI ergonomics via `GallerySettingsRepository`:
-- **`showVideoScrubBar` Setting:** Persisted in `SharedPreferences` (default: `true`). When toggled off in `GallerySettingsScreen`, the `MicrotrailerPlayer` suppresses the bottom progress scrub bar and timestamps, presenting an uncluttered cinematic presentation while preserving touch auto-fade and decoupled audio mute/unmute controls.
+- **`showVideoScrubBar` Setting:** Persisted in SQLite `manifest_meta` (ADR 0001, default: `true`). When toggled off in `GallerySettingsScreen`, the `MicrotrailerPlayer` suppresses the bottom progress scrub bar and timestamps, presenting an uncluttered cinematic presentation while preserving touch auto-fade and decoupled audio mute/unmute controls.
 - **Alphabetical Fast-Scroll Scrubber:** On the `LibraryScreen`, when sorting alphabetically by Title and viewing $\ge 10$ games, an interactive vertical alphabet rail (`_buildAlphabetScrubber`) appears along the right display edge. Users can drag or tap to instantly jump across the library with haptic feedback and a floating bubble HUD (`_scrubbingLetter`).
 
 ---

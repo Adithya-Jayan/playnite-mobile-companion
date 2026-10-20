@@ -116,17 +116,88 @@ void main() {
       await database.close();
     });
 
-    test('AppDatabase migrates legacy media_ categories in sync_entries table on file init', () async {
+    test('AppDatabase migrates legacy media_ categories in sync_entries table on upgrade from oldVersion < 3', () async {
       final tempDir = Directory.systemTemp.createTempSync('playnite_test_db_');
       final dbPath = '${tempDir.path}/test_companion.db';
 
       try {
-        final database = AppDatabase.instance;
-        await database.init(customPath: dbPath);
-        await database.reset();
+        // Create pre-existing v2 database with legacy rows
+        final v2Db = await openDatabase(
+          dbPath,
+          version: 2,
+          onCreate: (db, version) async {
+            await db.execute('''
+              CREATE TABLE games (
+                id TEXT PRIMARY KEY,
+                game_id TEXT NOT NULL,
+                plugin_id TEXT NOT NULL,
+                name TEXT NOT NULL,
+                sorting_name TEXT NOT NULL,
+                description TEXT,
+                notes TEXT,
+                playtime_seconds INTEGER NOT NULL DEFAULT 0,
+                play_count INTEGER NOT NULL DEFAULT 0,
+                added_utc TEXT,
+                modified_utc TEXT,
+                last_activity_utc TEXT,
+                recent_activity_utc TEXT,
+                release_date TEXT,
+                is_installed INTEGER NOT NULL DEFAULT 0,
+                install_directory TEXT,
+                install_size_bytes INTEGER,
+                hidden INTEGER NOT NULL DEFAULT 0,
+                is_duplicate INTEGER NOT NULL DEFAULT 0,
+                duplicate_group_id TEXT,
+                other_copies_json TEXT NOT NULL DEFAULT '[]',
+                favorite INTEGER NOT NULL DEFAULT 0,
+                user_score INTEGER,
+                critic_score INTEGER,
+                community_score INTEGER,
+                version TEXT,
+                source_id TEXT,
+                source_name TEXT,
+                completion_status_id TEXT,
+                completion_status_name TEXT,
+                cover_drive_file_id TEXT,
+                cover_sha256 TEXT,
+                background_drive_file_id TEXT,
+                background_sha256 TEXT,
+                icon_drive_file_id TEXT,
+                icon_sha256 TEXT,
+                logo_drive_file_id TEXT,
+                microtrailer_drive_file_id TEXT,
+                trailer_drive_file_id TEXT,
+                trailer_web_url TEXT,
+                platforms_json TEXT NOT NULL DEFAULT '[]',
+                genres_json TEXT NOT NULL DEFAULT '[]',
+                developers_json TEXT NOT NULL DEFAULT '[]',
+                publishers_json TEXT NOT NULL DEFAULT '[]',
+                categories_json TEXT NOT NULL DEFAULT '[]',
+                tags_json TEXT NOT NULL DEFAULT '[]',
+                features_json TEXT NOT NULL DEFAULT '[]',
+                series_json TEXT NOT NULL DEFAULT '[]',
+                age_ratings_json TEXT NOT NULL DEFAULT '[]',
+                links_json TEXT NOT NULL DEFAULT '[]',
+                addons_json TEXT NOT NULL DEFAULT '{}'
+              );
+            ''');
+            await db.execute('''
+              CREATE TABLE sync_entries (
+                relative_path TEXT PRIMARY KEY,
+                sha256 TEXT NOT NULL,
+                size_bytes INTEGER NOT NULL,
+                modified_utc TEXT NOT NULL,
+                drive_file_id TEXT NOT NULL,
+                mime_type TEXT NOT NULL,
+                category TEXT NOT NULL,
+                game_id TEXT,
+                last_synced_utc TEXT
+              );
+            ''');
+          },
+        );
 
-        // Insert legacy rows directly into sync_entries
-        await database.db.insert('sync_entries', {
+        await v2Db.insert('sync_entries', {
           'relative_path': 'media/covers/c1.jpg',
           'sha256': 'hash_c1',
           'size_bytes': 1000,
@@ -138,7 +209,7 @@ void main() {
           'last_synced_utc': '2026-10-18T12:00:00Z',
         });
 
-        await database.db.insert('sync_entries', {
+        await v2Db.insert('sync_entries', {
           'relative_path': 'media/backgrounds/bg1.jpg',
           'sha256': 'hash_bg1',
           'size_bytes': 2000,
@@ -150,8 +221,10 @@ void main() {
           'last_synced_utc': '2026-10-18T12:00:00Z',
         });
 
-        // Close connection and re-open to trigger automatic _migrateLegacyCategories in init()
-        await database.close();
+        await v2Db.close();
+
+        // Now initialize AppDatabase (version 3), triggering onUpgrade for oldVersion < 3
+        final database = AppDatabase.instance;
         await database.init(customPath: dbPath);
 
         final rows = await database.db.query('sync_entries', orderBy: 'relative_path ASC');
@@ -161,8 +234,11 @@ void main() {
 
         await database.close();
       } finally {
+        await AppDatabase.instance.close();
         if (tempDir.existsSync()) {
-          tempDir.deleteSync(recursive: true);
+          try {
+            tempDir.deleteSync(recursive: true);
+          } catch (_) {}
         }
       }
     });

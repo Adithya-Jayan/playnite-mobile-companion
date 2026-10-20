@@ -3,12 +3,10 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:playnite_mobile_companion/core/config/app_theme.dart';
-import 'package:playnite_mobile_companion/core/database/app_database.dart';
 import 'package:playnite_mobile_companion/core/services/playnite_image_loader.dart';
 import 'package:playnite_mobile_companion/core/ui/playnite_cached_image.dart';
 import 'package:playnite_mobile_companion/core/utils/media_url_resolver.dart';
 import 'package:playnite_mobile_companion/features/settings/data/gallery_settings_repository.dart';
-import 'package:playnite_mobile_companion/features/sync/data/sync_config_repository.dart';
 import 'package:video_player/video_player.dart';
 
 /// Microtrailer preview player that auto-plays a muted, looping video header.
@@ -25,7 +23,7 @@ class MicrotrailerPlayer extends StatefulWidget {
   final String? logoDriveFileId;
   final double height;
   final GallerySettings? gallerySettings;
-  final bool? autoStreamTrailersInHero;
+  final bool autoStreamTrailersInHero;
   final VoidCallback? onTrailerStreamInitiated;
 
   @visibleForTesting
@@ -45,7 +43,7 @@ class MicrotrailerPlayer extends StatefulWidget {
     this.logoDriveFileId,
     this.height = 220,
     this.gallerySettings,
-    this.autoStreamTrailersInHero,
+    this.autoStreamTrailersInHero = false,
     this.onTrailerStreamInitiated,
   });
 
@@ -64,10 +62,6 @@ class MicrotrailerPlayerState extends State<MicrotrailerPlayer> {
   bool _isTrailerStreamInitiated = false;
   bool _isBufferingTrailer = false;
   Timer? _overlayTimer;
-  GallerySettings? _localSettings;
-  bool? _localAutoStreamTrailersInHero;
-
-
 
   bool get isStreamInitiated => _isTrailerStreamInitiated;
   bool get isVideoInitialized => _isInitialized;
@@ -82,73 +76,70 @@ class MicrotrailerPlayerState extends State<MicrotrailerPlayer> {
     }
   }
 
-  GallerySettings? get _effectiveSettings => widget.gallerySettings ?? _localSettings;
+  GallerySettings? get _effectiveSettings => widget.gallerySettings;
 
   bool get _autoPlay => _effectiveSettings?.autoPlayMicrotrailers ?? true;
   bool get _defaultMuted => _effectiveSettings?.microtrailerMuted ?? true;
   bool get _showScrubBar => _effectiveSettings?.showVideoScrubBar ?? true;
 
+  File? _getCachedMicrotrailerFile() {
+    final loader = PlayniteImageLoader.instance;
+    if (widget.microtrailerDriveFileId != null && widget.microtrailerDriveFileId!.isNotEmpty) {
+      final f = loader.getCachedFileSync(widget.microtrailerDriveFileId!);
+      if (f != null && f.existsSync() && f.lengthSync() > 0) return f;
+    }
+    if (widget.gameId != null && widget.gameId!.isNotEmpty) {
+      final f = loader.getCachedFileSync('media/microtrailers/${widget.gameId}.mp4');
+      if (f != null && f.existsSync() && f.lengthSync() > 0) return f;
+    }
+    return null;
+  }
+
+  File? _getCachedFullTrailerFile() {
+    final loader = PlayniteImageLoader.instance;
+    if (widget.trailerDriveFileId != null && widget.trailerDriveFileId!.isNotEmpty) {
+      final f = loader.getCachedFileSync(widget.trailerDriveFileId!);
+      if (f != null && f.existsSync() && f.lengthSync() > 0) return f;
+    }
+    if (widget.gameId != null && widget.gameId!.isNotEmpty) {
+      final f = loader.getCachedFileSync('media/trailers/${widget.gameId}.mp4');
+      if (f != null && f.existsSync() && f.lengthSync() > 0) return f;
+    }
+    return null;
+  }
+
   bool get _hasMicrotrailer =>
       (widget.microtrailerDriveFileId != null && widget.microtrailerDriveFileId!.isNotEmpty) ||
-      (widget.microtrailerWebUrl != null && widget.microtrailerWebUrl!.isNotEmpty);
+      (widget.microtrailerWebUrl != null && widget.microtrailerWebUrl!.isNotEmpty) ||
+      _getCachedMicrotrailerFile() != null;
 
   bool get _hasFullTrailer =>
       (widget.trailerDriveFileId != null && widget.trailerDriveFileId!.isNotEmpty) ||
-      (widget.trailerWebUrl != null && widget.trailerWebUrl!.isNotEmpty);
+      (widget.trailerWebUrl != null && widget.trailerWebUrl!.isNotEmpty) ||
+      _getCachedFullTrailerFile() != null;
 
-  bool get _effectiveAutoStreamTrailers =>
-      widget.autoStreamTrailersInHero ?? _localAutoStreamTrailersInHero ?? false;
+  bool get _effectiveAutoStreamTrailers => widget.autoStreamTrailersInHero;
 
   bool get _showWatchTrailerPill =>
       !_hasMicrotrailer &&
       _hasFullTrailer &&
       !_effectiveAutoStreamTrailers &&
-      !_isTrailerStreamInitiated &&
       !_isInitialized;
 
   @override
   void initState() {
     super.initState();
     _isMuted = _defaultMuted;
-    if (widget.gallerySettings == null || widget.autoStreamTrailersInHero == null) {
-      _loadFallbackSettings();
-    }
     _checkAndInitVideo();
   }
 
   void _checkAndInitVideo() {
+    if (_isDisposed || _controller != null) return;
     // If only heavy trailer exists and autoStream is disabled, don't auto-init
     if (!_hasMicrotrailer && _hasFullTrailer && !_effectiveAutoStreamTrailers) {
       return;
     }
     _initVideo();
-  }
-
-  Future<void> _loadFallbackSettings() async {
-    try {
-      if (AppDatabase.instance.isOpen) {
-        final repo = GallerySettingsRepository(AppDatabase.instance);
-        final settings = await repo.loadSettings();
-        if (!AppDatabase.instance.isOpen || _isDisposed || !mounted) return;
-        final syncRepo = SyncConfigRepository(AppDatabase.instance);
-        final syncConfig = await syncRepo.loadConfig();
-        if (mounted && !_isDisposed) {
-          final wasAutoStreamDisabled = !_effectiveAutoStreamTrailers;
-          setState(() {
-            _localSettings = settings;
-            _localAutoStreamTrailersInHero = syncConfig.autoStreamTrailersInHero;
-          });
-          if (wasAutoStreamDisabled &&
-              _effectiveAutoStreamTrailers &&
-              _controller == null &&
-              !_isTrailerStreamInitiated) {
-            _initVideo();
-          }
-        }
-      }
-    } catch (e) {
-      debugPrint('MicrotrailerPlayer: error loading fallback settings: $e');
-    }
   }
 
   @override
@@ -158,10 +149,14 @@ class MicrotrailerPlayerState extends State<MicrotrailerPlayer> {
         oldWidget.autoStreamTrailersInHero != widget.autoStreamTrailersInHero) {
       setState(() {});
     }
+    if (oldWidget.autoStreamTrailersInHero != widget.autoStreamTrailersInHero) {
+      _checkAndInitVideo();
+    }
     if (oldWidget.microtrailerDriveFileId != widget.microtrailerDriveFileId ||
         oldWidget.microtrailerWebUrl != widget.microtrailerWebUrl ||
         oldWidget.trailerWebUrl != widget.trailerWebUrl ||
-        oldWidget.trailerDriveFileId != widget.trailerDriveFileId) {
+        oldWidget.trailerDriveFileId != widget.trailerDriveFileId ||
+        oldWidget.gameId != widget.gameId) {
       _controller?.dispose();
       _controller = null;
       _isInitialized = false;
@@ -172,6 +167,7 @@ class MicrotrailerPlayerState extends State<MicrotrailerPlayer> {
   }
 
   static Future<bool> _detectMp4HasAudio(File file) async {
+    if (_isTesting) return true;
     try {
       final length = await file.length();
       final sampleSize = length > 262144 ? 262144 : length; // read first 256KB
@@ -212,76 +208,82 @@ class MicrotrailerPlayerState extends State<MicrotrailerPlayer> {
       return;
     }
 
-    // 1. Fast-Path: Check local disk cache (instant, 100% offline)
     File? localFile;
-    final loader = PlayniteImageLoader.instance;
-    final candidates = <String>[];
-    if (widget.microtrailerDriveFileId != null && widget.microtrailerDriveFileId!.isNotEmpty) {
-      candidates.add(widget.microtrailerDriveFileId!);
-    }
-    if (widget.gameId != null && widget.gameId!.isNotEmpty) {
-      candidates.add('media/microtrailers/${widget.gameId}.mp4');
-    }
-    if (widget.trailerDriveFileId != null && widget.trailerDriveFileId!.isNotEmpty) {
-      candidates.add(widget.trailerDriveFileId!);
-    }
-    if (widget.gameId != null && widget.gameId!.isNotEmpty) {
-      candidates.add('media/trailers/${widget.gameId}.mp4');
+    String? streamUrl;
+    Map<String, String>? streamHeaders;
+    bool hasAudio = false;
+
+    // 1. Resolve Microtrailer if available
+    final cachedMicro = _getCachedMicrotrailerFile();
+    if (cachedMicro != null) {
+      localFile = cachedMicro;
+      hasAudio = false;
+    } else if (widget.microtrailerWebUrl != null && widget.microtrailerWebUrl!.isNotEmpty) {
+      streamUrl = widget.microtrailerWebUrl;
+      hasAudio = false;
+    } else if (widget.microtrailerDriveFileId != null && widget.microtrailerDriveFileId!.isNotEmpty) {
+      streamUrl = MediaUrlResolver.getDriveMediaStreamUrl(widget.microtrailerDriveFileId!);
+      streamHeaders = {
+        'User-Agent':
+            'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
+        ...MediaUrlResolver.getAuthHeaders(),
+      };
+      hasAudio = false;
     }
 
-    for (final c in candidates) {
-      final f = loader.getCachedFileSync(c);
-      if (f != null && f.existsSync() && f.lengthSync() > 0) {
-        localFile = f;
-        break;
+    // 2. Fall back to Full Trailer only if allowed (auto-stream enabled or user initiated)
+    if (localFile == null && streamUrl == null && _hasFullTrailer) {
+      if (_effectiveAutoStreamTrailers || _isTrailerStreamInitiated) {
+        final cachedTrailer = _getCachedFullTrailerFile();
+        if (cachedTrailer != null) {
+          localFile = cachedTrailer;
+          hasAudio = true;
+        } else if (widget.trailerWebUrl != null && widget.trailerWebUrl!.isNotEmpty) {
+          streamUrl = widget.trailerWebUrl;
+          hasAudio = true;
+        } else if (widget.trailerDriveFileId != null && widget.trailerDriveFileId!.isNotEmpty) {
+          streamUrl = MediaUrlResolver.getDriveMediaStreamUrl(widget.trailerDriveFileId!);
+          streamHeaders = {
+            'User-Agent':
+                'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
+            ...MediaUrlResolver.getAuthHeaders(),
+          };
+          hasAudio = true;
+        }
       }
+    }
+
+    if (localFile == null && streamUrl == null) {
+      if (mounted && !_isDisposed) {
+        setState(() {
+          _isBufferingTrailer = false;
+        });
+      }
+      return;
     }
 
     try {
       VideoPlayerController controller;
-      bool hasAudio = false;
 
       if (localFile != null) {
-        controller = VideoPlayerController.file(localFile);
+        if (MicrotrailerPlayer.testControllerFactory != null) {
+          controller = MicrotrailerPlayer.testControllerFactory!(Uri.file(localFile.path), null);
+        } else {
+          controller = VideoPlayerController.file(localFile);
+        }
         hasAudio = await _detectMp4HasAudio(localFile);
       } else {
-        // 2. Stream fallback: Prioritize lightweight microtrailer, then heavy full trailer
-        String? streamUrl;
-        final headers = <String, String>{
-          'User-Agent':
-              'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
-        };
-
-        if (widget.microtrailerWebUrl != null && widget.microtrailerWebUrl!.isNotEmpty) {
-          streamUrl = widget.microtrailerWebUrl;
-          hasAudio = false;
-        } else if (widget.microtrailerDriveFileId != null && widget.microtrailerDriveFileId!.isNotEmpty) {
-          streamUrl = MediaUrlResolver.getDriveMediaStreamUrl(widget.microtrailerDriveFileId!);
-          headers.addAll(MediaUrlResolver.getAuthHeaders());
-          hasAudio = false; // Microtrailers are looping silent previews
-        } else if (widget.trailerWebUrl != null && widget.trailerWebUrl!.isNotEmpty) {
-          streamUrl = widget.trailerWebUrl;
-          hasAudio = true; // Web full cinematic trailers typically contain audio
-        } else if (widget.trailerDriveFileId != null && widget.trailerDriveFileId!.isNotEmpty) {
-          streamUrl = MediaUrlResolver.getDriveMediaStreamUrl(widget.trailerDriveFileId!);
-          headers.addAll(MediaUrlResolver.getAuthHeaders());
-          hasAudio = true;
-        }
-
-        if (streamUrl == null || streamUrl.isEmpty) {
-          if (mounted && !_isDisposed) {
-            setState(() {
-              _isBufferingTrailer = false;
-            });
-          }
-          return;
-        }
+        final headers = streamHeaders ??
+            <String, String>{
+              'User-Agent':
+                  'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
+            };
 
         if (MicrotrailerPlayer.testControllerFactory != null) {
-          controller = MicrotrailerPlayer.testControllerFactory!(Uri.parse(streamUrl), headers);
+          controller = MicrotrailerPlayer.testControllerFactory!(Uri.parse(streamUrl!), headers);
         } else {
           controller = VideoPlayerController.networkUrl(
-            Uri.parse(streamUrl),
+            Uri.parse(streamUrl!),
             httpHeaders: headers,
           );
         }
@@ -316,6 +318,7 @@ class MicrotrailerPlayerState extends State<MicrotrailerPlayer> {
           _hasError = true;
           _isInitialized = false;
           _isBufferingTrailer = false;
+          _isTrailerStreamInitiated = false;
         });
       }
     }
@@ -558,7 +561,7 @@ class MicrotrailerPlayerState extends State<MicrotrailerPlayer> {
       color: Colors.transparent,
       child: InkWell(
         key: const Key('hero_watch_trailer_pill'),
-        onTap: _startTrailerStream,
+        onTap: _isBufferingTrailer ? null : _startTrailerStream,
         borderRadius: BorderRadius.circular(20),
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
