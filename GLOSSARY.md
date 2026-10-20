@@ -18,10 +18,14 @@ _Avoid_: Partial sync, differential update
 A storage layout where media assets (covers, backgrounds, icons) are named and indexed by their SHA-256 hash to guarantee deduplication across the library.
 _Avoid_: Hash storage, dedup store
 
+**Offline Storage Tier**:
+The user-configurable media pre-download policy on mobile (Tier 1: Metadata, Covers & Logos; Tier 2: Backgrounds & Microtrailers; Tier 3: Full Trailers on-demand).
+_Avoid_: Sync level, download profile
+
 ### Media
 
 **Microtrailer**:
-A lightweight, looping, muted short video preview (typically ~2MB SD MP4) displayed automatically in the hero header.
+A lightweight, looping, muted short video preview (standardized to 6.0s ~2MB SD MP4) displayed automatically in the hero header.
 _Avoid_: Teaser, preview clip, short video
 
 **Full Trailer**:
@@ -45,3 +49,7 @@ _Avoid_: Plugin card, addon widget
 **Duplicate Group**:
 A collection of identical game titles owned across multiple platforms or storefronts linked together by DuplicateHider.
 _Avoid_: Clones, copies, game group
+
+**Fail-Soft Addon Invariant**:
+The architectural guarantee that missing, disabled, or corrupt third-party addon payloads produce zero crashes and cleanly omit UI cards.
+_Avoid_: Soft failure, error masking
