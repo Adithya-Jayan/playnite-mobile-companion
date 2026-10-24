@@ -6,6 +6,7 @@ import 'package:playnite_mobile_companion/core/database/app_database.dart';
 import 'package:playnite_mobile_companion/features/game_detail/presentation/game_detail_screen.dart';
 import 'package:playnite_mobile_companion/features/game_detail/presentation/widgets/microtrailer_player.dart';
 import 'package:playnite_mobile_companion/features/sync/data/sync_config_repository.dart';
+// sync_config imported via sync_models
 import 'package:playnite_mobile_companion/features/sync/domain/sync_models.dart';
 import 'package:playnite_mobile_companion/features/sync/presentation/sync_settings_screen.dart';
 import 'package:video_player/video_player.dart';
@@ -443,7 +444,7 @@ void main() {
       MicrotrailerPlayer.enableInTests = true;
       MicrotrailerPlayer.testControllerFactory = (uri, headers) => fakeController;
 
-      const game = UnifiedGamePayload(
+      final game = const UnifiedGamePayload(
         id: 'game_with_steam_trailer',
         gameId: 'steam_485510',
         pluginId: 'steam_plugin',
@@ -456,7 +457,7 @@ void main() {
       );
 
       await tester.pumpWidget(
-        const MaterialApp(
+        MaterialApp(
           home: GameDetailScreen(game: game),
         ),
       );
@@ -490,7 +491,7 @@ void main() {
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
 
-      const game = UnifiedGamePayload(
+      final game = const UnifiedGamePayload(
         id: 'game_without_trailer',
         gameId: 'simple_game',
         pluginId: 'generic_plugin',
@@ -501,7 +502,7 @@ void main() {
       );
 
       await tester.pumpWidget(
-        const MaterialApp(
+        MaterialApp(
           home: GameDetailScreen(game: game),
         ),
       );

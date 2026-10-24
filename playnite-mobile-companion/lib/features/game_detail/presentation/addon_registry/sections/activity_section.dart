@@ -20,7 +20,7 @@ class ActivitySection implements IAddonSectionWidget {
   int get displayOrder => 80;
 
   @override
-  String get title => 'Play Sessions';
+  String get title => 'Tracked Sessions';
 
   @override
   Widget buildSection(BuildContext context, Map<String, dynamic> addonData, UnifiedGamePayload game) {
@@ -110,14 +110,25 @@ class _ActivitySectionWidgetState extends State<_ActivitySectionWidget> {
               children: [
                 const Icon(Icons.history_toggle_off, color: AppTheme.accentGreen, size: 22),
                 const SizedBox(width: 8),
-                Text(
-                  'Play Sessions (${sessions.length})',
-                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppTheme.textPrimary),
+                Expanded(
+                  child: Text(
+                    'Tracked Sessions (${sessions.length})',
+                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppTheme.textPrimary),
+                  ),
                 ),
-                const Spacer(),
-                Text(
-                  DurationFormatter.formatSecondsToHoursMinutes(totalSessionSeconds),
-                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppTheme.accentGreen),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'Logged: ${DurationFormatter.formatSecondsToHoursMinutes(totalSessionSeconds)}',
+                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppTheme.accentGreen),
+                    ),
+                    const Text(
+                      'Session Total',
+                      style: TextStyle(fontSize: 10, color: AppTheme.textMuted),
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -250,7 +261,7 @@ class _ActivitySectionWidgetState extends State<_ActivitySectionWidget> {
           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
           children: data.map((d) {
             final ratio = (d.seconds / maxSeconds).clamp(0.05, 1.0);
-            final barHeight = ratio * (constraints.maxHeight - 24);
+            final barHeight = max(2.0, ratio * (constraints.maxHeight - 32));
             final hours = (d.seconds / 3600).toStringAsFixed(1);
             final dayLabel = d.day.length >= 5 ? d.day.substring(5) : d.day;
 
