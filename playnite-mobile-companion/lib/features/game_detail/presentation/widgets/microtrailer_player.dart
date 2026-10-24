@@ -108,24 +108,64 @@ class MicrotrailerPlayerState extends State<MicrotrailerPlayer> {
     return null;
   }
 
-  bool get _hasMicrotrailer =>
-      (widget.microtrailerDriveFileId != null && widget.microtrailerDriveFileId!.isNotEmpty) ||
-      (widget.microtrailerWebUrl != null && widget.microtrailerWebUrl!.isNotEmpty) ||
-      _getCachedMicrotrailerFile() != null;
+  bool _isSourceEnabled(VideoSourceType type) {
+    final s = _effectiveSettings ?? const GallerySettings();
+    switch (type) {
+      case VideoSourceType.miniTrailer:
+        return s.enableMiniTrailers;
+      case VideoSourceType.hqVideo:
+        return s.enableHqVideos;
+      case VideoSourceType.onlineStream:
+        return s.enableOnlineStream;
+    }
+  }
 
-  bool get _hasFullTrailer =>
-      (widget.trailerDriveFileId != null && widget.trailerDriveFileId!.isNotEmpty) ||
-      (widget.trailerWebUrl != null && widget.trailerWebUrl!.isNotEmpty) ||
-      _getCachedFullTrailerFile() != null;
+  bool _isSourceAvailable(VideoSourceType type) {
+    switch (type) {
+      case VideoSourceType.miniTrailer:
+        return _getCachedMicrotrailerFile() != null ||
+            (widget.microtrailerWebUrl != null && widget.microtrailerWebUrl!.isNotEmpty) ||
+            (widget.microtrailerDriveFileId != null && widget.microtrailerDriveFileId!.isNotEmpty);
+      case VideoSourceType.hqVideo:
+        return _getCachedFullTrailerFile() != null ||
+            (widget.trailerDriveFileId != null && widget.trailerDriveFileId!.isNotEmpty);
+      case VideoSourceType.onlineStream:
+        return widget.trailerWebUrl != null && widget.trailerWebUrl!.isNotEmpty;
+    }
+  }
+
+  bool _isSourceActive(VideoSourceType type) => _isSourceEnabled(type) && _isSourceAvailable(type);
+
+  VideoSourceType? _resolveActiveHeroSource() {
+    final s = _effectiveSettings ?? const GallerySettings();
+    for (final source in s.videoPlaybackPriority) {
+      if (_isSourceActive(source)) {
+        return source;
+      }
+    }
+    return null;
+  }
+
+  VideoSourceType? _resolveActiveFullTrailerSource() {
+    final s = _effectiveSettings ?? const GallerySettings();
+    for (final source in s.videoPlaybackPriority) {
+      if ((source == VideoSourceType.hqVideo || source == VideoSourceType.onlineStream) &&
+          _isSourceActive(source)) {
+        return source;
+      }
+    }
+    return null;
+  }
 
   bool get _effectiveAutoStreamTrailers =>
       widget.autoStreamTrailersInHero || (widget.gallerySettings?.autoStreamTrailersInHero ?? false);
 
-  bool get _showWatchTrailerPill =>
-      !_hasMicrotrailer &&
-      _hasFullTrailer &&
-      !_effectiveAutoStreamTrailers &&
-      !_isTrailerStreamInitiated;
+  bool get _showWatchTrailerPill {
+    if (_isTrailerStreamInitiated) return false;
+    if (_effectiveAutoStreamTrailers) return false;
+    final activeHero = _resolveActiveHeroSource();
+    return activeHero == VideoSourceType.hqVideo || activeHero == VideoSourceType.onlineStream;
+  }
 
   @override
   void initState() {
@@ -136,8 +176,11 @@ class MicrotrailerPlayerState extends State<MicrotrailerPlayer> {
 
   void _checkAndInitVideo() {
     if (_isDisposed || _controller != null) return;
-    // If only heavy trailer exists and autoStream is disabled, don't auto-init
-    if (!_hasMicrotrailer && _hasFullTrailer && !_effectiveAutoStreamTrailers && !_isTrailerStreamInitiated) {
+    final activeHero = _resolveActiveHeroSource();
+    if (activeHero == null) return;
+    if ((activeHero == VideoSourceType.hqVideo || activeHero == VideoSourceType.onlineStream) &&
+        !_effectiveAutoStreamTrailers &&
+        !_isTrailerStreamInitiated) {
       return;
     }
     _initVideo();
@@ -146,25 +189,23 @@ class MicrotrailerPlayerState extends State<MicrotrailerPlayer> {
   @override
   void didUpdateWidget(covariant MicrotrailerPlayer oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.gallerySettings != widget.gallerySettings ||
-        oldWidget.autoStreamTrailersInHero != widget.autoStreamTrailersInHero) {
-      setState(() {});
-    }
-    if (oldWidget.autoStreamTrailersInHero != widget.autoStreamTrailersInHero ||
-        oldWidget.gallerySettings?.autoStreamTrailersInHero != widget.gallerySettings?.autoStreamTrailersInHero) {
-      _checkAndInitVideo();
-    }
-    if (oldWidget.microtrailerDriveFileId != widget.microtrailerDriveFileId ||
+    final settingsChanged = oldWidget.gallerySettings != widget.gallerySettings;
+    final streamChanged = oldWidget.autoStreamTrailersInHero != widget.autoStreamTrailersInHero;
+    final mediaChanged = oldWidget.microtrailerDriveFileId != widget.microtrailerDriveFileId ||
         oldWidget.microtrailerWebUrl != widget.microtrailerWebUrl ||
         oldWidget.trailerWebUrl != widget.trailerWebUrl ||
         oldWidget.trailerDriveFileId != widget.trailerDriveFileId ||
-        oldWidget.gameId != widget.gameId) {
+        oldWidget.gameId != widget.gameId;
+
+    if (settingsChanged || streamChanged || mediaChanged) {
+      _controller?.removeListener(_onVideoControllerTick);
       _controller?.dispose();
       _controller = null;
       _isInitialized = false;
       _hasError = false;
       _isTrailerStreamInitiated = false;
       _checkAndInitVideo();
+      setState(() {});
     }
   }
 
@@ -219,61 +260,47 @@ class MicrotrailerPlayerState extends State<MicrotrailerPlayer> {
       return;
     }
 
+    final targetSource = _isTrailerStreamInitiated
+        ? _resolveActiveFullTrailerSource()
+        : _resolveActiveHeroSource();
+
+    if (targetSource == null) {
+      if (mounted && !_isDisposed) {
+        setState(() {
+          _isBufferingTrailer = false;
+        });
+      }
+      return;
+    }
+
     File? localFile;
     String? streamUrl;
     Map<String, String>? streamHeaders;
     bool hasAudio = false;
 
-    // 1. If full trailer stream was initiated or (no microtrailer and auto-stream is enabled), resolve full trailer
-    if (_isTrailerStreamInitiated || (!_hasMicrotrailer && _effectiveAutoStreamTrailers)) {
-      final cachedTrailer = _getCachedFullTrailerFile();
-      if (cachedTrailer != null) {
-        localFile = cachedTrailer;
-        hasAudio = true;
-      } else if (widget.trailerWebUrl != null && widget.trailerWebUrl!.isNotEmpty) {
-        streamUrl = widget.trailerWebUrl;
-        hasAudio = true;
-      } else if (widget.trailerDriveFileId != null && widget.trailerDriveFileId!.isNotEmpty) {
-        streamUrl = MediaUrlResolver.getDriveMediaStreamUrl(widget.trailerDriveFileId!);
-        streamHeaders = {
-          'User-Agent':
-              'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
-          ...MediaUrlResolver.getAuthHeaders(),
-        };
-        hasAudio = true;
-      }
-    }
+    switch (targetSource) {
+      case VideoSourceType.miniTrailer:
+        final cached = _getCachedMicrotrailerFile();
+        if (cached != null) {
+          localFile = cached;
+        } else if (widget.microtrailerWebUrl != null && widget.microtrailerWebUrl!.isNotEmpty) {
+          streamUrl = widget.microtrailerWebUrl;
+        } else if (widget.microtrailerDriveFileId != null && widget.microtrailerDriveFileId!.isNotEmpty) {
+          streamUrl = MediaUrlResolver.getDriveMediaStreamUrl(widget.microtrailerDriveFileId!);
+          streamHeaders = {
+            'User-Agent':
+                'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
+            ...MediaUrlResolver.getAuthHeaders(),
+          };
+        }
+        hasAudio = false;
+        _isMuted = _defaultMuted;
+        break;
 
-    // 2. Otherwise resolve microtrailer if available
-    if (localFile == null && streamUrl == null) {
-      final cachedMicro = _getCachedMicrotrailerFile();
-      if (cachedMicro != null) {
-        localFile = cachedMicro;
-        hasAudio = false;
-      } else if (widget.microtrailerWebUrl != null && widget.microtrailerWebUrl!.isNotEmpty) {
-        streamUrl = widget.microtrailerWebUrl;
-        hasAudio = false;
-      } else if (widget.microtrailerDriveFileId != null && widget.microtrailerDriveFileId!.isNotEmpty) {
-        streamUrl = MediaUrlResolver.getDriveMediaStreamUrl(widget.microtrailerDriveFileId!);
-        streamHeaders = {
-          'User-Agent':
-              'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
-          ...MediaUrlResolver.getAuthHeaders(),
-        };
-        hasAudio = false;
-      }
-    }
-
-    // 2. Fall back to Full Trailer only if allowed (auto-stream enabled or user initiated)
-    if (localFile == null && streamUrl == null && _hasFullTrailer) {
-      if (_effectiveAutoStreamTrailers || _isTrailerStreamInitiated) {
-        final cachedTrailer = _getCachedFullTrailerFile();
-        if (cachedTrailer != null) {
-          localFile = cachedTrailer;
-          hasAudio = true;
-        } else if (widget.trailerWebUrl != null && widget.trailerWebUrl!.isNotEmpty) {
-          streamUrl = widget.trailerWebUrl;
-          hasAudio = true;
+      case VideoSourceType.hqVideo:
+        final cached = _getCachedFullTrailerFile();
+        if (cached != null) {
+          localFile = cached;
         } else if (widget.trailerDriveFileId != null && widget.trailerDriveFileId!.isNotEmpty) {
           streamUrl = MediaUrlResolver.getDriveMediaStreamUrl(widget.trailerDriveFileId!);
           streamHeaders = {
@@ -281,9 +308,16 @@ class MicrotrailerPlayerState extends State<MicrotrailerPlayer> {
                 'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
             ...MediaUrlResolver.getAuthHeaders(),
           };
-          hasAudio = true;
         }
-      }
+        hasAudio = true;
+        _isMuted = _isTrailerStreamInitiated ? false : _defaultMuted;
+        break;
+
+      case VideoSourceType.onlineStream:
+        streamUrl = widget.trailerWebUrl;
+        hasAudio = true;
+        _isMuted = _isTrailerStreamInitiated ? false : _defaultMuted;
+        break;
     }
 
     if (localFile == null && streamUrl == null) {
