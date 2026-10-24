@@ -11,6 +11,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="System.Data.SQLite.Core" Version="1.0.118.0" />
     <Reference Include="Playnite.SDK">
       <HintPath>C:\Users\adith\AppData\Local\Playnite\Playnite.SDK.dll</HintPath>
       <Private>False</Private>
