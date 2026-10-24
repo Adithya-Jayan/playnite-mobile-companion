@@ -135,6 +135,8 @@ namespace PlayniteExporterPlugin.Addons.Extractors
                 }
             }
 
+            if (totalCount == 0) return null;
+
             int lockedCount = Math.Max(0, totalCount - unlockedCount);
             double unlockedPercentage = totalCount > 0
                 ? Math.Round(((double)unlockedCount / totalCount) * 100.0, 2)
