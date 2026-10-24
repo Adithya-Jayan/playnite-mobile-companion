@@ -26,7 +26,9 @@ class AddonSectionRegistry {
     if (_initialized) return;
     _initialized = true;
 
-    register(const AchievementsSection());
+    for (final key in AchievementsSection.supportedKeys) {
+      register(AchievementsSection(addonKey: key));
+    }
     register(const HltbSection());
     register(const ActivitySection());
     register(const DlcSection());
@@ -53,7 +55,11 @@ class AddonSectionRegistry {
     final sortedSections = _registry.values.toList()
       ..sort((a, b) => a.displayOrder.compareTo(b.displayOrder));
 
+    bool achievementsRendered = false;
     for (final section in sortedSections) {
+      if (section is AchievementsSection && achievementsRendered) {
+        continue;
+      }
       if (game.addons.containsKey(section.addonKey)) {
         final data = game.addons[section.addonKey];
         if (data is Map<String, dynamic> && data.isNotEmpty) {
@@ -61,6 +67,9 @@ class AddonSectionRegistry {
             final widget = section.buildSection(context, data, game);
             if (widget is! SizedBox) {
               widgets.add(widget);
+              if (section is AchievementsSection) {
+                achievementsRendered = true;
+              }
             }
           } catch (e, stack) {
             // Graceful degradation: never crash screen on addon rendering failure

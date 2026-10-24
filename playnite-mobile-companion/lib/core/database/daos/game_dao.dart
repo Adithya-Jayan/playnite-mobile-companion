@@ -6,6 +6,7 @@ import 'package:playnite_mobile_companion/features/library/domain/sort_options.d
 import 'package:playnite_mobile_companion/features/settings/data/gallery_settings_repository.dart';
 import 'package:playnite_mobile_companion/features/sync/domain/sync_models.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'package:playnite_mobile_companion/core/database/daos/addon_db_handlers/addon_db_registry.dart';
 
 class GameDao {
   final AppDatabase database;
@@ -45,44 +46,9 @@ class GameDao {
         });
       }
 
-      // 3. Unpack SuccessStory (achievements)
-      final successStory = payload.addons['success_story'] as Map<String, dynamic>?;
-      final rawAchievements = successStory?['items'] ?? successStory?['achievements'];
-      if (rawAchievements is List) {
-        batch.delete('achievements', where: 'game_id = ?', whereArgs: [payload.id]);
-        for (final item in rawAchievements) {
-          if (item is Map<String, dynamic>) {
-            batch.insert('achievements', {
-              'game_id': payload.id,
-              'api_name': item['api_name'] as String? ?? '',
-              'name': item['name'] as String? ?? '',
-              'description': item['description'] as String?,
-              'url_unlocked': item['url_unlocked'] as String?,
-              'url_locked': item['url_locked'] as String?,
-              'date_unlocked_utc': item['date_unlocked_utc'] as String?,
-              'percent': (item['percent'] as num?)?.toDouble(),
-              'gamer_score': (item['gamerscore'] as num?)?.toDouble() ?? (item['gamer_score'] as num?)?.toDouble(),
-              'is_hidden': (item['is_hidden'] as bool? ?? false) ? 1 : 0,
-            });
-          }
-        }
-      }
-
-      // 4. Unpack GameActivity (play_sessions)
-      final gameActivity = payload.addons['game_activity'] as Map<String, dynamic>?;
-      if (gameActivity != null && gameActivity['sessions'] is List) {
-        batch.delete('play_sessions', where: 'game_id = ?', whereArgs: [payload.id]);
-        final sessions = gameActivity['sessions'] as List;
-        for (final item in sessions) {
-          if (item is Map<String, dynamic>) {
-            batch.insert('play_sessions', {
-              'game_id': payload.id,
-              'date_session_utc': item['date_session_utc'] as String? ?? '',
-              'elapsed_seconds': (item['elapsed_seconds'] as num?)?.toInt() ?? 0,
-              'action_name': item['action_name'] as String?,
-            });
-          }
-        }
+      // 3. Delegate addon unpacking to registered handlers (achievements, sessions, etc.)
+      for (final handler in AddonDbRegistry.handlers) {
+        await handler.unpack(payload, batch, database);
       }
 
       // 5. Unpack HowLongToBeat (hltb_data)
