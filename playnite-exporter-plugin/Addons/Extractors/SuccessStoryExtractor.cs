@@ -176,6 +176,29 @@ namespace PlayniteExporterPlugin.Addons.Extractors
             };
         }
 
+        public string? GetStateHash(Game game, string playniteUserDataDir)
+        {
+            try
+            {
+                if (game == null) return null;
+                var filePath = Path.Combine(
+                    playniteUserDataDir,
+                    "ExtensionsData",
+                    PluginId.ToString(),
+                    "SuccessStory",
+                    $"{game.Id}.json"
+                );
+                if (!File.Exists(filePath)) return null;
+
+                var fi = new FileInfo(filePath);
+                return $"{fi.LastWriteTimeUtc.Ticks}_{fi.Length}";
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
         private static string ComputeMd5(string input)
         {
             using (var md5 = MD5.Create())

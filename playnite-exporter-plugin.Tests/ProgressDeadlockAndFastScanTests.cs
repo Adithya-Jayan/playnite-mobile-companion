@@ -125,7 +125,7 @@ namespace PlayniteExporterPlugin.Tests
                     SizeBytes = 256,
                     ModifiedUtc = DateTime.UtcNow,
                     Category = "game_metadata",
-                    GameId = id
+                    GameId = id, StateHash = hashEngine.ComputeGameStateHash(game, userDir, addonRegistry)
                 };
             }
 

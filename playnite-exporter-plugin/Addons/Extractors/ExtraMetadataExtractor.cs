@@ -48,5 +48,27 @@ namespace PlayniteExporterPlugin.Addons.Extractors
 
             return Task.FromResult<object?>(result);
         }
+
+        public string? GetStateHash(Game game, string playniteUserDataDir)
+        {
+            try
+            {
+                if (game == null) return null;
+                var gameDir = Path.Combine(playniteUserDataDir, "ExtraMetadata", "games", game.Id.ToString());
+                if (!Directory.Exists(gameDir)) return null;
+
+                var logo = new FileInfo(Path.Combine(gameDir, "Logo.png"));
+                var micro = new FileInfo(Path.Combine(gameDir, "VideoMicrotrailer.mp4"));
+                var trailer = new FileInfo(Path.Combine(gameDir, "VideoTrailer.mp4"));
+
+                if (!logo.Exists && !micro.Exists && !trailer.Exists) return null;
+
+                return $"{(logo.Exists ? $"{logo.LastWriteTimeUtc.Ticks}_{logo.Length}" : "none")};{(micro.Exists ? $"{micro.LastWriteTimeUtc.Ticks}_{micro.Length}" : "none")};{(trailer.Exists ? $"{trailer.LastWriteTimeUtc.Ticks}_{trailer.Length}" : "none")}";
+            }
+            catch
+            {
+                return null;
+            }
+        }
     }
 }

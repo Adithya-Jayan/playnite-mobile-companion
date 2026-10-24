@@ -240,5 +240,21 @@ namespace PlayniteExporterPlugin.Addons.Extractors
                 achievements = itemsList
             };
         }
+
+        public string? GetStateHash(Game game, string playniteUserDataDir)
+        {
+            try
+            {
+                var dbPath = Path.Combine(playniteUserDataDir, "ExtensionsData", PluginId.ToString(), "achievement_cache.db");
+                if (!File.Exists(dbPath)) return null;
+
+                var fi = new FileInfo(dbPath);
+                return $"{fi.LastWriteTimeUtc.Ticks}_{fi.Length}";
+            }
+            catch
+            {
+                return null;
+            }
+        }
     }
 }

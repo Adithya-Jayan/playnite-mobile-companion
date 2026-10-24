@@ -85,5 +85,28 @@ namespace PlayniteExporterPlugin.Addons.Extractors
                 items = dlcList
             };
         }
+
+        public string? GetStateHash(Game game, string playniteUserDataDir)
+        {
+            try
+            {
+                if (game == null) return null;
+                var filePath = Path.Combine(
+                    playniteUserDataDir,
+                    "ExtensionsData",
+                    PluginId.ToString(),
+                    "CheckDlc",
+                    $"{game.Id}.json"
+                );
+                if (!File.Exists(filePath)) return null;
+
+                var fi = new FileInfo(filePath);
+                return $"{fi.LastWriteTimeUtc.Ticks}_{fi.Length}";
+            }
+            catch
+            {
+                return null;
+            }
+        }
     }
 }
