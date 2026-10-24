@@ -20,7 +20,7 @@ enum MediaStorageTier {
 
 /// Supported sources for video playback and fallback priority resolution.
 enum VideoSourceType {
-  miniTrailer,  // 6-second looping preview clip (cached offline)
+  miniTrailer,  // 6-second looping microtrailer (cached offline)
   hqVideo,      // High-definition trailer from local cache / Drive
   onlineStream, // Stream directly from Steam CDN over network (uses data)
 }

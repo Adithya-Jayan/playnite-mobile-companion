@@ -397,5 +397,137 @@ namespace PlayniteExporterPlugin.Tests
             Assert.Equal(1, obj.Value<int>("total_count"));
             Assert.Equal(1, obj.Value<int>("unlocked_count"));
         }
+
+        [Fact]
+        public void GetStateHash_WhenDbFileMissing_ReturnsNull()
+        {
+            var game = new Game("No DB Game") { Id = Guid.NewGuid() };
+            var hash = extractor.GetStateHash(game, tempDir);
+            Assert.Null(hash);
+        }
+
+        [Fact]
+        public void GetStateHash_WhenGameNotInDb_ReturnsNull()
+        {
+            InitializeDatabase();
+            var game = new Game("Missing Game") { Id = Guid.NewGuid() };
+            var hash = extractor.GetStateHash(game, tempDir);
+            Assert.Null(hash);
+        }
+
+        [Fact]
+        public void GetStateHash_WhenGameFound_ReturnsFormattedGranularHash()
+        {
+            var gameId = Guid.NewGuid();
+            var lastUpdated = "2026-10-24T12:00:00Z";
+            InitializeDatabase(conn =>
+            {
+                using var cmd = conn.CreateCommand();
+                cmd.CommandText = @"
+                    INSERT INTO Games (Id, ProviderKey, PlayniteGameId, GameName)
+                    VALUES (1, 'Steam', @playniteId, 'Tracked Game');
+
+                    INSERT INTO UserGameProgress (Id, UserId, GameId, CacheKey, HasAchievements, AchievementsUnlocked, TotalAchievements, LastUpdatedUtc)
+                    VALUES (1, 1, 1, 'game_1', 1, 7, 20, @lastUpdated);
+                ";
+                cmd.Parameters.AddWithValue("@playniteId", gameId.ToString());
+                cmd.Parameters.AddWithValue("@lastUpdated", lastUpdated);
+                cmd.ExecuteNonQuery();
+            });
+
+            var game = new Game("Tracked Game") { Id = gameId };
+            var hash = extractor.GetStateHash(game, tempDir);
+
+            Assert.NotNull(hash);
+            Assert.Equal($"7_20_{lastUpdated}", hash);
+        }
+
+        [Fact]
+        public void GetStateHash_GranularIsolation_UpdatingGameB_DoesNotChangeGameAHash()
+        {
+            var gameAId = Guid.NewGuid();
+            var gameBId = Guid.NewGuid();
+            var timeA = "2026-10-24T01:00:00Z";
+            var timeB1 = "2026-10-24T01:00:00Z";
+            var timeB2 = "2026-10-24T02:00:00Z";
+
+            InitializeDatabase(conn =>
+            {
+                using var cmd = conn.CreateCommand();
+                cmd.CommandText = @"
+                    INSERT INTO Games (Id, ProviderKey, PlayniteGameId, GameName)
+                    VALUES (1, 'Steam', @gameA, 'Game A'),
+                           (2, 'Steam', @gameB, 'Game B');
+
+                    INSERT INTO UserGameProgress (Id, UserId, GameId, CacheKey, HasAchievements, AchievementsUnlocked, TotalAchievements, LastUpdatedUtc)
+                    VALUES (1, 1, 1, 'game_a', 1, 5, 10, @timeA),
+                           (2, 1, 2, 'game_b', 1, 2, 15, @timeB1);
+                ";
+                cmd.Parameters.AddWithValue("@gameA", gameAId.ToString());
+                cmd.Parameters.AddWithValue("@gameB", gameBId.ToString());
+                cmd.Parameters.AddWithValue("@timeA", timeA);
+                cmd.Parameters.AddWithValue("@timeB1", timeB1);
+                cmd.ExecuteNonQuery();
+            });
+
+            var gameA = new Game("Game A") { Id = gameAId };
+            var gameB = new Game("Game B") { Id = gameBId };
+
+            var hashA1 = extractor.GetStateHash(gameA, tempDir);
+            var hashB1 = extractor.GetStateHash(gameB, tempDir);
+
+            Assert.Equal($"5_10_{timeA}", hashA1);
+            Assert.Equal($"2_15_{timeB1}", hashB1);
+
+            // Now update Game B's progress in the SQLite database
+            using (var conn = new SQLiteConnection(new SQLiteConnectionStringBuilder { DataSource = dbPath }.ToString()))
+            {
+                conn.Open();
+                using var cmd = conn.CreateCommand();
+                cmd.CommandText = @"
+                    UPDATE UserGameProgress
+                    SET AchievementsUnlocked = 3, LastUpdatedUtc = @timeB2
+                    WHERE GameId = 2;
+                ";
+                cmd.Parameters.AddWithValue("@timeB2", timeB2);
+                cmd.ExecuteNonQuery();
+            }
+
+            var hashA2 = extractor.GetStateHash(gameA, tempDir);
+            var hashB2 = extractor.GetStateHash(gameB, tempDir);
+
+            // Game A must remain completely unaffected
+            Assert.Equal(hashA1, hashA2);
+            // Game B's hash must reflect the update
+            Assert.NotEqual(hashB1, hashB2);
+            Assert.Equal($"3_15_{timeB2}", hashB2);
+        }
+
+        [Fact]
+        public void GetStateHash_CaseInsensitiveGameId_FindsGame()
+        {
+            var gameId = Guid.NewGuid();
+            var time = "2026-10-24T05:00:00Z";
+
+            InitializeDatabase(conn =>
+            {
+                using var cmd = conn.CreateCommand();
+                cmd.CommandText = @"
+                    INSERT INTO Games (Id, ProviderKey, PlayniteGameId, GameName)
+                    VALUES (1, 'Steam', @playniteId, 'Case Test');
+
+                    INSERT INTO UserGameProgress (Id, UserId, GameId, CacheKey, HasAchievements, AchievementsUnlocked, TotalAchievements, LastUpdatedUtc)
+                    VALUES (1, 1, 1, 'game_1', 1, 10, 10, @time);
+                ";
+                cmd.Parameters.AddWithValue("@playniteId", gameId.ToString().ToUpperInvariant());
+                cmd.Parameters.AddWithValue("@time", time);
+                cmd.ExecuteNonQuery();
+            });
+
+            var game = new Game("Case Test") { Id = Guid.Parse(gameId.ToString().ToLowerInvariant()) };
+            var hash = extractor.GetStateHash(game, tempDir);
+
+            Assert.Equal($"10_10_{time}", hash);
+        }
     }
 }

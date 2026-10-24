@@ -282,7 +282,7 @@ class _GallerySettingsScreenState extends State<GallerySettingsScreen> {
     switch (source) {
       case VideoSourceType.miniTrailer:
         title = 'MiniTrailer (Microtrailer)';
-        subtitle = '6-second looping preview clip (cached offline)';
+        subtitle = '6-second looping microtrailer (cached offline)';
         isEnabled = _settings.enableMiniTrailers;
         onToggle = (val) => _updateSettings(_settings.copyWith(enableMiniTrailers: val));
         break;

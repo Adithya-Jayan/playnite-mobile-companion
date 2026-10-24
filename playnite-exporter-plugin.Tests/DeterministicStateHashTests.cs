@@ -71,6 +71,9 @@ namespace PlayniteExporterPlugin.Tests
         {
             try
             {
+                System.Data.SQLite.SQLiteConnection.ClearAllPools();
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
                 if (Directory.Exists(tempDir))
                 {
                     Directory.Delete(tempDir, true);
@@ -287,6 +290,7 @@ namespace PlayniteExporterPlugin.Tests
             var revExtractor = new SteamReviewsExtractor();
             var scrExtractor = new SteamScreenshotsExtractor();
             var extraExtractor = new ExtraMetadataExtractor();
+            var playniteAchExtractor = new PlayniteAchievementsExtractor();
 
             // When files are missing, all return null
             Assert.Null(ssExtractor.GetStateHash(game, userDir));
@@ -298,6 +302,7 @@ namespace PlayniteExporterPlugin.Tests
             Assert.Null(revExtractor.GetStateHash(game, userDir));
             Assert.Null(scrExtractor.GetStateHash(game, userDir));
             Assert.Null(extraExtractor.GetStateHash(game, userDir));
+            Assert.Null(playniteAchExtractor.GetStateHash(game, userDir));
 
             // When SuccessStory file is created
             var ssDir = Path.Combine(userDir, "ExtensionsData", ssExtractor.PluginId.ToString(), "SuccessStory");
@@ -308,6 +313,82 @@ namespace PlayniteExporterPlugin.Tests
             var hash = ssExtractor.GetStateHash(game, userDir);
             Assert.NotNull(hash);
             Assert.Contains("_", hash);
+
+            // When PlayniteAchievements DB is created
+            var achDir = Path.Combine(userDir, "ExtensionsData", playniteAchExtractor.PluginId.ToString());
+            Directory.CreateDirectory(achDir);
+            var dbPath = Path.Combine(achDir, "achievement_cache.db");
+            System.Data.SQLite.SQLiteConnection.CreateFile(dbPath);
+            using (var conn = new System.Data.SQLite.SQLiteConnection($"Data Source={dbPath};"))
+            {
+                conn.Open();
+                using var cmd = conn.CreateCommand();
+                cmd.CommandText = @"
+                    CREATE TABLE Games (Id INTEGER PRIMARY KEY AUTOINCREMENT, PlayniteGameId TEXT);
+                    CREATE TABLE UserGameProgress (GameId INTEGER, AchievementsUnlocked INTEGER, TotalAchievements INTEGER, LastUpdatedUtc TEXT);
+                    INSERT INTO Games (Id, PlayniteGameId) VALUES (1, @id);
+                    INSERT INTO UserGameProgress (GameId, AchievementsUnlocked, TotalAchievements, LastUpdatedUtc) VALUES (1, 5, 10, '2026-10-24T12:00:00Z');
+                ";
+                cmd.Parameters.AddWithValue("@id", game.Id.ToString());
+                cmd.ExecuteNonQuery();
+            }
+
+            var achHash = playniteAchExtractor.GetStateHash(game, userDir);
+            Assert.Equal("5_10_2026-10-24T12:00:00Z", achHash);
+        }
+
+        [Fact]
+        public void PlayniteAchievements_GranularStateHash_UpdatingOneGame_DoesNotAlterOtherGameHash()
+        {
+            var gameA = new Game("Game A") { Id = Guid.NewGuid() };
+            var gameB = new Game("Game B") { Id = Guid.NewGuid() };
+
+            var achExtractor = new PlayniteAchievementsExtractor();
+            var achDir = Path.Combine(userDir, "ExtensionsData", achExtractor.PluginId.ToString());
+            Directory.CreateDirectory(achDir);
+            var dbPath = Path.Combine(achDir, "achievement_cache.db");
+
+            System.Data.SQLite.SQLiteConnection.CreateFile(dbPath);
+            using (var conn = new System.Data.SQLite.SQLiteConnection($"Data Source={dbPath};"))
+            {
+                conn.Open();
+                using var cmd = conn.CreateCommand();
+                cmd.CommandText = @"
+                    CREATE TABLE Games (Id INTEGER PRIMARY KEY AUTOINCREMENT, PlayniteGameId TEXT);
+                    CREATE TABLE UserGameProgress (GameId INTEGER, AchievementsUnlocked INTEGER, TotalAchievements INTEGER, LastUpdatedUtc TEXT);
+                    INSERT INTO Games (Id, PlayniteGameId) VALUES (1, @idA), (2, @idB);
+                    INSERT INTO UserGameProgress (GameId, AchievementsUnlocked, TotalAchievements, LastUpdatedUtc)
+                    VALUES (1, 1, 10, '2026-10-24T00:00:00Z'),
+                           (2, 4, 12, '2026-10-24T00:00:00Z');
+                ";
+                cmd.Parameters.AddWithValue("@idA", gameA.Id.ToString());
+                cmd.Parameters.AddWithValue("@idB", gameB.Id.ToString());
+                cmd.ExecuteNonQuery();
+            }
+
+            var hashA1 = hashEngine.ComputeGameStateHash(gameA, userDir, addonRegistry);
+            var hashB1 = hashEngine.ComputeGameStateHash(gameB, userDir, addonRegistry);
+
+            // Now update Game B progress in the database (simulating playnite achievements update)
+            using (var conn = new System.Data.SQLite.SQLiteConnection($"Data Source={dbPath};"))
+            {
+                conn.Open();
+                using var cmd = conn.CreateCommand();
+                cmd.CommandText = @"
+                    UPDATE UserGameProgress
+                    SET AchievementsUnlocked = 5, LastUpdatedUtc = '2026-10-24T01:00:00Z'
+                    WHERE GameId = 2;
+                ";
+                cmd.ExecuteNonQuery();
+            }
+
+            var hashA2 = hashEngine.ComputeGameStateHash(gameA, userDir, addonRegistry);
+            var hashB2 = hashEngine.ComputeGameStateHash(gameB, userDir, addonRegistry);
+
+            // Game A hash MUST NOT change even though achievement_cache.db file was modified!
+            Assert.Equal(hashA1, hashA2);
+            // Game B hash MUST change
+            Assert.NotEqual(hashB1, hashB2);
         }
     }
 }

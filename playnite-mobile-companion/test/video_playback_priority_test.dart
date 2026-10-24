@@ -204,7 +204,7 @@ void main() {
       expect(find.text('Drag to adjust playback preference. Top-most available source plays first.'), findsOneWidget);
 
       expect(find.text('MiniTrailer (Microtrailer)'), findsOneWidget);
-      expect(find.text('6-second looping preview clip (cached offline)'), findsOneWidget);
+      expect(find.text('6-second looping microtrailer (cached offline)'), findsOneWidget);
 
       expect(find.text('HQ Video (Full Trailer)'), findsOneWidget);
       expect(find.text('High-definition trailer from local cache / Drive'), findsOneWidget);

@@ -64,7 +64,7 @@ namespace PlayniteExporterPlugin.Addons.Extractors
                     LIMIT 1;";
                 cmd.Parameters.AddWithValue("@gameId", internalGameId.Value);
 
-                using (var reader = await cmd.ExecuteReaderAsync())
+                using var reader = await cmd.ExecuteReaderAsync();
                 {
                     if (await reader.ReadAsync())
                     {
@@ -115,7 +115,7 @@ namespace PlayniteExporterPlugin.Addons.Extractors
                 cmd.Parameters.AddWithValue("@gameId", internalGameId.Value);
                 cmd.Parameters.AddWithValue("@progressId", userGameProgressId.Value);
 
-                using (var reader = await cmd.ExecuteReaderAsync())
+                using var reader = await cmd.ExecuteReaderAsync();
                 {
                     while (await reader.ReadAsync())
                     {
@@ -243,13 +243,41 @@ namespace PlayniteExporterPlugin.Addons.Extractors
 
         public string? GetStateHash(Game game, string playniteUserDataDir)
         {
+            if (game == null) return null;
+
             try
             {
                 var dbPath = Path.Combine(playniteUserDataDir, "ExtensionsData", PluginId.ToString(), "achievement_cache.db");
                 if (!File.Exists(dbPath)) return null;
 
-                var fi = new FileInfo(dbPath);
-                return $"{fi.LastWriteTimeUtc.Ticks}_{fi.Length}";
+                var csb = new SQLiteConnectionStringBuilder
+                {
+                    DataSource = dbPath,
+                    ReadOnly = true
+                };
+
+                using var connection = new SQLiteConnection(csb.ToString());
+                connection.Open();
+
+                using var cmd = connection.CreateCommand();
+                cmd.CommandText = @"
+                    SELECT u.AchievementsUnlocked, u.TotalAchievements, u.LastUpdatedUtc
+                    FROM UserGameProgress u
+                    JOIN Games g ON u.GameId = g.Id
+                    WHERE g.PlayniteGameId = @playniteId COLLATE NOCASE
+                    LIMIT 1;";
+                cmd.Parameters.AddWithValue("@playniteId", game.Id.ToString());
+
+                using var reader = cmd.ExecuteReader();
+                if (reader.Read())
+                {
+                    var unlocked = reader.IsDBNull(0) ? 0 : Convert.ToInt32(reader.GetValue(0));
+                    var total = reader.IsDBNull(1) ? 0 : Convert.ToInt32(reader.GetValue(1));
+                    var lastUpdatedUtc = reader.IsDBNull(2) ? string.Empty : reader.GetString(2);
+                    return $"{unlocked}_{total}_{lastUpdatedUtc}";
+                }
+
+                return null;
             }
             catch
             {

@@ -38,7 +38,9 @@ void main() {
           'success_story': {
             'total': 10,
             'unlocked': 5,
-            'achievements': [],
+            'achievements': [
+              {'name': 'Ach 1', 'unlocked': true},
+            ],
           },
         },
       );
@@ -106,7 +108,13 @@ void main() {
         sortingName: 'Resilient Game',
         addons: {
           'faulty_addon': {'broken_data': 123},
-          'success_story': {'total': 2, 'unlocked': 1, 'achievements': []},
+          'success_story': {
+            'total': 2,
+            'unlocked': 1,
+            'achievements': [
+              {'name': 'Ach 1', 'unlocked': true},
+            ],
+          },
         },
       );
 

@@ -143,6 +143,32 @@ void main() {
       expect(find.byType(Card), findsNothing);
     });
 
+    testWidgets('5b. buildSection returns SizedBox.shrink() when total_count > 0 but items list is empty', (tester) async {
+      const section = AchievementsSection();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Builder(
+            builder: (context) {
+              final widget = section.buildSection(
+                context,
+                {
+                  'total_count': 5,
+                  'unlocked_count': 2,
+                  'items': [],
+                },
+                dummyGame,
+              );
+              return widget;
+            },
+          ),
+        ),
+      );
+
+      expect(find.byType(SizedBox), findsOneWidget);
+      expect(find.byType(Card), findsNothing);
+      expect(find.textContaining('Achievements'), findsNothing);
+    });
+
     testWidgets('6. AddonSectionRegistry suppresses empty achievement card in available sections list', (tester) async {
       const gameWithZeroAchievements = UnifiedGamePayload(
         id: 'game-zero',
