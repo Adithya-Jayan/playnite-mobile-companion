@@ -14,6 +14,10 @@ _Avoid_: Catalog, manifest file, remote index
 An incremental synchronization protocol transferring only dirty, added, or deleted JSON payloads and content-addressed media without touching unchanged games.
 _Avoid_: Partial sync, differential update
 
+**State Hash**:
+A deterministic SHA-256 fingerprint representing a game's metadata, playtime, media, and addon state used by Delta Sync to detect changes without relying on file or modification timestamps.
+_Avoid_: Dirty flag, timestamp diff, mod check
+
 **Content-Addressable Storage (CAS)**:
 A storage layout where media assets (covers, backgrounds, icons) are named and indexed by their SHA-256 hash to guarantee deduplication across the library.
 _Avoid_: Hash storage, dedup store
@@ -31,6 +35,10 @@ _Avoid_: Teaser, preview clip, short video
 **Full Trailer**:
 A high-definition video with full audio meant strictly for on-demand playback upon explicit user interaction.
 _Avoid_: Long trailer, trailer video
+
+**Video Playback Priority**:
+The user-configurable preference sequence (MiniTrailer, HQ Video, Online Stream) dictating how game video headers and trailers are resolved and played on mobile.
+_Avoid_: Trailer order, video fallback list
 
 **Watch Trailer Pill**:
 A subtle, translucent floating play pill rendered in the hero header when a game only possesses a full trailer, initiating on-demand video streaming upon explicit user tap.

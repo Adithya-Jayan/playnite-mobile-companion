@@ -12,11 +12,37 @@ enum AchievementSort {
   alphabetical,
 }
 
+List<Map<String, dynamic>> _extractAchievementsList(Map<String, dynamic> addonData) {
+  final rawAchievements = addonData['items'] ?? addonData['achievements'];
+  return (rawAchievements is List)
+      ? rawAchievements.whereType<Map<String, dynamic>>().toList()
+      : <Map<String, dynamic>>[];
+}
+
+int _extractTotalAchievements(Map<String, dynamic> addonData, int fallbackLength) {
+  return (addonData['total_count'] as num?)?.toInt() ??
+      (addonData['totalCount'] as num?)?.toInt() ??
+      (addonData['total'] as num?)?.toInt() ??
+      fallbackLength;
+}
+
 class AchievementsSection extends StatefulWidget implements IAddonSectionWidget {
-  const AchievementsSection({super.key});
+  final String _addonKey;
+
+  const AchievementsSection({
+    super.key,
+    String addonKey = 'success_story',
+  }) : _addonKey = addonKey;
 
   @override
-  String get addonKey => 'success_story';
+  String get addonKey => _addonKey;
+
+  /// Addon keys supported by achievements section.
+  static const List<String> supportedKeys = [
+    'achievements',
+    'success_story',
+    'playnite_achievements',
+  ];
 
   @override
   int get displayOrder => 10;
@@ -26,6 +52,17 @@ class AchievementsSection extends StatefulWidget implements IAddonSectionWidget 
 
   @override
   Widget buildSection(BuildContext context, Map<String, dynamic> addonData, UnifiedGamePayload game) {
+    if (addonData['has_achievements'] == false) {
+      return const SizedBox.shrink();
+    }
+
+    final achievements = _extractAchievementsList(addonData);
+    final total = _extractTotalAchievements(addonData, achievements.length);
+
+    if (total <= 0 || achievements.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
     return _AchievementsSectionWidget(addonData: addonData);
   }
 
@@ -67,10 +104,7 @@ class _AchievementsSectionWidgetState extends State<_AchievementsSectionWidget> 
   @override
   void initState() {
     super.initState();
-    final rawAchievements = widget.addonData['items'] ?? widget.addonData['achievements'];
-    final achievements = (rawAchievements is List)
-        ? rawAchievements.whereType<Map<String, dynamic>>().toList()
-        : <Map<String, dynamic>>[];
+    final achievements = _extractAchievementsList(widget.addonData);
 
     final unlocked = (widget.addonData['unlocked_count'] as num?)?.toInt() ??
         (widget.addonData['unlocked'] as num?)?.toInt() ??
@@ -82,14 +116,17 @@ class _AchievementsSectionWidgetState extends State<_AchievementsSectionWidget> 
 
   @override
   Widget build(BuildContext context) {
-    final rawAchievements = widget.addonData['items'] ?? widget.addonData['achievements'];
-    final achievements = (rawAchievements is List)
-        ? rawAchievements.whereType<Map<String, dynamic>>().toList()
-        : <Map<String, dynamic>>[];
+    if (widget.addonData['has_achievements'] == false) {
+      return const SizedBox.shrink();
+    }
 
-    final total = (widget.addonData['total_count'] as num?)?.toInt() ??
-        (widget.addonData['total'] as num?)?.toInt() ??
-        achievements.length;
+    final achievements = _extractAchievementsList(widget.addonData);
+    final total = _extractTotalAchievements(widget.addonData, achievements.length);
+
+    if (total <= 0 || achievements.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
     final unlocked = (widget.addonData['unlocked_count'] as num?)?.toInt() ??
         (widget.addonData['unlocked'] as num?)?.toInt() ??
         achievements.where(_isAchievementUnlocked).length;

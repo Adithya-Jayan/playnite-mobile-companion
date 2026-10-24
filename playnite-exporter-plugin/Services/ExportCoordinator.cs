@@ -7,6 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Playnite.SDK;
 using Playnite.SDK.Models;
+using PlayniteExporterPlugin.Addons;
 using PlayniteExporterPlugin.Common;
 using PlayniteExporterPlugin.Configuration;
 using PlayniteExporterPlugin.Models;
@@ -22,6 +23,7 @@ namespace PlayniteExporterPlugin.Services
         private readonly ExporterSettings settings;
         private readonly MetadataAggregator aggregator;
         private readonly DeltaHashEngine hashEngine;
+        private readonly AddonExtractorRegistry addonRegistry;
         private readonly string pluginUserDataDir;
         private readonly string localIndexCachePath;
 
@@ -29,7 +31,6 @@ namespace PlayniteExporterPlugin.Services
         public const string CurrentClientVersion = "1.1.0";
         private SyncIndex currentIndex = new() { ClientVersion = CurrentClientVersion };
         private readonly SemaphoreSlim syncLock = new(1, 1);
-        private readonly Dictionary<Guid, (ulong Playtime, ulong PlayCount, string Cover, string Bg, string Icon)> gameStatCache = new();
 
         public SyncIndex CurrentIndex => currentIndex;
         public ISyncStorageProvider StorageProvider => storageProvider;
@@ -41,7 +42,8 @@ namespace PlayniteExporterPlugin.Services
             MetadataAggregator aggregator,
             DeltaHashEngine hashEngine,
             ISyncStorageProvider storageProvider,
-            string pluginUserDataDir)
+            string pluginUserDataDir,
+            AddonExtractorRegistry? addonRegistry = null)
         {
             this.api = api;
             this.settings = settings;
@@ -49,6 +51,7 @@ namespace PlayniteExporterPlugin.Services
             this.hashEngine = hashEngine;
             this.storageProvider = storageProvider;
             this.pluginUserDataDir = pluginUserDataDir;
+            this.addonRegistry = addonRegistry ?? aggregator?.AddonRegistry ?? new AddonExtractorRegistry();
 
             if (!Directory.Exists(pluginUserDataDir))
             {
@@ -164,6 +167,7 @@ namespace PlayniteExporterPlugin.Services
                 var sha256 = Sha256Hasher.ComputeStringHash(jsonContent);
                 var sizeBytes = Encoding.UTF8.GetByteCount(jsonContent);
                 var relPath = $"games/{game.Id}.json";
+                var stateHash = hashEngine.ComputeGameStateHash(game, userDataDir, addonRegistry);
 
                 var candidates = new Dictionary<string, PlannedUpload>
                 {
@@ -175,7 +179,9 @@ namespace PlayniteExporterPlugin.Services
                         "game_metadata",
                         game.Id,
                         existingDriveFileId: null,
-                        mimeType: "application/json"
+                        mimeType: "application/json",
+                        sourceFilePath: null,
+                        stateHash: stateHash
                     )
                 };
 
@@ -235,7 +241,8 @@ namespace PlayniteExporterPlugin.Services
                             DriveFileId = fileId,
                             MimeType = gameUpload.MimeType,
                             Category = gameUpload.Category,
-                            GameId = gameUpload.GameId
+                            GameId = gameUpload.GameId,
+                            StateHash = gameUpload.StateHash
                         };
                     }
                 }
@@ -409,52 +416,17 @@ namespace PlayniteExporterPlugin.Services
                     IndexEntry? existingEntry = null;
                     bool isVersionMatch = currentIndex != null && currentIndex.ClientVersion == CurrentClientVersion;
 
+                    var stateHash = hashEngine.ComputeGameStateHash(game, userDataDir, addonRegistry);
+
                     if (isVersionMatch && currentIndex!.Entries.TryGetValue(relPath, out existingEntry))
                     {
-                        if (!string.IsNullOrEmpty(existingEntry.Sha256) && existingEntry.ModifiedUtc > DateTime.MinValue)
-                        {
-                            bool metadataUnchanged = false;
-                            if (game.Modified.HasValue)
-                            {
-                                metadataUnchanged = game.Modified.Value.ToUniversalTime() <= existingEntry.ModifiedUtc;
-                            }
-                            else if (game.Added.HasValue)
-                            {
-                                metadataUnchanged = game.Added.Value.ToUniversalTime() <= existingEntry.ModifiedUtc;
-                            }
-                            else
-                            {
-                                metadataUnchanged = true;
-                            }
-
-                            bool activityUnchanged = !game.LastActivity.HasValue ||
-                                                     game.LastActivity.Value.ToUniversalTime() <= existingEntry.ModifiedUtc;
-
-                            if (metadataUnchanged && activityUnchanged)
-                            {
-                                if (gameStatCache.TryGetValue(game.Id, out var stats))
-                                {
-                                    if (stats.Playtime == game.Playtime &&
-                                        stats.PlayCount == game.PlayCount &&
-                                        stats.Cover == (game.CoverImage ?? "") &&
-                                        stats.Bg == (game.BackgroundImage ?? "") &&
-                                        stats.Icon == (game.Icon ?? ""))
-                                    {
-                                        isUnchanged = true;
-                                    }
-                                }
-                                else
-                                {
-                                    isUnchanged = true;
-                                }
-                            }
-                        }
+                        isUnchanged = existingEntry != null &&
+                                      !string.IsNullOrEmpty(existingEntry.Sha256) &&
+                                      existingEntry.StateHash == stateHash;
                     }
 
                     if (isUnchanged && existingEntry != null)
                     {
-                        gameStatCache[game.Id] = (game.Playtime, game.PlayCount, game.CoverImage ?? "", game.BackgroundImage ?? "", game.Icon ?? "");
-
                         candidateFiles[relPath] = new PlannedUpload(
                             relPath,
                             string.Empty,
@@ -463,7 +435,9 @@ namespace PlayniteExporterPlugin.Services
                             "game_metadata",
                             game.Id,
                             existingEntry.DriveFileId,
-                            existingEntry.MimeType ?? "application/json"
+                            existingEntry.MimeType ?? "application/json",
+                            sourceFilePath: null,
+                            stateHash: existingEntry.StateHash
                         );
 
                         if (existingMediaByGame.TryGetValue(game.Id, out var mediaEntries))
@@ -493,8 +467,6 @@ namespace PlayniteExporterPlugin.Services
                         var sha = Sha256Hasher.ComputeStringHash(jsonContent);
                         var size = Encoding.UTF8.GetByteCount(jsonContent);
 
-                        gameStatCache[game.Id] = (game.Playtime, game.PlayCount, game.CoverImage ?? "", game.BackgroundImage ?? "", game.Icon ?? "");
-
                         candidateFiles[relPath] = new PlannedUpload(
                             relPath,
                             jsonContent,
@@ -503,7 +475,9 @@ namespace PlayniteExporterPlugin.Services
                             "game_metadata",
                             game.Id,
                             existingDriveFileId: null,
-                            mimeType: "application/json"
+                            mimeType: "application/json",
+                            sourceFilePath: null,
+                            stateHash: stateHash
                         );
 
                         foreach (var media in mediaUploads)
@@ -625,7 +599,8 @@ namespace PlayniteExporterPlugin.Services
                                     DriveFileId = fileId,
                                     MimeType = item.MimeType,
                                     Category = item.Category,
-                                    GameId = item.GameId
+                                    GameId = item.GameId,
+                                    StateHash = item.StateHash
                                 };
                             }
                         }

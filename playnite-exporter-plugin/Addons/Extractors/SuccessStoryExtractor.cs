@@ -135,6 +135,8 @@ namespace PlayniteExporterPlugin.Addons.Extractors
                 }
             }
 
+            if (totalCount == 0) return null;
+
             int lockedCount = Math.Max(0, totalCount - unlockedCount);
             double unlockedPercentage = totalCount > 0
                 ? Math.Round(((double)unlockedCount / totalCount) * 100.0, 2)
@@ -172,6 +174,29 @@ namespace PlayniteExporterPlugin.Addons.Extractors
                 items = itemsList,
                 achievements = itemsList
             };
+        }
+
+        public string? GetStateHash(Game game, string playniteUserDataDir)
+        {
+            try
+            {
+                if (game == null) return null;
+                var filePath = Path.Combine(
+                    playniteUserDataDir,
+                    "ExtensionsData",
+                    PluginId.ToString(),
+                    "SuccessStory",
+                    $"{game.Id}.json"
+                );
+                if (!File.Exists(filePath)) return null;
+
+                var fi = new FileInfo(filePath);
+                return $"{fi.LastWriteTimeUtc.Ticks}_{fi.Length}";
+            }
+            catch
+            {
+                return null;
+            }
         }
 
         private static string ComputeMd5(string input)

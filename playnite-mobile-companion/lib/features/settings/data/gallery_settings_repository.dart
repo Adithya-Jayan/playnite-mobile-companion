@@ -18,6 +18,13 @@ enum MediaStorageTier {
   completeOffline,  // Complete Offline with Videos (~3.5 GB)
 }
 
+/// Supported sources for video playback and fallback priority resolution.
+enum VideoSourceType {
+  miniTrailer,  // 6-second looping microtrailer (cached offline)
+  hqVideo,      // High-definition trailer from local cache / Drive
+  onlineStream, // Stream directly from Steam CDN over network (uses data)
+}
+
 /// User preferences for the game gallery, media, and library display.
 class GallerySettings {
   final bool includeUserHiddenGames;
@@ -29,6 +36,10 @@ class GallerySettings {
   final bool microtrailerMuted;
   final bool showVideoScrubBar;
   final bool autoStreamTrailersInHero;
+  final List<VideoSourceType> videoPlaybackPriority;
+  final bool enableMiniTrailers;
+  final bool enableHqVideos;
+  final bool enableOnlineStream;
 
   /// Backwards-compatible getter: true if either hidden category is included.
   bool get showHiddenGames => includeUserHiddenGames || includeDuplicateHiderGames;
@@ -44,6 +55,14 @@ class GallerySettings {
     this.microtrailerMuted = true,
     this.showVideoScrubBar = true,
     this.autoStreamTrailersInHero = false,
+    this.videoPlaybackPriority = const [
+      VideoSourceType.miniTrailer,
+      VideoSourceType.hqVideo,
+      VideoSourceType.onlineStream,
+    ],
+    this.enableMiniTrailers = true,
+    this.enableHqVideos = true,
+    this.enableOnlineStream = false,
   });
 
   GallerySettings copyWith({
@@ -57,6 +76,10 @@ class GallerySettings {
     bool? microtrailerMuted,
     bool? showVideoScrubBar,
     bool? autoStreamTrailersInHero,
+    List<VideoSourceType>? videoPlaybackPriority,
+    bool? enableMiniTrailers,
+    bool? enableHqVideos,
+    bool? enableOnlineStream,
   }) {
     return GallerySettings(
       includeUserHiddenGames: includeUserHiddenGames ?? showHiddenGames ?? this.includeUserHiddenGames,
@@ -68,7 +91,28 @@ class GallerySettings {
       microtrailerMuted: microtrailerMuted ?? this.microtrailerMuted,
       showVideoScrubBar: showVideoScrubBar ?? this.showVideoScrubBar,
       autoStreamTrailersInHero: autoStreamTrailersInHero ?? this.autoStreamTrailersInHero,
+      videoPlaybackPriority: videoPlaybackPriority != null
+          ? _normalizePriority(videoPlaybackPriority)
+          : this.videoPlaybackPriority,
+      enableMiniTrailers: enableMiniTrailers ?? this.enableMiniTrailers,
+      enableHqVideos: enableHqVideos ?? this.enableHqVideos,
+      enableOnlineStream: enableOnlineStream ?? this.enableOnlineStream,
     );
+  }
+
+  static List<VideoSourceType> _normalizePriority(Iterable<VideoSourceType> list) {
+    final result = <VideoSourceType>[];
+    for (final item in list) {
+      if (!result.contains(item)) {
+        result.add(item);
+      }
+    }
+    for (final type in VideoSourceType.values) {
+      if (!result.contains(type)) {
+        result.add(type);
+      }
+    }
+    return result;
   }
 
   Map<String, dynamic> toJson() => {
@@ -82,6 +126,10 @@ class GallerySettings {
         'microtrailerMuted': microtrailerMuted,
         'showVideoScrubBar': showVideoScrubBar,
         'autoStreamTrailersInHero': autoStreamTrailersInHero,
+        'videoPlaybackPriority': videoPlaybackPriority.map((e) => e.name).toList(),
+        'enableMiniTrailers': enableMiniTrailers,
+        'enableHqVideos': enableHqVideos,
+        'enableOnlineStream': enableOnlineStream,
       };
 
   factory GallerySettings.fromJson(Map<String, dynamic> json) {
@@ -101,6 +149,23 @@ class GallerySettings {
     final includeUserHidden = json['includeUserHiddenGames'] as bool? ?? legacyShowHidden;
     final includeDuplicateHider = json['includeDuplicateHiderGames'] as bool? ?? false;
 
+    // Parse video playback priority
+    List<VideoSourceType>? priorityList;
+    if (json['videoPlaybackPriority'] is List) {
+      final rawList = json['videoPlaybackPriority'] as List;
+      final parsed = <VideoSourceType>[];
+      for (final item in rawList) {
+        if (item is String) {
+          try {
+            parsed.add(VideoSourceType.values.byName(item));
+          } catch (_) {}
+        }
+      }
+      if (parsed.isNotEmpty) {
+        priorityList = parsed;
+      }
+    }
+
     return GallerySettings(
       includeUserHiddenGames: includeUserHidden,
       includeDuplicateHiderGames: includeDuplicateHider,
@@ -111,8 +176,54 @@ class GallerySettings {
       microtrailerMuted: json['microtrailerMuted'] as bool? ?? true,
       showVideoScrubBar: json['showVideoScrubBar'] as bool? ?? true,
       autoStreamTrailersInHero: json['autoStreamTrailersInHero'] as bool? ?? json['auto_stream_trailers_in_hero'] as bool? ?? false,
+      videoPlaybackPriority: priorityList != null
+          ? _normalizePriority(priorityList)
+          : const [
+              VideoSourceType.miniTrailer,
+              VideoSourceType.hqVideo,
+              VideoSourceType.onlineStream,
+            ],
+      enableMiniTrailers: json['enableMiniTrailers'] as bool? ?? true,
+      enableHqVideos: json['enableHqVideos'] as bool? ?? true,
+      enableOnlineStream: json['enableOnlineStream'] as bool? ?? false,
     );
   }
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is GallerySettings &&
+          runtimeType == other.runtimeType &&
+          includeUserHiddenGames == other.includeUserHiddenGames &&
+          includeDuplicateHiderGames == other.includeDuplicateHiderGames &&
+          defaultViewMode == other.defaultViewMode &&
+          ratingScoreSource == other.ratingScoreSource &&
+          mediaStorageTier == other.mediaStorageTier &&
+          autoPlayMicrotrailers == other.autoPlayMicrotrailers &&
+          microtrailerMuted == other.microtrailerMuted &&
+          showVideoScrubBar == other.showVideoScrubBar &&
+          autoStreamTrailersInHero == other.autoStreamTrailersInHero &&
+          listEquals(videoPlaybackPriority, other.videoPlaybackPriority) &&
+          enableMiniTrailers == other.enableMiniTrailers &&
+          enableHqVideos == other.enableHqVideos &&
+          enableOnlineStream == other.enableOnlineStream;
+
+  @override
+  int get hashCode => Object.hash(
+        includeUserHiddenGames,
+        includeDuplicateHiderGames,
+        defaultViewMode,
+        ratingScoreSource,
+        mediaStorageTier,
+        autoPlayMicrotrailers,
+        microtrailerMuted,
+        showVideoScrubBar,
+        autoStreamTrailersInHero,
+        Object.hashAll(videoPlaybackPriority),
+        enableMiniTrailers,
+        enableHqVideos,
+        enableOnlineStream,
+      );
 }
 
 /// Aggregated byte sizes of media tiers computed dynamically from sync metadata.
@@ -220,4 +331,3 @@ class GallerySettingsRepository {
     }
   }
 }
-

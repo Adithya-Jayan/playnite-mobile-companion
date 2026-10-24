@@ -17,6 +17,7 @@ namespace PlayniteExporterPlugin.Addons
         public AddonExtractorRegistry()
         {
             Register(new SuccessStoryExtractor());
+            Register(new PlayniteAchievementsExtractor());
             Register(new HowLongToBeatExtractor());
             Register(new GameActivityExtractor());
             Register(new ExtraMetadataExtractor());
