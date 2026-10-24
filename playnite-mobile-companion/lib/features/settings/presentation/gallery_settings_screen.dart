@@ -222,6 +222,110 @@ class _GallerySettingsScreenState extends State<GallerySettingsScreen> {
     }
   }
 
+    Widget _buildVideoPrioritySection() {
+    return Card(
+      color: AppTheme.surface,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Padding(
+              padding: EdgeInsets.fromLTRB(16, 8, 16, 4),
+              child: Text(
+                'Video Playback & Fallback Priority',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.bold,
+                  color: AppTheme.primaryLight,
+                ),
+              ),
+            ),
+            const Padding(
+              padding: EdgeInsets.fromLTRB(16, 0, 16, 8),
+              child: Text(
+                'Drag to adjust playback preference. Top-most available source plays first.',
+                style: TextStyle(fontSize: 12, color: AppTheme.textMuted),
+              ),
+            ),
+            const Divider(height: 1),
+            ReorderableListView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              buildDefaultDragHandles: false,
+              itemCount: _settings.videoPlaybackPriority.length,
+              onReorder: (oldIndex, newIndex) {
+                if (newIndex > oldIndex) newIndex--;
+                final updated = List<VideoSourceType>.from(_settings.videoPlaybackPriority);
+                final item = updated.removeAt(oldIndex);
+                updated.insert(newIndex, item);
+                _updateSettings(_settings.copyWith(videoPlaybackPriority: updated));
+              },
+              itemBuilder: (context, index) {
+                final source = _settings.videoPlaybackPriority[index];
+                return _buildPriorityTile(source, index);
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPriorityTile(VideoSourceType source, int index) {
+    final String title;
+    final String subtitle;
+    final bool isEnabled;
+    final ValueChanged<bool> onToggle;
+
+    switch (source) {
+      case VideoSourceType.miniTrailer:
+        title = 'MiniTrailer (Microtrailer)';
+        subtitle = '6-second looping preview clip (cached offline)';
+        isEnabled = _settings.enableMiniTrailers;
+        onToggle = (val) => _updateSettings(_settings.copyWith(enableMiniTrailers: val));
+        break;
+      case VideoSourceType.hqVideo:
+        title = 'HQ Video (Full Trailer)';
+        subtitle = 'High-definition trailer from local cache / Drive';
+        isEnabled = _settings.enableHqVideos;
+        onToggle = (val) => _updateSettings(_settings.copyWith(enableHqVideos: val));
+        break;
+      case VideoSourceType.onlineStream:
+        title = 'Online Stream (Steam CDN)';
+        subtitle = 'Stream directly from Steam over network (uses data)';
+        isEnabled = _settings.enableOnlineStream;
+        onToggle = (val) => _updateSettings(_settings.copyWith(enableOnlineStream: val));
+        break;
+    }
+
+    return ListTile(
+      key: ValueKey(source),
+      leading: ReorderableDragStartListener(
+        index: index,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+          child: const Icon(Icons.drag_handle, color: AppTheme.textMuted),
+        ),
+      ),
+      title: Text(
+        title,
+        style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.textPrimary),
+      ),
+      subtitle: Text(
+        subtitle,
+        style: const TextStyle(fontSize: 12, color: AppTheme.textMuted),
+      ),
+      trailing: Switch(
+        key: Key('switch_${source.name}'),
+        value: isEnabled,
+        activeThumbColor: AppTheme.primary,
+        onChanged: onToggle,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -449,6 +553,9 @@ class _GallerySettingsScreenState extends State<GallerySettingsScreen> {
                     ),
                   ),
                 ),
+                const SizedBox(height: 16),
+
+                _buildVideoPrioritySection(),
                 const SizedBox(height: 16),
 
                 // Microtrailer Video Controls Section

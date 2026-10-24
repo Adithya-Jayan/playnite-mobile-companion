@@ -272,13 +272,16 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
   }
 
   bool _hasFullTrailer(UnifiedGamePayload game) {
-    if (game.media.trailerDriveFileId != null && game.media.trailerDriveFileId!.isNotEmpty) {
-      return true;
-    }
-    if (game.media.trailerWebUrl != null && game.media.trailerWebUrl!.isNotEmpty) {
-      return true;
-    }
-    final cached = PlayniteImageLoader.instance.getCachedFileSync('media/trailers/${game.id}.mp4');
+    final s = _gallerySettings ?? const GallerySettings();
+    final hasHq = (game.media.trailerDriveFileId != null && game.media.trailerDriveFileId!.isNotEmpty) ||
+        _hasCachedTrailer(game.id);
+    final hasOnline = game.media.trailerWebUrl != null && game.media.trailerWebUrl!.isNotEmpty;
+
+    return (s.enableHqVideos && hasHq) || (s.enableOnlineStream && hasOnline);
+  }
+
+  bool _hasCachedTrailer(String gameId) {
+    final cached = PlayniteImageLoader.instance.getCachedFileSync('media/trailers/$gameId.mp4');
     return cached != null && cached.existsSync() && cached.lengthSync() > 0;
   }
 

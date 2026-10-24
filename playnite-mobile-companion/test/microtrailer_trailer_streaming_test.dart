@@ -6,7 +6,6 @@ import 'package:playnite_mobile_companion/core/database/app_database.dart';
 import 'package:playnite_mobile_companion/features/game_detail/presentation/game_detail_screen.dart';
 import 'package:playnite_mobile_companion/features/game_detail/presentation/widgets/microtrailer_player.dart';
 import 'package:playnite_mobile_companion/features/sync/data/sync_config_repository.dart';
-import 'package:playnite_mobile_companion/features/sync/domain/sync_config.dart';
 import 'package:playnite_mobile_companion/features/sync/domain/sync_models.dart';
 import 'package:playnite_mobile_companion/features/sync/presentation/sync_settings_screen.dart';
 import 'package:video_player/video_player.dart';
@@ -228,6 +227,7 @@ void main() {
             body: MicrotrailerPlayer(
               gameId: 'game_456',
               trailerWebUrl: 'https://example.com/cinematic_trailer.mp4',
+              gallerySettings: const GallerySettings(enableOnlineStream: true),
               autoStreamTrailersInHero: false,
               onTrailerStreamInitiated: () {
                 streamInitiated = true;
@@ -345,6 +345,7 @@ void main() {
             body: MicrotrailerPlayer(
               gameId: 'game_async_config',
               trailerWebUrl: 'https://example.com/trailer.mp4',
+              gallerySettings: GallerySettings(enableOnlineStream: true),
               autoStreamTrailersInHero: false,
             ),
           ),
@@ -362,6 +363,7 @@ void main() {
             body: MicrotrailerPlayer(
               gameId: 'game_async_config',
               trailerWebUrl: 'https://example.com/trailer.mp4',
+              gallerySettings: GallerySettings(enableOnlineStream: true),
               autoStreamTrailersInHero: true,
             ),
           ),
@@ -444,20 +446,25 @@ void main() {
       MicrotrailerPlayer.enableInTests = true;
       MicrotrailerPlayer.testControllerFactory = (uri, headers) => fakeController;
 
-      final game = UnifiedGamePayload(
+      const game = UnifiedGamePayload(
         id: 'game_with_steam_trailer',
         gameId: 'steam_485510',
         pluginId: 'steam_plugin',
         name: 'Nioh: Complete Edition',
         sortingName: 'Nioh: Complete Edition',
         playtimeSeconds: 3600,
-        media: const MediaPayload(
+        media: MediaPayload(
           trailerWebUrl: 'https://video.akamai.steamstatic.com/store_trailers/256697361/movie_max.mp4',
         ),
       );
 
+      await tester.runAsync(() async {
+        final galleryRepo = GallerySettingsRepository(database);
+        await galleryRepo.saveSettings(const GallerySettings(enableOnlineStream: true));
+      });
+
       await tester.pumpWidget(
-        MaterialApp(
+        const MaterialApp(
           home: GameDetailScreen(game: game),
         ),
       );
@@ -491,18 +498,18 @@ void main() {
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
 
-      final game = UnifiedGamePayload(
+      const game = UnifiedGamePayload(
         id: 'game_without_trailer',
         gameId: 'simple_game',
         pluginId: 'generic_plugin',
         name: 'Simple Indie Game',
         sortingName: 'Simple Indie Game',
         playtimeSeconds: 1200,
-        media: const MediaPayload(),
+        media: MediaPayload(),
       );
 
       await tester.pumpWidget(
-        MaterialApp(
+        const MaterialApp(
           home: GameDetailScreen(game: game),
         ),
       );
