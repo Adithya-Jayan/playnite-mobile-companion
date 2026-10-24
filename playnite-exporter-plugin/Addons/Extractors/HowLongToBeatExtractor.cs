@@ -66,5 +66,28 @@ namespace PlayniteExporterPlugin.Addons.Extractors
                 vs_seconds = hltbData.Value<long?>("VsClassic") ?? 0L
             };
         }
+
+        public string? GetStateHash(Game game, string playniteUserDataDir)
+        {
+            try
+            {
+                if (game == null) return null;
+                var filePath = Path.Combine(
+                    playniteUserDataDir,
+                    "ExtensionsData",
+                    PluginId.ToString(),
+                    "HowLongToBeat",
+                    $"{game.Id}.json"
+                );
+                if (!File.Exists(filePath)) return null;
+
+                var fi = new FileInfo(filePath);
+                return $"{fi.LastWriteTimeUtc.Ticks}_{fi.Length}";
+            }
+            catch
+            {
+                return null;
+            }
+        }
     }
 }

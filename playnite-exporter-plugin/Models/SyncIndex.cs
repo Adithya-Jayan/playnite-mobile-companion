@@ -56,6 +56,9 @@ namespace PlayniteExporterPlugin.Models
 
         [JsonProperty("game_id")]
         public Guid? GameId { get; set; }
+
+        [JsonProperty("state_hash")]
+        public string? StateHash { get; set; }
     }
 
     public class SyncDiff
@@ -79,6 +82,7 @@ namespace PlayniteExporterPlugin.Models
         public Guid? GameId { get; set; }
         public string? ExistingDriveFileId { get; set; }
         public string MimeType { get; set; }
+        public string? StateHash { get; set; }
 
         public PlannedUpload(
             string relativePath,
@@ -89,7 +93,8 @@ namespace PlayniteExporterPlugin.Models
             Guid? gameId = null,
             string? existingDriveFileId = null,
             string mimeType = "application/json",
-            string? sourceFilePath = null)
+            string? sourceFilePath = null,
+            string? stateHash = null)
         {
             RelativePath = relativePath;
             Content = content;
@@ -100,6 +105,7 @@ namespace PlayniteExporterPlugin.Models
             ExistingDriveFileId = existingDriveFileId;
             MimeType = mimeType;
             SourceFilePath = sourceFilePath;
+            StateHash = stateHash;
         }
     }
 

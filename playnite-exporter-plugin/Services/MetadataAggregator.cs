@@ -19,6 +19,8 @@ namespace PlayniteExporterPlugin.Services
         private readonly AddonExtractorRegistry addonRegistry;
         private readonly MediaProcessor mediaProcessor;
 
+        public AddonExtractorRegistry AddonRegistry => addonRegistry;
+
         public MetadataAggregator(
             IPlayniteAPI api,
             AddonExtractorRegistry addonRegistry,

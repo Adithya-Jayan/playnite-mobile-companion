@@ -11,5 +11,6 @@ namespace PlayniteExporterPlugin.Addons
         Guid PluginId { get; }
         bool IsDataAvailable(string playniteUserDataDir);
         Task<object?> ExtractDataAsync(Game game, string playniteUserDataDir);
+        string? GetStateHash(Game game, string playniteUserDataDir);
     }
 }
