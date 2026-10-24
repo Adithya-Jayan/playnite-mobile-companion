@@ -6,6 +6,7 @@ import 'package:playnite_mobile_companion/core/database/app_database.dart';
 import 'package:playnite_mobile_companion/features/game_detail/presentation/game_detail_screen.dart';
 import 'package:playnite_mobile_companion/features/game_detail/presentation/widgets/microtrailer_player.dart';
 import 'package:playnite_mobile_companion/features/sync/data/sync_config_repository.dart';
+
 import 'package:playnite_mobile_companion/features/sync/domain/sync_models.dart';
 import 'package:playnite_mobile_companion/features/sync/presentation/sync_settings_screen.dart';
 import 'package:video_player/video_player.dart';
