@@ -416,5 +416,29 @@ namespace PlayniteExporterPlugin.Tests
             Assert.False(diff2.HasChanges);
             Assert.False(diff2.IndexHealed);
         }
+
+        [Fact]
+        public void AddonRegistry_GetActiveExtractorsForGame_WhenPlayniteAchievementsActive_SuppressesSuccessStory()
+        {
+            var game = new Game("Hades II") { Id = Guid.NewGuid() };
+            SetupPlayniteAchievementsDb(game);
+            SetupSuccessStoryFile(game);
+
+            var active = addonRegistry.GetActiveExtractorsForGame(game, userDir);
+
+            Assert.Contains(active, e => e.AddonKey == "playnite_achievements");
+            Assert.DoesNotContain(active, e => e.AddonKey == "success_story");
+        }
+
+        [Fact]
+        public void AddonRegistry_GetActiveExtractorsForGame_WhenPlayniteAchievementsNotActive_IncludesSuccessStory()
+        {
+            var game = new Game("Silksong") { Id = Guid.NewGuid() };
+            SetupSuccessStoryFile(game);
+
+            var active = addonRegistry.GetActiveExtractorsForGame(game, userDir);
+
+            Assert.Contains(active, e => e.AddonKey == "success_story");
+        }
     }
 }

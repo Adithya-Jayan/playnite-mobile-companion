@@ -171,7 +171,7 @@ class _SyncSettingsScreenState extends State<SyncSettingsScreen> {
     widget.onSettingsChanged?.call();
 
     // Check tier transitions
-    if (newTier == MediaStorageTier.cacheOnly && oldTier != MediaStorageTier.cacheOnly) {
+    if (oldTier.index > newTier.index) {
       if (mounted) {
         _promptClearCacheOnDowngrade();
       }
@@ -195,7 +195,7 @@ class _SyncSettingsScreenState extends State<SyncSettingsScreen> {
           ],
         ),
         content: const Text(
-          'You switched your storage tier back to "Cache Only".\n\n'
+          'You downgraded your media storage tier.\n\n'
           'Would you like to delete previously downloaded offline media to free up device space now, or keep them locally cached?',
           style: TextStyle(color: AppTheme.textSecondary, fontSize: 14),
         ),

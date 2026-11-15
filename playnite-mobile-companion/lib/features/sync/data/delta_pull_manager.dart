@@ -603,9 +603,11 @@ class DeltaPullManager {
       }
 
       await GallerySettingsRepository(database).saveMediaTierSizes(
-        staticMediaBytes: staticMediaBytes,
-        microtrailersBytes: microtrailersBytes,
-        completeOfflineBytes: completeOfflineBytes,
+        MediaTierSizes(
+          staticMediaBytes: staticMediaBytes,
+          microtrailersBytes: microtrailersBytes,
+          completeOfflineBytes: completeOfflineBytes,
+        ),
       );
     } catch (e) {
       debugPrint('Media tier sizes record warning: $e');

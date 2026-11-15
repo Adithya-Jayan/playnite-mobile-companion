@@ -118,63 +118,29 @@ namespace PlayniteExporterPlugin.Services
                 var extraMetadataDir = Path.Combine(userDataDir, "ExtraMetadata");
                 bool hasAddonDirs = Directory.Exists(extensionsDataDir) || Directory.Exists(extraMetadataDir);
 
+                var activeExtractors = addonRegistry.GetActiveExtractorsForGame(game, userDataDir);
                 if (!hasAddonDirs)
                 {
-                    var extractors = addonRegistry.OrderedExtractors ??
-                        addonRegistry.RegisteredExtractors.OrderBy(e => e.AddonKey, StringComparer.Ordinal).ToList();
-                    for (int i = 0; i < extractors.Count; i++)
+                    for (int i = 0; i < activeExtractors.Count; i++)
                     {
-                        sb.Append("addon:").Append(extractors[i].AddonKey).Append("=;");
+                        sb.Append("addon:").Append(activeExtractors[i].AddonKey).Append("=;");
                     }
                 }
                 else
                 {
-                    var paExtractor = addonRegistry.PlayniteAchievementsExtractor ??
-                        addonRegistry.RegisteredExtractors.FirstOrDefault(e => e.AddonKey == "playnite_achievements" || e is PlayniteAchievementsExtractor);
-
-                    string? paHash = null;
-                    if (paExtractor != null)
+                    for (int i = 0; i < activeExtractors.Count; i++)
                     {
+                        var extractor = activeExtractors[i];
+                        string? achievementsStateHash = null;
                         try
                         {
-                            paHash = paExtractor.GetStateHash(game, userDataDir);
+                            achievementsStateHash = extractor.GetStateHash(game, userDataDir);
                         }
                         catch
                         {
-                            paHash = null;
+                            // Ignore failure to ensure hash calculation does not throw
                         }
-                    }
-
-                    bool hasValidPaHash = !string.IsNullOrEmpty(paHash);
-                    var extractors = addonRegistry.OrderedExtractors ??
-                        addonRegistry.RegisteredExtractors.OrderBy(e => e.AddonKey, StringComparer.Ordinal).ToList();
-                    var ssExtractor = addonRegistry.SuccessStoryExtractor;
-
-                    for (int i = 0; i < extractors.Count; i++)
-                    {
-                        var extractor = extractors[i];
-                        if (hasValidPaHash && (extractor == ssExtractor || extractor.AddonKey == "success_story" || extractor is SuccessStoryExtractor))
-                        {
-                            continue;
-                        }
-
-                        string? addonHash = null;
-                        if (extractor == paExtractor)
-                        {
-                            addonHash = paHash;
-                        }
-                        else
-                        {
-                            try
-                            {
-                                addonHash = extractor.GetStateHash(game, userDataDir);
-                            }
-                            catch
-                            {
-                                // Ignore failure to ensure hash calculation does not throw
-                            }
-                        }
-                        sb.Append("addon:").Append(extractor.AddonKey).Append('=').Append(addonHash).Append(';');
+                        sb.Append("addon:").Append(extractor.AddonKey).Append('=').Append(achievementsStateHash).Append(';');
                     }
                 }
             }

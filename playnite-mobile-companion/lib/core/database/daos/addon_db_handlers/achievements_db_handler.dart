@@ -1,18 +1,20 @@
 import 'package:sqflite/sqflite.dart';
 import 'package:playnite_mobile_companion/core/database/app_database.dart';
+import 'package:playnite_mobile_companion/core/utils/achievement_helper.dart';
 import 'package:playnite_mobile_companion/features/sync/domain/sync_models.dart';
 import 'i_addon_db_handler.dart';
 
-/// Database handler that unpacks achievements from 'achievements', 'playnite_achievements',
+/// Database handler that unpacks achievements from 'playnite_achievements', 'achievements',
 /// or 'success_story' into the relational `achievements` SQLite table.
 class AchievementsDbHandler implements IAddonDbHandler {
   @override
   String get addonKey => 'achievements';
 
   /// Addon keys that this handler recognizes for achievement payloads.
+  /// Prioritizes playnite_achievements over generic and legacy keys.
   static const List<String> supportedKeys = [
-    'achievements',
     'playnite_achievements',
+    'achievements',
     'success_story',
   ];
 
@@ -57,12 +59,7 @@ class AchievementsDbHandler implements IAddonDbHandler {
             item['icon_locked'] ??
             item['ImageLocked'] ??
             item['icon'])?.toString();
-        final isUnlocked = (item['unlocked'] == true ||
-            item['is_unlocked'] == true ||
-            item['unlocked'] == 1 ||
-            item['is_unlocked'] == 1 ||
-            item['unlocked'] == 'true' ||
-            item['is_unlocked'] == 'true');
+        final isUnlocked = AchievementHelper.isUnlocked(item);
         final rawDate = (item['date_unlocked_utc'] ??
             item['date_unlocked'] ??
             item['unlock_time_utc'])?.toString();

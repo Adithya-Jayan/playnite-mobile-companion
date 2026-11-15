@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:playnite_mobile_companion/core/config/app_theme.dart';
 import 'package:playnite_mobile_companion/core/ui/playnite_cached_image.dart';
+import 'package:playnite_mobile_companion/core/utils/achievement_helper.dart';
 import 'package:playnite_mobile_companion/features/sync/domain/sync_models.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 import '../i_addon_widget.dart';
@@ -17,15 +18,7 @@ List<Map<String, dynamic>> _extractAchievementsList(Map<String, dynamic> addonDa
   if (rawAchievements is! List) return <Map<String, dynamic>>[];
   return rawAchievements.whereType<Map<String, dynamic>>().map((raw) {
     final item = Map<String, dynamic>.from(raw);
-    final dt = item['date_unlocked_utc'] ?? item['date_unlocked'] ?? item['unlock_time_utc'];
-    final hasDate = dt != null && dt.toString().isNotEmpty;
-    final isExplicit = item['unlocked'] == true ||
-        item['is_unlocked'] == true ||
-        item['unlocked'] == 1 ||
-        item['is_unlocked'] == 1 ||
-        item['unlocked'] == 'true' ||
-        item['is_unlocked'] == 'true';
-    if (isExplicit || hasDate) {
+    if (AchievementHelper.isUnlocked(item)) {
       item['unlocked'] = true;
     }
     return item;
@@ -51,9 +44,10 @@ class AchievementsSection extends StatefulWidget implements IAddonSectionWidget 
   String get addonKey => _addonKey;
 
   /// Addon keys supported by achievements section.
+  /// Prioritizes playnite_achievements over generic and legacy keys.
   static const List<String> supportedKeys = [
-    'achievements',
     'playnite_achievements',
+    'achievements',
     'success_story',
   ];
 
@@ -102,18 +96,8 @@ class _AchievementsSectionWidgetState extends State<_AchievementsSectionWidget> 
   bool _showAll = false;
   AchievementSort _sortOrder = AchievementSort.alphabetical;
 
-  static bool _isAchievementUnlocked(Map<String, dynamic> a) {
-    if (a['unlocked'] == true ||
-        a['is_unlocked'] == true ||
-        a['unlocked'] == 1 ||
-        a['is_unlocked'] == 1 ||
-        a['unlocked'] == 'true' ||
-        a['is_unlocked'] == 'true') {
-      return true;
-    }
-    final dt = a['date_unlocked_utc'] ?? a['date_unlocked'] ?? a['unlock_time_utc'];
-    return dt != null && dt.toString().isNotEmpty;
-  }
+  static bool _isAchievementUnlocked(Map<String, dynamic> a) =>
+      AchievementHelper.isUnlocked(a);
 
   static double? _getAchievementPercent(Map<String, dynamic> a) {
     final raw = a['percent'] ?? a['rarity_percent'] ?? a['rarity_percentage'] ?? a['rarity'];

@@ -49,44 +49,90 @@ namespace PlayniteExporterPlugin.Addons
             successStoryExtractor = extractors.FirstOrDefault(e => e.AddonKey == "success_story" || e is SuccessStoryExtractor);
         }
 
+        /// <summary>
+        /// Returns the active extractors for the specified game in deterministic order.
+        /// When PlayniteAchievements has valid data or state for the game, SuccessStory is suppressed.
+        /// </summary>
+        public IReadOnlyList<IAddonDataExtractor> GetActiveExtractorsForGame(Game game, string userDataDir)
+        {
+            var playniteAchievementsExtractor = this.playniteAchievementsExtractor ??
+                extractors.FirstOrDefault(e => e.AddonKey == "playnite_achievements" || e is PlayniteAchievementsExtractor);
+            var successStoryExtractor = this.successStoryExtractor ??
+                extractors.FirstOrDefault(e => e.AddonKey == "success_story" || e is SuccessStoryExtractor);
+
+            bool playniteAchievementsActive = false;
+            if (playniteAchievementsExtractor != null)
+            {
+                try
+                {
+                    var achievementsStateHash = playniteAchievementsExtractor.GetStateHash(game, userDataDir);
+                    playniteAchievementsActive = !string.IsNullOrEmpty(achievementsStateHash);
+                }
+                catch
+                {
+                    playniteAchievementsActive = false;
+                }
+            }
+
+            var allExtractors = orderedExtractors.Count > 0
+                ? orderedExtractors
+                : extractors.OrderBy(e => e.AddonKey, StringComparer.Ordinal).ToArray();
+
+            var active = new List<IAddonDataExtractor>();
+            foreach (var extractor in allExtractors)
+            {
+                if (playniteAchievementsActive && (extractor == successStoryExtractor || extractor.AddonKey == "success_story" || extractor is SuccessStoryExtractor))
+                {
+                    continue; // Suppressed by PlayniteAchievements
+                }
+
+                active.Add(extractor);
+            }
+
+            return active.AsReadOnly();
+        }
+
         public async Task<Dictionary<string, object?>> ExtractAllAsync(Game game, string userDataDir)
         {
             var results = new Dictionary<string, object?>();
 
             // Prioritize PlayniteAchievements over SuccessStory:
             // Check if PlayniteAchievements extractor exists and has valid data for this game first.
-            var paExtractor = playniteAchievementsExtractor ?? extractors.FirstOrDefault(e => e.AddonKey == "playnite_achievements" || e is PlayniteAchievementsExtractor);
-            bool paHasValidData = false;
+            var playniteAchievementsExtractor = this.playniteAchievementsExtractor ??
+                extractors.FirstOrDefault(e => e.AddonKey == "playnite_achievements" || e is PlayniteAchievementsExtractor);
+            var successStoryExtractor = this.successStoryExtractor ??
+                extractors.FirstOrDefault(e => e.AddonKey == "success_story" || e is SuccessStoryExtractor);
+            bool playniteAchievementsHasValidData = false;
 
-            if (paExtractor != null)
+            if (playniteAchievementsExtractor != null)
             {
                 try
                 {
-                    if (paExtractor.IsDataAvailable(userDataDir))
+                    if (playniteAchievementsExtractor.IsDataAvailable(userDataDir))
                     {
-                        var paData = await paExtractor.ExtractDataAsync(game, userDataDir);
-                        if (paData != null)
+                        var data = await playniteAchievementsExtractor.ExtractDataAsync(game, userDataDir);
+                        if (data != null)
                         {
-                            results[paExtractor.AddonKey] = paData;
-                            paHasValidData = true;
+                            results[playniteAchievementsExtractor.AddonKey] = data;
+                            playniteAchievementsHasValidData = true;
                         }
                     }
                 }
                 catch (Exception ex)
                 {
-                    Logger.Warn(ex, $"Failed extracting addon data '{paExtractor.DisplayName}' for game '{game.Name}' ({game.Id}). Skipping addon.");
+                    Logger.Warn(ex, $"Failed extracting addon data '{playniteAchievementsExtractor.DisplayName}' for game '{game.Name}' ({game.Id}). Skipping addon.");
                 }
             }
 
             foreach (var extractor in extractors)
             {
-                if (extractor == paExtractor)
+                if (extractor == playniteAchievementsExtractor)
                 {
                     continue; // Already processed
                 }
 
                 // If playnite_achievements has valid data, do NOT extract or export success_story for this game
-                if (paHasValidData && (extractor == successStoryExtractor || extractor.AddonKey == "success_story" || extractor is SuccessStoryExtractor))
+                if (playniteAchievementsHasValidData && (extractor == successStoryExtractor || extractor.AddonKey == "success_story" || extractor is SuccessStoryExtractor))
                 {
                     continue;
                 }
@@ -111,7 +157,7 @@ namespace PlayniteExporterPlugin.Addons
             }
 
             // Post-condition safeguard: If playnite_achievements is present and non-null, remove success_story
-            if (results.TryGetValue("playnite_achievements", out var achievementsData) && achievementsData != null)
+            if (results.TryGetValue("playnite_achievements", out var finalAchievementsData) && finalAchievementsData != null)
             {
                 results.Remove("success_story");
             }

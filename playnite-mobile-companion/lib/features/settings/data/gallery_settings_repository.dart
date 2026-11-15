@@ -331,13 +331,23 @@ class GallerySettingsRepository {
     return const MediaTierSizes();
   }
 
-  Future<void> saveMediaTierSizes({
+  Future<void> saveMediaTierSizes(
+    MediaTierSizes sizes, {
     int? staticMediaBytes,
     int? coversAndFanartsBytes,
     int? microtrailersBytes,
-    required int completeOfflineBytes,
+    int? completeOfflineBytes,
   }) async {
-    final effectiveStaticBytes = staticMediaBytes ?? coversAndFanartsBytes ?? 0;
+    final effectiveStaticBytes = staticMediaBytes ??
+        coversAndFanartsBytes ??
+        sizes.staticMediaBytes ??
+        0;
+    final effectiveMicrotrailersBytes = microtrailersBytes ??
+        sizes.microtrailersBytes ??
+        0;
+    final effectiveCompleteOfflineBytes = completeOfflineBytes ??
+        sizes.completeOfflineBytes ??
+        0;
     try {
       await database.db.insert(
         'manifest_meta',
@@ -346,8 +356,8 @@ class GallerySettingsRepository {
           'value_json': jsonEncode({
             'static_media_bytes': effectiveStaticBytes,
             'covers_and_fanarts_bytes': effectiveStaticBytes,
-            'microtrailers_bytes': microtrailersBytes ?? 0,
-            'complete_offline_bytes': completeOfflineBytes,
+            'microtrailers_bytes': effectiveMicrotrailersBytes,
+            'complete_offline_bytes': effectiveCompleteOfflineBytes,
           }),
           'updated_utc': DateTime.now().toUtc().toIso8601String(),
         },
