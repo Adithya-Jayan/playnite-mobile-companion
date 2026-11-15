@@ -5,7 +5,7 @@ import 'package:playnite_mobile_companion/core/services/playnite_image_loader.da
 import 'package:playnite_mobile_companion/core/utils/duration_formatter.dart';
 import 'package:playnite_mobile_companion/features/settings/data/gallery_settings_repository.dart';
 import 'package:playnite_mobile_companion/features/sync/data/sync_config_repository.dart';
-import 'package:playnite_mobile_companion/features/sync/presentation/widgets/sync_dialog.dart';
+import 'package:playnite_mobile_companion/features/sync/presentation/sync_settings_screen.dart';
 
 class GallerySettingsScreen extends StatefulWidget {
   final AppDatabase database;
@@ -24,7 +24,6 @@ class GallerySettingsScreen extends StatefulWidget {
 class _GallerySettingsScreenState extends State<GallerySettingsScreen> {
   late final GallerySettingsRepository _repo;
   GallerySettings _settings = const GallerySettings();
-  MediaTierSizes _tierSizes = const MediaTierSizes();
   bool _isLoading = true;
   int _cachedCount = 0;
   int _cachedBytes = 0;
@@ -39,11 +38,9 @@ class _GallerySettingsScreenState extends State<GallerySettingsScreen> {
 
   Future<void> _loadSettings() async {
     final s = await _repo.loadSettings();
-    final sizes = await _repo.loadMediaTierSizes();
     if (mounted) {
       setState(() {
         _settings = s;
-        _tierSizes = sizes;
         _isLoading = false;
       });
     }
@@ -61,9 +58,6 @@ class _GallerySettingsScreenState extends State<GallerySettingsScreen> {
   }
 
   Future<void> _updateSettings(GallerySettings newSettings) async {
-    final oldTier = _settings.mediaStorageTier;
-    final newTier = newSettings.mediaStorageTier;
-
     setState(() => _settings = newSettings);
     await _repo.saveSettings(newSettings);
     try {
@@ -74,146 +68,6 @@ class _GallerySettingsScreenState extends State<GallerySettingsScreen> {
       }
     } catch (_) {}
     widget.onSettingsChanged?.call();
-
-    // Check tier transitions
-    if (oldTier != newTier) {
-      if (newTier == MediaStorageTier.cacheOnly && oldTier != MediaStorageTier.cacheOnly) {
-        // Ask the user before deleting previously downloaded media
-        if (mounted) {
-          await _promptClearCacheOnDowngrade();
-        }
-      } else if (newTier.index > oldTier.index) {
-        // Upgraded to an offline storage tier: Prompt user to run sync
-        if (mounted) {
-          _promptSyncForOfflineMedia(newTier);
-        }
-      }
-    }
-  }
-
-  Future<void> _promptClearCacheOnDowngrade() async {
-    final shouldClear = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: AppTheme.surface,
-        title: const Row(
-          children: [
-            Icon(Icons.cleaning_services_outlined, color: AppTheme.primaryLight),
-            SizedBox(width: 8),
-            Text('Free Up Storage Space?'),
-          ],
-        ),
-        content: const Text(
-          'You switched your storage tier back to "Cache Only".\n\n'
-          'Would you like to delete previously downloaded offline media to free up device space now, or keep them locally cached?\n\n'
-          '(You can always clear downloaded media at any time using the "Clear Media Cache" button below).',
-          style: TextStyle(color: AppTheme.textSecondary, fontSize: 14),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Keep Downloaded Media', style: TextStyle(color: Colors.white70)),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: AppTheme.accentRed),
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Clear & Free Up Space', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-          ),
-        ],
-      ),
-    );
-
-    if (shouldClear == true) {
-      await PlayniteImageLoader.instance.clearCache();
-      await _loadCacheMetrics();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Offline media cleaned up to save local storage.'),
-            backgroundColor: AppTheme.accentGreen,
-            duration: Duration(seconds: 3),
-          ),
-        );
-      }
-    }
-  }
-
-  String _getStaticMediaSizeLabel() {
-    if (_tierSizes.staticMediaBytes != null && _tierSizes.staticMediaBytes! > 0) {
-      return '~${DurationFormatter.formatBytes(_tierSizes.staticMediaBytes!)}';
-    }
-    return '~1.28 GB est.';
-  }
-
-  String _getStaticAndMicrotrailersSizeLabel() {
-    if (_tierSizes.staticAndMicrotrailersBytes != null && _tierSizes.staticAndMicrotrailersBytes! > 0) {
-      return '~${DurationFormatter.formatBytes(_tierSizes.staticAndMicrotrailersBytes!)}';
-    }
-    return '~1.8 GB est.';
-  }
-
-  String _getCompleteOfflineSizeLabel() {
-    if (_tierSizes.completeOfflineBytes != null && _tierSizes.completeOfflineBytes! > 0) {
-      return '~${DurationFormatter.formatBytes(_tierSizes.completeOfflineBytes!)}';
-    }
-    return '~3.5 GB est.';
-  }
-
-  void _promptSyncForOfflineMedia(MediaStorageTier tier) {
-    final String label;
-    switch (tier) {
-      case MediaStorageTier.cacheOnly:
-        return;
-      case MediaStorageTier.staticMedia:
-        label = 'Static Media (${_getStaticMediaSizeLabel()})';
-        break;
-      case MediaStorageTier.staticAndMicrotrailers:
-        label = 'Static Media & Microtrailers (${_getStaticAndMicrotrailersSizeLabel()})';
-        break;
-      case MediaStorageTier.completeOffline:
-        label = 'Complete Offline with Videos (${_getCompleteOfflineSizeLabel()})';
-        break;
-    }
-
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: AppTheme.surface,
-        title: const Row(
-          children: [
-            Icon(Icons.cloud_download, color: AppTheme.primaryLight),
-            SizedBox(width: 8),
-            Text('Pre-download Media?'),
-          ],
-        ),
-        content: Text(
-          'You enabled "$label".\n\n'
-          'Would you like to run a Sync now to pre-download all game media for offline browsing?',
-          style: const TextStyle(color: AppTheme.textSecondary, fontSize: 14),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('Later', style: TextStyle(color: AppTheme.textMuted)),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primary),
-            onPressed: () {
-              Navigator.of(ctx).pop();
-              showDialog(
-                context: context,
-                barrierDismissible: false,
-                builder: (_) => SyncDialog(database: widget.database),
-              ).then((_) {
-                _loadCacheMetrics();
-                _loadSettings();
-              });
-            },
-            child: const Text('Sync Now', style: TextStyle(color: Colors.white)),
-          ),
-        ],
-      ),
-    );
   }
 
   String _getScoreSourceSubtitle(RatingScoreSource source) {
@@ -226,19 +80,6 @@ class _GallerySettingsScreenState extends State<GallerySettingsScreen> {
         return 'Critic Score (Metacritic, OpenCritic)';
       case RatingScoreSource.user:
         return 'User Score (Personal library rating)';
-    }
-  }
-
-  String _getMediaStorageTierSubtitle(MediaStorageTier tier) {
-    switch (tier) {
-      case MediaStorageTier.cacheOnly:
-        return 'Cache Only (On-demand as you browse library - Default)';
-      case MediaStorageTier.staticMedia:
-        return 'Static Media (Covers & Fanarts) (${_getStaticMediaSizeLabel()})';
-      case MediaStorageTier.staticAndMicrotrailers:
-        return 'Static Media & Microtrailers (${_getStaticAndMicrotrailersSizeLabel()})';
-      case MediaStorageTier.completeOffline:
-        return 'Complete Offline with Videos (${_getCompleteOfflineSizeLabel()})';
     }
   }
 
@@ -515,66 +356,34 @@ class _GallerySettingsScreenState extends State<GallerySettingsScreen> {
                 ),
                 const SizedBox(height: 16),
 
-                // Media Storage & Offline Sync Section
+                // Media Storage & Offline Sync (Configured in Sync Settings)
                 Card(
                   color: AppTheme.surface,
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 8),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Padding(
-                          padding: EdgeInsets.fromLTRB(16, 8, 16, 4),
-                          child: Text(
-                            'Media Storage & Offline Sync',
-                            style: TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.bold,
-                              color: AppTheme.primaryLight,
-                            ),
-                          ),
-                        ),
-                        ListTile(
-                          title: const Text(
-                            'Media Storage Mode',
-                            style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: AppTheme.textPrimary),
-                          ),
-                          subtitle: Text(
-                            _getMediaStorageTierSubtitle(_settings.mediaStorageTier),
-                            style: const TextStyle(fontSize: 12, color: AppTheme.textMuted),
-                          ),
-                          trailing: DropdownButton<MediaStorageTier>(
-                            value: _settings.mediaStorageTier,
-                            dropdownColor: AppTheme.surfaceLight,
-                            underline: const SizedBox.shrink(),
-                            items: [
-                              const DropdownMenuItem(
-                                value: MediaStorageTier.cacheOnly,
-                                child: Text('Cache Only (On-demand)'),
-                              ),
-                              DropdownMenuItem(
-                                value: MediaStorageTier.staticMedia,
-                                child: Text('Static Media (${_getStaticMediaSizeLabel()})'),
-                              ),
-                              DropdownMenuItem(
-                                value: MediaStorageTier.staticAndMicrotrailers,
-                                child: Text('Static & Microtrailers (${_getStaticAndMicrotrailersSizeLabel()})'),
-                              ),
-                              DropdownMenuItem(
-                                value: MediaStorageTier.completeOffline,
-                                child: Text('Full with Videos (${_getCompleteOfflineSizeLabel()})'),
-                              ),
-                            ],
-                            onChanged: (val) {
-                              if (val != null) {
-                                _updateSettings(_settings.copyWith(mediaStorageTier: val));
-                              }
+                  child: ListTile(
+                    leading: const Icon(Icons.sync_outlined, color: AppTheme.primaryLight),
+                    title: const Text(
+                      'Media Storage & Offline Sync',
+                      style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: AppTheme.textPrimary),
+                    ),
+                    subtitle: const Text(
+                      'Media download policy is configured in Sync & Storage Settings',
+                      style: TextStyle(fontSize: 12, color: AppTheme.textMuted),
+                    ),
+                    trailing: const Icon(Icons.arrow_forward_ios, size: 14, color: AppTheme.textMuted),
+                    onTap: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => SyncSettingsScreen(
+                            database: widget.database,
+                            onSettingsChanged: () {
+                              _loadSettings();
+                              widget.onSettingsChanged?.call();
                             },
                           ),
                         ),
-                      ],
-                    ),
+                      );
+                    },
                   ),
                 ),
                 const SizedBox(height: 16),

@@ -8,6 +8,8 @@ import 'package:playnite_mobile_companion/core/database/daos/game_dao.dart';
 import 'package:playnite_mobile_companion/core/database/daos/sync_meta_dao.dart';
 import 'package:playnite_mobile_companion/core/network/google_drive_api_service.dart';
 import 'package:playnite_mobile_companion/core/services/background_sync_service.dart';
+import 'package:playnite_mobile_companion/core/services/playnite_image_loader.dart';
+import 'package:playnite_mobile_companion/core/utils/duration_formatter.dart';
 import 'package:playnite_mobile_companion/core/utils/media_url_resolver.dart';
 import 'package:playnite_mobile_companion/features/settings/data/gallery_settings_repository.dart';
 import 'package:playnite_mobile_companion/features/sync/data/demo_library_data.dart';
@@ -31,8 +33,11 @@ class SyncSettingsScreen extends StatefulWidget {
 
 class _SyncSettingsScreenState extends State<SyncSettingsScreen> {
   late final SyncConfigRepository _configRepo;
+  late final GallerySettingsRepository _galleryRepo;
 
   SyncConfiguration _config = const SyncConfiguration();
+  GallerySettings _gallerySettings = const GallerySettings();
+  MediaTierSizes _tierSizes = const MediaTierSizes();
   bool _isLoading = true;
   bool _isTesting = false;
   String? _testResultText;
@@ -58,6 +63,7 @@ class _SyncSettingsScreenState extends State<SyncSettingsScreen> {
   void initState() {
     super.initState();
     _configRepo = SyncConfigRepository(widget.database);
+    _galleryRepo = GallerySettingsRepository(widget.database);
     _loadSettings();
   }
 
@@ -76,10 +82,13 @@ class _SyncSettingsScreenState extends State<SyncSettingsScreen> {
   Future<void> _loadSettings() async {
     setState(() => _isLoading = true);
     final cfg = await _configRepo.loadConfig();
+    final galSettings = await _galleryRepo.loadSettings();
     final isIgnoringBattery = await BackgroundSyncService.isIgnoringBatteryOptimizations();
+
     if (mounted) {
       setState(() {
         _config = cfg;
+        _gallerySettings = galSettings;
         _folderNameController.text = cfg.googleDriveFolderName;
         _folderIdController.text = cfg.googleDriveFolderId;
         _clientIdController.text = cfg.googleClientId;
@@ -91,6 +100,13 @@ class _SyncSettingsScreenState extends State<SyncSettingsScreen> {
         _isLoading = false;
       });
     }
+
+    try {
+      final tierSizes = await _galleryRepo.loadMediaTierSizes();
+      if (mounted) {
+        setState(() => _tierSizes = tierSizes);
+      }
+    } catch (_) {}
   }
 
   Future<void> _checkBatteryStatus() async {
@@ -130,6 +146,7 @@ class _SyncSettingsScreenState extends State<SyncSettingsScreen> {
     );
 
     await _configRepo.saveConfig(updated);
+    await _galleryRepo.saveSettings(_gallerySettings);
     if (mounted) {
       setState(() => _config = updated);
       widget.onSettingsChanged?.call();
@@ -141,6 +158,156 @@ class _SyncSettingsScreenState extends State<SyncSettingsScreen> {
           ),
         );
       }
+    }
+  }
+
+  Future<void> _updateMediaStorageTier(MediaStorageTier newTier) async {
+    final oldTier = _gallerySettings.mediaStorageTier;
+    if (oldTier == newTier) return;
+
+    final updated = _gallerySettings.copyWith(mediaStorageTier: newTier);
+    setState(() => _gallerySettings = updated);
+    await _galleryRepo.saveSettings(updated);
+    widget.onSettingsChanged?.call();
+
+    // Check tier transitions
+    if (newTier == MediaStorageTier.cacheOnly && oldTier != MediaStorageTier.cacheOnly) {
+      if (mounted) {
+        _promptClearCacheOnDowngrade();
+      }
+    } else if (newTier.index > oldTier.index) {
+      if (mounted) {
+        _promptSyncForOfflineMedia(newTier);
+      }
+    }
+  }
+
+  void _promptClearCacheOnDowngrade() {
+    showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppTheme.surface,
+        title: const Row(
+          children: [
+            Icon(Icons.cleaning_services_outlined, color: AppTheme.primaryLight),
+            SizedBox(width: 8),
+            Text('Free Up Storage Space?'),
+          ],
+        ),
+        content: const Text(
+          'You switched your storage tier back to "Cache Only".\n\n'
+          'Would you like to delete previously downloaded offline media to free up device space now, or keep them locally cached?',
+          style: TextStyle(color: AppTheme.textSecondary, fontSize: 14),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Keep Downloaded Media', style: TextStyle(color: Colors.white70)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: AppTheme.accentRed),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Clear & Free Up Space', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    ).then((shouldClear) async {
+      if (shouldClear == true) {
+        await PlayniteImageLoader.instance.clearCache();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Offline media cleaned up to save local storage.'),
+              backgroundColor: AppTheme.accentGreen,
+              duration: Duration(seconds: 3),
+            ),
+          );
+        }
+      }
+    });
+  }
+
+  String _getStaticMediaSizeLabel() {
+    if (_tierSizes.staticMediaBytes != null && _tierSizes.staticMediaBytes! > 0) {
+      return '~${DurationFormatter.formatBytes(_tierSizes.staticMediaBytes!)}';
+    }
+    return '~1.28 GB est.';
+  }
+
+  String _getStaticAndMicrotrailersSizeLabel() {
+    if (_tierSizes.staticAndMicrotrailersBytes != null && _tierSizes.staticAndMicrotrailersBytes! > 0) {
+      return '~${DurationFormatter.formatBytes(_tierSizes.staticAndMicrotrailersBytes!)}';
+    }
+    return '~1.8 GB est.';
+  }
+
+  String _getCompleteOfflineSizeLabel() {
+    if (_tierSizes.completeOfflineBytes != null && _tierSizes.completeOfflineBytes! > 0) {
+      return '~${DurationFormatter.formatBytes(_tierSizes.completeOfflineBytes!)}';
+    }
+    return '~3.5 GB est.';
+  }
+
+  void _promptSyncForOfflineMedia(MediaStorageTier tier) {
+    final String label;
+    switch (tier) {
+      case MediaStorageTier.cacheOnly:
+        return;
+      case MediaStorageTier.staticMedia:
+        label = 'Static Media (${_getStaticMediaSizeLabel()})';
+        break;
+      case MediaStorageTier.staticAndMicrotrailers:
+        label = 'Static Media + Microtrailers (${_getStaticAndMicrotrailersSizeLabel()})';
+        break;
+      case MediaStorageTier.completeOffline:
+        label = 'Full Offline (${_getCompleteOfflineSizeLabel()})';
+        break;
+    }
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppTheme.surface,
+        title: const Row(
+          children: [
+            Icon(Icons.cloud_download, color: AppTheme.primaryLight),
+            SizedBox(width: 8),
+            Text('Pre-download Media?'),
+          ],
+        ),
+        content: Text(
+          'You enabled "$label".\n\n'
+          'Would you like to run a Sync now to pre-download all game media for offline browsing?',
+          style: const TextStyle(color: AppTheme.textSecondary, fontSize: 14),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Later', style: TextStyle(color: AppTheme.textMuted)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primary),
+            onPressed: () {
+              Navigator.of(ctx).pop();
+              _openSyncDialog();
+            },
+            child: const Text('Sync Now', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _getMediaStorageTierSubtitle(MediaStorageTier tier) {
+    switch (tier) {
+      case MediaStorageTier.cacheOnly:
+        return 'Cache Only (On-demand as you browse library - Default)';
+      case MediaStorageTier.staticMedia:
+        return 'Static Media (Covers, Backgrounds, Logos, Banners - ${_getStaticMediaSizeLabel()})';
+      case MediaStorageTier.staticAndMicrotrailers:
+        return 'Static Media + Microtrailers (Static art + 6s preview clips - ${_getStaticAndMicrotrailersSizeLabel()})';
+      case MediaStorageTier.completeOffline:
+        return 'Full Offline (Everything including heavy full trailers - ${_getCompleteOfflineSizeLabel()})';
     }
   }
 
@@ -567,8 +734,12 @@ class _SyncSettingsScreenState extends State<SyncSettingsScreen> {
           _buildBackgroundSyncCard(),
           const SizedBox(height: 20),
 
-          // Section: Media / Preferences
+          // Section 7: Media / Preferences
           _buildMediaPreferencesCard(),
+          const SizedBox(height: 20),
+
+          // Section 8: Media Storage & Offline Sync
+          _buildMediaStorageSection(),
           const SizedBox(height: 20),
 
           // Section 7: Sync Action & Maintenance
@@ -1461,6 +1632,65 @@ class _SyncSettingsScreenState extends State<SyncSettingsScreen> {
                 ],
               ),
             ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildMediaStorageSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Media Storage & Offline Sync',
+          style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppTheme.textPrimary),
+        ),
+        const SizedBox(height: 8),
+        Container(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          decoration: BoxDecoration(
+            color: AppTheme.surface,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: ListTile(
+            title: const Text(
+              'Media Storage Mode',
+              style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: AppTheme.textPrimary),
+            ),
+            subtitle: Text(
+              _getMediaStorageTierSubtitle(_gallerySettings.mediaStorageTier),
+              style: const TextStyle(fontSize: 12, color: AppTheme.textMuted),
+            ),
+            trailing: DropdownButton<MediaStorageTier>(
+              key: const Key('dropdown_mediaStorageTier'),
+              value: _gallerySettings.mediaStorageTier,
+              dropdownColor: AppTheme.surfaceLight,
+              underline: const SizedBox.shrink(),
+              items: [
+                const DropdownMenuItem(
+                  value: MediaStorageTier.cacheOnly,
+                  child: Text('Cache Only (On-demand)'),
+                ),
+                DropdownMenuItem(
+                  value: MediaStorageTier.staticMedia,
+                  child: Text('Static Media (${_getStaticMediaSizeLabel()})'),
+                ),
+                DropdownMenuItem(
+                  value: MediaStorageTier.staticAndMicrotrailers,
+                  child: Text('Static Media + Microtrailers (${_getStaticAndMicrotrailersSizeLabel()})'),
+                ),
+                DropdownMenuItem(
+                  value: MediaStorageTier.completeOffline,
+                  child: Text('Full Offline (${_getCompleteOfflineSizeLabel()})'),
+                ),
+              ],
+              onChanged: (val) {
+                if (val != null) {
+                  _updateMediaStorageTier(val);
+                }
+              },
+            ),
           ),
         ),
       ],
