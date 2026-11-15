@@ -51,14 +51,38 @@ class AddonSectionRegistry {
     initDefaults();
     final widgets = <Widget>[];
 
+    // Determine prioritized achievement key if any exists in game.addons
+    String? prioritizedAchievementKey;
+    for (final key in AchievementsSection.supportedKeys) {
+      if (game.addons.containsKey(key)) {
+        prioritizedAchievementKey = key;
+        break;
+      }
+    }
+
     // 1. Sort registered sections by their displayOrder
     final sortedSections = _registry.values.toList()
-      ..sort((a, b) => a.displayOrder.compareTo(b.displayOrder));
+      ..sort((a, b) {
+        final cmp = a.displayOrder.compareTo(b.displayOrder);
+        if (cmp != 0) return cmp;
+        if (a is AchievementsSection && b is AchievementsSection) {
+          final idxA = AchievementsSection.supportedKeys.indexOf(a.addonKey);
+          final idxB = AchievementsSection.supportedKeys.indexOf(b.addonKey);
+          return idxA.compareTo(idxB);
+        }
+        return 0;
+      });
 
     bool achievementsRendered = false;
     for (final section in sortedSections) {
-      if (section is AchievementsSection && achievementsRendered) {
-        continue;
+      if (section is AchievementsSection) {
+        if (achievementsRendered) {
+          continue;
+        }
+        // If an achievement addon is prioritized, do not evaluate lower-priority achievement addons
+        if (prioritizedAchievementKey != null && section.addonKey != prioritizedAchievementKey) {
+          continue;
+        }
       }
       if (game.addons.containsKey(section.addonKey)) {
         final data = game.addons[section.addonKey];

@@ -138,11 +138,18 @@ class _GallerySettingsScreenState extends State<GallerySettingsScreen> {
     }
   }
 
-  String _getCoversAndFanartsSizeLabel() {
-    if (_tierSizes.coversAndFanartsBytes != null && _tierSizes.coversAndFanartsBytes! > 0) {
-      return '~${DurationFormatter.formatBytes(_tierSizes.coversAndFanartsBytes!)}';
+  String _getStaticMediaSizeLabel() {
+    if (_tierSizes.staticMediaBytes != null && _tierSizes.staticMediaBytes! > 0) {
+      return '~${DurationFormatter.formatBytes(_tierSizes.staticMediaBytes!)}';
     }
     return '~1.28 GB est.';
+  }
+
+  String _getStaticAndMicrotrailersSizeLabel() {
+    if (_tierSizes.staticAndMicrotrailersBytes != null && _tierSizes.staticAndMicrotrailersBytes! > 0) {
+      return '~${DurationFormatter.formatBytes(_tierSizes.staticAndMicrotrailersBytes!)}';
+    }
+    return '~1.8 GB est.';
   }
 
   String _getCompleteOfflineSizeLabel() {
@@ -153,9 +160,20 @@ class _GallerySettingsScreenState extends State<GallerySettingsScreen> {
   }
 
   void _promptSyncForOfflineMedia(MediaStorageTier tier) {
-    final label = tier == MediaStorageTier.completeOffline
-        ? 'Complete Offline with Videos (${_getCompleteOfflineSizeLabel()})'
-        : 'Full Offline Covers & Fanarts (${_getCoversAndFanartsSizeLabel()})';
+    final String label;
+    switch (tier) {
+      case MediaStorageTier.cacheOnly:
+        return;
+      case MediaStorageTier.staticMedia:
+        label = 'Static Media (${_getStaticMediaSizeLabel()})';
+        break;
+      case MediaStorageTier.staticAndMicrotrailers:
+        label = 'Static Media & Microtrailers (${_getStaticAndMicrotrailersSizeLabel()})';
+        break;
+      case MediaStorageTier.completeOffline:
+        label = 'Complete Offline with Videos (${_getCompleteOfflineSizeLabel()})';
+        break;
+    }
 
     showDialog(
       context: context,
@@ -215,8 +233,10 @@ class _GallerySettingsScreenState extends State<GallerySettingsScreen> {
     switch (tier) {
       case MediaStorageTier.cacheOnly:
         return 'Cache Only (On-demand as you browse library - Default)';
-      case MediaStorageTier.coversAndFanarts:
-        return 'Full Offline Covers & Fanarts (${_getCoversAndFanartsSizeLabel()})';
+      case MediaStorageTier.staticMedia:
+        return 'Static Media (Covers & Fanarts) (${_getStaticMediaSizeLabel()})';
+      case MediaStorageTier.staticAndMicrotrailers:
+        return 'Static Media & Microtrailers (${_getStaticAndMicrotrailersSizeLabel()})';
       case MediaStorageTier.completeOffline:
         return 'Complete Offline with Videos (${_getCompleteOfflineSizeLabel()})';
     }
@@ -534,8 +554,12 @@ class _GallerySettingsScreenState extends State<GallerySettingsScreen> {
                                 child: Text('Cache Only (On-demand)'),
                               ),
                               DropdownMenuItem(
-                                value: MediaStorageTier.coversAndFanarts,
-                                child: Text('Covers & Fanarts (${_getCoversAndFanartsSizeLabel()})'),
+                                value: MediaStorageTier.staticMedia,
+                                child: Text('Static Media (${_getStaticMediaSizeLabel()})'),
+                              ),
+                              DropdownMenuItem(
+                                value: MediaStorageTier.staticAndMicrotrailers,
+                                child: Text('Static & Microtrailers (${_getStaticAndMicrotrailersSizeLabel()})'),
                               ),
                               DropdownMenuItem(
                                 value: MediaStorageTier.completeOffline,

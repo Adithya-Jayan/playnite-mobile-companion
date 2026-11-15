@@ -590,6 +590,15 @@ void main() {
             mimeType: 'video/mp4',
             category: 'microtrailer',
           ),
+          'media/trailers/g1_trailer.mp4': IndexEntry(
+            relativePath: 'media/trailers/g1_trailer.mp4',
+            sha256: 'sha-trailer1',
+            sizeBytes: 15000000,
+            modifiedUtc: '2026-10-18T12:00:00Z',
+            driveFileId: 'id-trailer1',
+            mimeType: 'video/mp4',
+            category: 'trailer',
+          ),
         },
       );
 
@@ -604,24 +613,59 @@ void main() {
       expect(cacheOnlyDiff.toDownload.length, equals(2));
       expect(cacheOnlyDiff.toDownload.map((e) => e.relativePath).toSet(), equals({'manifest.json', 'games/g1.json'}));
 
-      // 2. Covers & Fanarts: Manifest, game metadata, cover, background (videos excluded)
-      final coversDiff = pullManager.computeDiff(
+      // 2. Static Media: Manifest, game metadata, cover, background (videos excluded)
+      final staticDiff = pullManager.computeDiff(
         remoteIndex,
         emptyLocal,
+        mediaTier: MediaStorageTier.staticMedia,
+      );
+      expect(staticDiff.toDownload.length, equals(4));
+      expect(staticDiff.toDownload.map((e) => e.relativePath).toSet(), containsAll({'manifest.json', 'games/g1.json', 'media/covers/cover1.jpg', 'media/backgrounds/bg1.jpg'}));
+      expect(staticDiff.toDownload.map((e) => e.relativePath).contains('media/microtrailers/g1.mp4'), isFalse);
+      expect(staticDiff.toDownload.map((e) => e.relativePath).contains('media/trailers/g1_trailer.mp4'), isFalse);
+
+      // Backwards-compatible coversAndFanarts behaves identically to staticMedia
+      // ignore: deprecated_member_use_from_same_package
+      final legacyCoversDiff = pullManager.computeDiff(
+        remoteIndex,
+        emptyLocal,
+        // ignore: deprecated_member_use_from_same_package
         mediaTier: MediaStorageTier.coversAndFanarts,
       );
-      expect(coversDiff.toDownload.length, equals(4));
-      expect(coversDiff.toDownload.map((e) => e.relativePath).toSet(), containsAll({'manifest.json', 'games/g1.json', 'media/covers/cover1.jpg', 'media/backgrounds/bg1.jpg'}));
-      expect(coversDiff.toDownload.map((e) => e.relativePath).contains('media/microtrailers/g1.mp4'), isFalse);
+      expect(legacyCoversDiff.toDownload.length, equals(4));
+      expect(legacyCoversDiff.toDownload.map((e) => e.relativePath).toSet(), containsAll({'manifest.json', 'games/g1.json', 'media/covers/cover1.jpg', 'media/backgrounds/bg1.jpg'}));
 
-      // 3. Complete Offline with Videos: All entries included
+      // 3. Static & Microtrailers: Manifest, game metadata, cover, background, AND microtrailer (full trailer excluded)
+      final staticAndMicroDiff = pullManager.computeDiff(
+        remoteIndex,
+        emptyLocal,
+        mediaTier: MediaStorageTier.staticAndMicrotrailers,
+      );
+      expect(staticAndMicroDiff.toDownload.length, equals(5));
+      expect(staticAndMicroDiff.toDownload.map((e) => e.relativePath).toSet(), containsAll({
+        'manifest.json',
+        'games/g1.json',
+        'media/covers/cover1.jpg',
+        'media/backgrounds/bg1.jpg',
+        'media/microtrailers/g1.mp4',
+      }));
+      expect(staticAndMicroDiff.toDownload.map((e) => e.relativePath).contains('media/trailers/g1_trailer.mp4'), isFalse);
+
+      // 4. Complete Offline with Videos: All entries included (including trailers)
       final completeDiff = pullManager.computeDiff(
         remoteIndex,
         emptyLocal,
         mediaTier: MediaStorageTier.completeOffline,
       );
-      expect(completeDiff.toDownload.length, equals(5));
-      expect(completeDiff.toDownload.map((e) => e.relativePath).toSet(), containsAll({'manifest.json', 'games/g1.json', 'media/covers/cover1.jpg', 'media/backgrounds/bg1.jpg', 'media/microtrailers/g1.mp4'}));
+      expect(completeDiff.toDownload.length, equals(6));
+      expect(completeDiff.toDownload.map((e) => e.relativePath).toSet(), containsAll({
+        'manifest.json',
+        'games/g1.json',
+        'media/covers/cover1.jpg',
+        'media/backgrounds/bg1.jpg',
+        'media/microtrailers/g1.mp4',
+        'media/trailers/g1_trailer.mp4',
+      }));
     });
 
     test('PlayniteImageLoader prioritizes Detail View requests and saves to cache', () async {
@@ -693,11 +737,20 @@ void main() {
           'media/microtrailers/g1.mp4': IndexEntry(
             relativePath: 'media/microtrailers/g1.mp4',
             sha256: 'sha-v1',
-            sizeBytes: 2550000, // ~2.55 MB video
+            sizeBytes: 2550000, // ~2.55 MB microtrailer
             modifiedUtc: '2026-10-18T12:00:00Z',
             driveFileId: 'id-v1',
             mimeType: 'video/mp4',
             category: 'microtrailer',
+          ),
+          'media/trailers/g1.mp4': IndexEntry(
+            relativePath: 'media/trailers/g1.mp4',
+            sha256: 'sha-tr1',
+            sizeBytes: 10000000, // 10 MB full trailer
+            modifiedUtc: '2026-10-18T12:00:00Z',
+            driveFileId: 'id-tr1',
+            mimeType: 'video/mp4',
+            category: 'trailer',
           ),
         },
       );
@@ -723,10 +776,30 @@ void main() {
       final tierSizes = await repo.loadMediaTierSizes();
 
       expect(tierSizes.hasData, isTrue);
-      // coversAndFanarts should ONLY include image media (cover = 500000 bytes)
+      // staticMediaBytes (and legacy coversAndFanartsBytes) includes only static image media (500000 bytes)
+      expect(tierSizes.staticMediaBytes, equals(500000));
       expect(tierSizes.coversAndFanartsBytes, equals(500000));
-      // completeOffline should include both image and video (500000 + 2550000 = 3050000 bytes)
-      expect(tierSizes.completeOfflineBytes, equals(3050000));
+      // microtrailersBytes includes only microtrailers (2550000 bytes)
+      expect(tierSizes.microtrailersBytes, equals(2550000));
+      // staticAndMicrotrailersBytes = 500000 + 2550000 = 3050000 bytes
+      expect(tierSizes.staticAndMicrotrailersBytes, equals(3050000));
+      // completeOffline includes static + microtrailers + full trailers (500000 + 2550000 + 10000000 = 13050000 bytes)
+      expect(tierSizes.completeOfflineBytes, equals(13050000));
+    });
+
+    test('GallerySettings serializes and deserializes 4 storage tiers with legacy coversAndFanarts fallback', () {
+      // Test legacy parsing
+      final legacy = GallerySettings.fromJson({'mediaStorageTier': 'coversAndFanarts'});
+      expect(legacy.mediaStorageTier, equals(MediaStorageTier.staticMedia));
+
+      // Test all 4 canonical tiers
+      for (final tier in MediaStorageTier.values) {
+        final settings = GallerySettings(mediaStorageTier: tier);
+        final json = settings.toJson();
+        expect(json['mediaStorageTier'], equals(tier.name));
+        final restored = GallerySettings.fromJson(json);
+        expect(restored.mediaStorageTier, equals(tier));
+      }
     });
   });
 }

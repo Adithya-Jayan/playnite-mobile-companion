@@ -14,9 +14,22 @@ enum AchievementSort {
 
 List<Map<String, dynamic>> _extractAchievementsList(Map<String, dynamic> addonData) {
   final rawAchievements = addonData['items'] ?? addonData['achievements'];
-  return (rawAchievements is List)
-      ? rawAchievements.whereType<Map<String, dynamic>>().toList()
-      : <Map<String, dynamic>>[];
+  if (rawAchievements is! List) return <Map<String, dynamic>>[];
+  return rawAchievements.whereType<Map<String, dynamic>>().map((raw) {
+    final item = Map<String, dynamic>.from(raw);
+    final dt = item['date_unlocked_utc'] ?? item['date_unlocked'] ?? item['unlock_time_utc'];
+    final hasDate = dt != null && dt.toString().isNotEmpty;
+    final isExplicit = item['unlocked'] == true ||
+        item['is_unlocked'] == true ||
+        item['unlocked'] == 1 ||
+        item['is_unlocked'] == 1 ||
+        item['unlocked'] == 'true' ||
+        item['is_unlocked'] == 'true';
+    if (isExplicit || hasDate) {
+      item['unlocked'] = true;
+    }
+    return item;
+  }).toList();
 }
 
 int _extractTotalAchievements(Map<String, dynamic> addonData, int fallbackLength) {
@@ -31,7 +44,7 @@ class AchievementsSection extends StatefulWidget implements IAddonSectionWidget 
 
   const AchievementsSection({
     super.key,
-    String addonKey = 'success_story',
+    String addonKey = 'playnite_achievements',
   }) : _addonKey = addonKey;
 
   @override
@@ -40,8 +53,8 @@ class AchievementsSection extends StatefulWidget implements IAddonSectionWidget 
   /// Addon keys supported by achievements section.
   static const List<String> supportedKeys = [
     'achievements',
-    'success_story',
     'playnite_achievements',
+    'success_story',
   ];
 
   @override
@@ -90,7 +103,14 @@ class _AchievementsSectionWidgetState extends State<_AchievementsSectionWidget> 
   AchievementSort _sortOrder = AchievementSort.alphabetical;
 
   static bool _isAchievementUnlocked(Map<String, dynamic> a) {
-    if (a['unlocked'] == true || a['is_unlocked'] == true) return true;
+    if (a['unlocked'] == true ||
+        a['is_unlocked'] == true ||
+        a['unlocked'] == 1 ||
+        a['is_unlocked'] == 1 ||
+        a['unlocked'] == 'true' ||
+        a['is_unlocked'] == 'true') {
+      return true;
+    }
     final dt = a['date_unlocked_utc'] ?? a['date_unlocked'] ?? a['unlock_time_utc'];
     return dt != null && dt.toString().isNotEmpty;
   }

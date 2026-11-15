@@ -13,9 +13,13 @@ enum RatingScoreSource {
 
 /// Offline media storage tiers for covers, fanarts, and microtrailers.
 enum MediaStorageTier {
-  cacheOnly,        // Cache Only (On-demand as items are viewed) - DEFAULT
-  coversAndFanarts, // Full Offline Covers & Fanarts (~1.28 GB)
-  completeOffline,  // Complete Offline with Videos (~3.5 GB)
+  cacheOnly,               // Cache Only (On-demand as items are viewed) - DEFAULT
+  staticMedia,             // Static Media (Covers, backgrounds, icons, logos)
+  staticAndMicrotrailers,  // Static Media + Microtrailers (Excludes heavy trailers)
+  completeOffline;         // Complete Offline with All Media & Videos
+
+  @Deprecated('Use staticMedia instead')
+  static const MediaStorageTier coversAndFanarts = MediaStorageTier.staticMedia;
 }
 
 /// Supported sources for video playback and fallback priority resolution.
@@ -140,10 +144,12 @@ class GallerySettings {
     );
 
     final tierName = json['mediaStorageTier'] as String?;
-    final mediaTier = MediaStorageTier.values.firstWhere(
-      (e) => e.name == tierName,
-      orElse: () => MediaStorageTier.cacheOnly,
-    );
+    final mediaTier = tierName == 'coversAndFanarts'
+        ? MediaStorageTier.staticMedia
+        : MediaStorageTier.values.firstWhere(
+            (e) => e.name == tierName,
+            orElse: () => MediaStorageTier.cacheOnly,
+          );
 
     final legacyShowHidden = json['showHiddenGames'] as bool? ?? false;
     final includeUserHidden = json['includeUserHiddenGames'] as bool? ?? legacyShowHidden;
@@ -228,16 +234,29 @@ class GallerySettings {
 
 /// Aggregated byte sizes of media tiers computed dynamically from sync metadata.
 class MediaTierSizes {
-  final int? coversAndFanartsBytes;
+  final int? staticMediaBytes;
+  final int? microtrailersBytes;
   final int? completeOfflineBytes;
 
   const MediaTierSizes({
-    this.coversAndFanartsBytes,
+    int? staticMediaBytes,
+    this.microtrailersBytes,
     this.completeOfflineBytes,
-  });
+    int? coversAndFanartsBytes,
+  }) : staticMediaBytes = staticMediaBytes ?? coversAndFanartsBytes;
+
+  /// Backwards-compatible getter for legacy code/tests expecting coversAndFanartsBytes.
+  int? get coversAndFanartsBytes => staticMediaBytes;
+
+  /// Total bytes for static media plus microtrailers tier.
+  int? get staticAndMicrotrailersBytes {
+    if (staticMediaBytes == null && microtrailersBytes == null) return null;
+    return (staticMediaBytes ?? 0) + (microtrailersBytes ?? 0);
+  }
 
   bool get hasData =>
-      (coversAndFanartsBytes != null && coversAndFanartsBytes! > 0) ||
+      (staticMediaBytes != null && staticMediaBytes! > 0) ||
+      (microtrailersBytes != null && microtrailersBytes! > 0) ||
       (completeOfflineBytes != null && completeOfflineBytes! > 0);
 }
 
@@ -298,8 +317,11 @@ class GallerySettingsRepository {
       if (results.isNotEmpty) {
         final jsonText = results.first['value_json'] as String;
         final json = jsonDecode(jsonText) as Map<String, dynamic>;
+        final staticBytes = (json['static_media_bytes'] as num?)?.toInt() ??
+            (json['covers_and_fanarts_bytes'] as num?)?.toInt();
         return MediaTierSizes(
-          coversAndFanartsBytes: (json['covers_and_fanarts_bytes'] as num?)?.toInt(),
+          staticMediaBytes: staticBytes,
+          microtrailersBytes: (json['microtrailers_bytes'] as num?)?.toInt(),
           completeOfflineBytes: (json['complete_offline_bytes'] as num?)?.toInt(),
         );
       }
@@ -310,16 +332,21 @@ class GallerySettingsRepository {
   }
 
   Future<void> saveMediaTierSizes({
-    required int coversAndFanartsBytes,
+    int? staticMediaBytes,
+    int? coversAndFanartsBytes,
+    int? microtrailersBytes,
     required int completeOfflineBytes,
   }) async {
+    final effectiveStaticBytes = staticMediaBytes ?? coversAndFanartsBytes ?? 0;
     try {
       await database.db.insert(
         'manifest_meta',
         {
           'key': _tierSizesKey,
           'value_json': jsonEncode({
-            'covers_and_fanarts_bytes': coversAndFanartsBytes,
+            'static_media_bytes': effectiveStaticBytes,
+            'covers_and_fanarts_bytes': effectiveStaticBytes,
+            'microtrailers_bytes': microtrailersBytes ?? 0,
             'complete_offline_bytes': completeOfflineBytes,
           }),
           'updated_utc': DateTime.now().toUtc().toIso8601String(),

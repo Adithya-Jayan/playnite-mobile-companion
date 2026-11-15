@@ -45,11 +45,20 @@ class DeltaPullManager {
     final toDownload = <IndexEntry>[];
     var totalBytes = 0;
 
+    bool isMicrotrailerEntry(IndexEntry entry) {
+      final cat = AppConstants.normalizeCategory(entry.category);
+      final path = entry.relativePath.toLowerCase();
+      return cat == AppConstants.categoryMicrotrailer ||
+          cat == 'microtrailers' ||
+          cat == 'media_microtrailer' ||
+          path.contains('/microtrailers/');
+    }
+
     bool isVideoEntry(IndexEntry entry) {
       final cat = AppConstants.normalizeCategory(entry.category);
       final path = entry.relativePath.toLowerCase();
       return AppConstants.isVideoCategory(cat) ||
-          path.contains('/microtrailers/') ||
+          isMicrotrailerEntry(entry) ||
           path.contains('/trailers/') ||
           path.endsWith('.mp4') ||
           path.endsWith('.webm') ||
@@ -72,8 +81,12 @@ class DeltaPullManager {
 
       if (!isMedia) return false;
 
-      if (mediaTier == MediaStorageTier.coversAndFanarts) {
+      if (mediaTier == MediaStorageTier.staticMedia) {
         return !isVideoEntry(entry);
+      }
+
+      if (mediaTier == MediaStorageTier.staticAndMicrotrailers) {
+        return !isVideoEntry(entry) || isMicrotrailerEntry(entry);
       }
 
       if (mediaTier == MediaStorageTier.completeOffline) {
@@ -557,14 +570,21 @@ class DeltaPullManager {
   /// Automatically aggregates and records total byte sizes for offline media tiers into manifest_meta.
   Future<void> _recordMediaTierSizes(SyncIndex remoteIndex) async {
     try {
-      int coversAndFanartsBytes = 0;
+      int staticMediaBytes = 0;
+      int microtrailersBytes = 0;
       int completeOfflineBytes = 0;
 
       for (final entry in remoteIndex.entries.values) {
         final cat = AppConstants.normalizeCategory(entry.category);
         final path = entry.relativePath.toLowerCase();
+        final isMicrotrailer = cat == AppConstants.categoryMicrotrailer ||
+            cat == 'microtrailers' ||
+            cat == 'media_microtrailer' ||
+            path.contains('/microtrailers/');
         final isVideo = AppConstants.isVideoCategory(cat) ||
+            isMicrotrailer ||
             entry.mimeType.startsWith('video/') ||
+            path.contains('/trailers/') ||
             path.endsWith('.mp4') ||
             path.endsWith('.webm') ||
             path.endsWith('.mkv');
@@ -575,22 +595,17 @@ class DeltaPullManager {
         if (isMedia) {
           completeOfflineBytes += entry.sizeBytes;
           if (!isVideo) {
-            coversAndFanartsBytes += entry.sizeBytes;
+            staticMediaBytes += entry.sizeBytes;
+          } else if (isMicrotrailer) {
+            microtrailersBytes += entry.sizeBytes;
           }
         }
       }
 
-      await database.db.insert(
-        'manifest_meta',
-        {
-          'key': 'media_tier_sizes',
-          'value_json': jsonEncode({
-            'covers_and_fanarts_bytes': coversAndFanartsBytes,
-            'complete_offline_bytes': completeOfflineBytes,
-          }),
-          'updated_utc': DateTime.now().toUtc().toIso8601String(),
-        },
-        conflictAlgorithm: ConflictAlgorithm.replace,
+      await GallerySettingsRepository(database).saveMediaTierSizes(
+        staticMediaBytes: staticMediaBytes,
+        microtrailersBytes: microtrailersBytes,
+        completeOfflineBytes: completeOfflineBytes,
       );
     } catch (e) {
       debugPrint('Media tier sizes record warning: $e');
