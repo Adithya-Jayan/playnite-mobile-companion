@@ -303,6 +303,15 @@ void main() {
             mimeType: 'video/mp4',
             category: 'microtrailer',
           ),
+          'media/trailers/t1.mp4': IndexEntry(
+            relativePath: 'media/trailers/t1.mp4',
+            sha256: 'h-trailer',
+            sizeBytes: 15000000,
+            modifiedUtc: '2026-10-18T12:00:00Z',
+            driveFileId: 'd-trailer',
+            mimeType: 'video/mp4',
+            category: 'trailer',
+          ),
         },
       );
 
@@ -316,24 +325,59 @@ void main() {
       );
       expect(cacheOnlyDiff.toDownload.map((e) => e.relativePath).toSet(), equals({'manifest.json', 'games/g1.json'}));
 
-      // 2. coversAndFanarts: includes covers and logos, excludes microtrailers
-      final coversDiff = pullManager.computeDiff(
+      // 2. staticMedia (and legacy coversAndFanarts): includes covers and logos, excludes microtrailers and trailers
+      final staticDiff = pullManager.computeDiff(
         remoteIndex,
         emptyLocal,
-        mediaTier: MediaStorageTier.coversAndFanarts,
+        mediaTier: MediaStorageTier.staticMedia,
       );
       expect(
-        coversDiff.toDownload.map((e) => e.relativePath).toSet(),
+        staticDiff.toDownload.map((e) => e.relativePath).toSet(),
         equals({'manifest.json', 'games/g1.json', 'media/covers/cover1.jpg', 'media/logos/logo1.png'}),
       );
 
-      // 3. completeOffline: includes all assets including microtrailers
+      // ignore: deprecated_member_use_from_same_package
+      final legacyCoversDiff = pullManager.computeDiff(
+        remoteIndex,
+        emptyLocal,
+        // ignore: deprecated_member_use_from_same_package
+        mediaTier: MediaStorageTier.coversAndFanarts,
+      );
+      expect(
+        legacyCoversDiff.toDownload.map((e) => e.relativePath).toSet(),
+        equals({'manifest.json', 'games/g1.json', 'media/covers/cover1.jpg', 'media/logos/logo1.png'}),
+      );
+
+      // 3. staticAndMicrotrailers: includes covers, logos, AND microtrailer, excludes full trailer
+      final staticAndMicroDiff = pullManager.computeDiff(
+        remoteIndex,
+        emptyLocal,
+        mediaTier: MediaStorageTier.staticAndMicrotrailers,
+      );
+      expect(
+        staticAndMicroDiff.toDownload.map((e) => e.relativePath).toSet(),
+        equals({'manifest.json', 'games/g1.json', 'media/covers/cover1.jpg', 'media/logos/logo1.png', 'media/microtrailers/g1.mp4'}),
+      );
+      expect(staticAndMicroDiff.toDownload.map((e) => e.relativePath).contains('media/trailers/t1.mp4'), isFalse);
+
+      // 4. completeOffline: includes all assets including microtrailers and trailers
       final offlineDiff = pullManager.computeDiff(
         remoteIndex,
         emptyLocal,
         mediaTier: MediaStorageTier.completeOffline,
       );
-      expect(offlineDiff.toDownload.length, equals(5));
+      expect(offlineDiff.toDownload.length, equals(6));
+    });
+
+    test('GallerySettings.fromJson deserializes legacy coversAndFanarts to staticMedia', () {
+      final settings = GallerySettings.fromJson({'mediaStorageTier': 'coversAndFanarts'});
+      expect(settings.mediaStorageTier, equals(MediaStorageTier.staticMedia));
+
+      final staticSettings = GallerySettings.fromJson({'mediaStorageTier': 'staticMedia'});
+      expect(staticSettings.mediaStorageTier, equals(MediaStorageTier.staticMedia));
+
+      final microSettings = GallerySettings.fromJson({'mediaStorageTier': 'staticAndMicrotrailers'});
+      expect(microSettings.mediaStorageTier, equals(MediaStorageTier.staticAndMicrotrailers));
     });
   });
 }
