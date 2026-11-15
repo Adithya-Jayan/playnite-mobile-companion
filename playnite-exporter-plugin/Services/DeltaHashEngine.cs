@@ -1,9 +1,11 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Text;
 using Playnite.SDK.Models;
 using PlayniteExporterPlugin.Addons;
+using PlayniteExporterPlugin.Addons.Extractors;
 using PlayniteExporterPlugin.Common;
 using PlayniteExporterPlugin.Models;
 
@@ -40,6 +42,11 @@ namespace PlayniteExporterPlugin.Services
                 {
                     // Candidate matches existing SHA-256 exactly
                     candidate.ExistingDriveFileId = existing.DriveFileId;
+                    if (existing.StateHash == null && candidate.StateHash != null)
+                    {
+                        existing.StateHash = candidate.StateHash;
+                        diff.IndexHealed = true;
+                    }
                     diff.Unchanged[path] = existing;
                 }
             }
@@ -78,47 +85,97 @@ namespace PlayniteExporterPlugin.Services
         {
             if (game == null) throw new ArgumentNullException(nameof(game));
 
-            var sb = new StringBuilder();
-            sb.Append($"Id:{game.Id};");
-            sb.Append($"Name:{game.Name};");
-            sb.Append($"SortingName:{game.SortingName};");
-            sb.Append($"Playtime:{game.Playtime};");
-            sb.Append($"PlayCount:{game.PlayCount};");
-            sb.Append($"UserScore:{game.UserScore};");
-            sb.Append($"CriticScore:{game.CriticScore};");
-            sb.Append($"CommunityScore:{game.CommunityScore};");
-            sb.Append($"Favorite:{game.Favorite};");
-            sb.Append($"Hidden:{game.Hidden};");
-            sb.Append($"IsInstalled:{game.IsInstalled};");
-            sb.Append($"CompletionStatusId:{game.CompletionStatusId};");
-            sb.Append($"InstallDirectory:{game.InstallDirectory};");
-            sb.Append($"Notes:{game.Notes};");
-            sb.Append($"Description:{game.Description};");
-            sb.Append($"PlatformIds:{(game.PlatformIds != null ? string.Join(",", game.PlatformIds.OrderBy(g => g)) : "")};");
-            sb.Append($"GenreIds:{(game.GenreIds != null ? string.Join(",", game.GenreIds.OrderBy(g => g)) : "")};");
-            sb.Append($"CategoryIds:{(game.CategoryIds != null ? string.Join(",", game.CategoryIds.OrderBy(g => g)) : "")};");
-            sb.Append($"TagIds:{(game.TagIds != null ? string.Join(",", game.TagIds.OrderBy(g => g)) : "")};");
-            sb.Append($"DeveloperIds:{(game.DeveloperIds != null ? string.Join(",", game.DeveloperIds.OrderBy(g => g)) : "")};");
-            sb.Append($"PublisherIds:{(game.PublisherIds != null ? string.Join(",", game.PublisherIds.OrderBy(g => g)) : "")};");
-            sb.Append($"Links:{(game.Links != null ? string.Join(",", game.Links.Where(l => l != null).OrderBy(l => l.Name).ThenBy(l => l.Url).Select(l => $"{l.Name}={l.Url}")) : "")};");
-            sb.Append($"CoverImage:{game.CoverImage};");
-            sb.Append($"BackgroundImage:{game.BackgroundImage};");
-            sb.Append($"Icon:{game.Icon};");
+            var sb = new StringBuilder(512);
+            sb.Append("Id:").Append(game.Id).Append(';');
+            sb.Append("Name:").Append(game.Name).Append(';');
+            sb.Append("SortingName:").Append(game.SortingName).Append(';');
+            sb.Append("Playtime:").Append(game.Playtime).Append(';');
+            sb.Append("PlayCount:").Append(game.PlayCount).Append(';');
+            sb.Append("UserScore:").Append(game.UserScore).Append(';');
+            sb.Append("CriticScore:").Append(game.CriticScore).Append(';');
+            sb.Append("CommunityScore:").Append(game.CommunityScore).Append(';');
+            sb.Append("Favorite:").Append(game.Favorite).Append(';');
+            sb.Append("Hidden:").Append(game.Hidden).Append(';');
+            sb.Append("IsInstalled:").Append(game.IsInstalled).Append(';');
+            sb.Append("CompletionStatusId:").Append(game.CompletionStatusId).Append(';');
+            sb.Append("InstallDirectory:").Append(game.InstallDirectory).Append(';');
+            sb.Append("Notes:").Append(game.Notes).Append(';');
+            sb.Append("Description:").Append(game.Description).Append(';');
+            sb.Append("PlatformIds:").Append(game.PlatformIds != null ? string.Join(",", game.PlatformIds.OrderBy(g => g)) : "").Append(';');
+            sb.Append("GenreIds:").Append(game.GenreIds != null ? string.Join(",", game.GenreIds.OrderBy(g => g)) : "").Append(';');
+            sb.Append("CategoryIds:").Append(game.CategoryIds != null ? string.Join(",", game.CategoryIds.OrderBy(g => g)) : "").Append(';');
+            sb.Append("TagIds:").Append(game.TagIds != null ? string.Join(",", game.TagIds.OrderBy(g => g)) : "").Append(';');
+            sb.Append("DeveloperIds:").Append(game.DeveloperIds != null ? string.Join(",", game.DeveloperIds.OrderBy(g => g)) : "").Append(';');
+            sb.Append("PublisherIds:").Append(game.PublisherIds != null ? string.Join(",", game.PublisherIds.OrderBy(g => g)) : "").Append(';');
+            sb.Append("Links:").Append(game.Links != null ? string.Join(",", game.Links.Where(l => l != null).OrderBy(l => l.Name).ThenBy(l => l.Url).Select(l => $"{l.Name}={l.Url}")) : "").Append(';');
+            sb.Append("CoverImage:").Append(game.CoverImage).Append(';');
+            sb.Append("BackgroundImage:").Append(game.BackgroundImage).Append(';');
+            sb.Append("Icon:").Append(game.Icon).Append(';');
 
             if (addonRegistry != null)
             {
-                foreach (var extractor in addonRegistry.RegisteredExtractors.OrderBy(e => e.AddonKey, StringComparer.Ordinal))
+                var extensionsDataDir = Path.Combine(userDataDir, "ExtensionsData");
+                var extraMetadataDir = Path.Combine(userDataDir, "ExtraMetadata");
+                bool hasAddonDirs = Directory.Exists(extensionsDataDir) || Directory.Exists(extraMetadataDir);
+
+                if (!hasAddonDirs)
                 {
-                    string? addonHash = null;
-                    try
+                    var extractors = addonRegistry.OrderedExtractors ??
+                        addonRegistry.RegisteredExtractors.OrderBy(e => e.AddonKey, StringComparer.Ordinal).ToList();
+                    for (int i = 0; i < extractors.Count; i++)
                     {
-                        addonHash = extractor.GetStateHash(game, userDataDir);
+                        sb.Append("addon:").Append(extractors[i].AddonKey).Append("=;");
                     }
-                    catch
+                }
+                else
+                {
+                    var paExtractor = addonRegistry.PlayniteAchievementsExtractor ??
+                        addonRegistry.RegisteredExtractors.FirstOrDefault(e => e.AddonKey == "playnite_achievements" || e is PlayniteAchievementsExtractor);
+
+                    string? paHash = null;
+                    if (paExtractor != null)
                     {
-                        // Ignore failure to ensure hash calculation does not throw
+                        try
+                        {
+                            paHash = paExtractor.GetStateHash(game, userDataDir);
+                        }
+                        catch
+                        {
+                            paHash = null;
+                        }
                     }
-                    sb.Append($"addon:{extractor.AddonKey}={addonHash};");
+
+                    bool hasValidPaHash = !string.IsNullOrEmpty(paHash);
+                    var extractors = addonRegistry.OrderedExtractors ??
+                        addonRegistry.RegisteredExtractors.OrderBy(e => e.AddonKey, StringComparer.Ordinal).ToList();
+                    var ssExtractor = addonRegistry.SuccessStoryExtractor;
+
+                    for (int i = 0; i < extractors.Count; i++)
+                    {
+                        var extractor = extractors[i];
+                        if (hasValidPaHash && (extractor == ssExtractor || extractor.AddonKey == "success_story" || extractor is SuccessStoryExtractor))
+                        {
+                            continue;
+                        }
+
+                        string? addonHash = null;
+                        if (extractor == paExtractor)
+                        {
+                            addonHash = paHash;
+                        }
+                        else
+                        {
+                            try
+                            {
+                                addonHash = extractor.GetStateHash(game, userDataDir);
+                            }
+                            catch
+                            {
+                                // Ignore failure to ensure hash calculation does not throw
+                            }
+                        }
+                        sb.Append("addon:").Append(extractor.AddonKey).Append('=').Append(addonHash).Append(';');
+                    }
                 }
             }
 

@@ -68,6 +68,8 @@ namespace PlayniteExporterPlugin.Models
         public List<PlannedDeletion> Deleted { get; } = new();
         public Dictionary<string, IndexEntry> Unchanged { get; } = new();
 
+        public bool IndexHealed { get; set; }
+
         public bool HasChanges => Added.Count > 0 || Modified.Count > 0 || Deleted.Count > 0;
     }
 
