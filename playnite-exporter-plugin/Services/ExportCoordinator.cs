@@ -200,6 +200,14 @@ namespace PlayniteExporterPlugin.Services
                 // If no game changes and no media changes, no-op!
                 if (diff.Added.Count == 0 && diff.Modified.Count == 0)
                 {
+                    if (diff.IndexHealed)
+                    {
+                        Logger.Info($"SyncSingleGameAsync: Game {game.Name} ({game.Id}) state hash healed. Committing updated sync_index.json...");
+                        await storageProvider.InitializeAsync(ct).ConfigureAwait(false);
+                        await CommitSyncIndexAsync(ct).ConfigureAwait(false);
+                        settings.LastSyncUtc = DateTime.UtcNow;
+                    }
+
                     Logger.Info($"SyncSingleGameAsync: Game {game.Name} ({game.Id}) is up-to-date. No-op.");
                     progress?.Report(new ExportProgressReport($"Game {game.Name} is already up to date.", 4, 4));
                     return true;
@@ -516,8 +524,26 @@ namespace PlayniteExporterPlugin.Services
 
                 var diff = hashEngine.ComputeDiff(candidateFiles, currentIndex);
 
+                bool indexHealed = diff.IndexHealed;
+
                 if (!diff.HasChanges)
                 {
+                    if (indexHealed)
+                    {
+                        Logger.Info("SyncIncrementalLibraryAsync: Index entries were healed with StateHashes. Committing updated sync_index.json...");
+                        string dest = storageProvider.ProviderName == "GoogleDrive" ? "Google Drive" : storageProvider.ProviderName;
+                        progress?.Report(new ExportProgressReport(
+                            $"Step 1/3: Complete • Updating index with state hashes...\r\nSaving healed sync index to {dest}...",
+                            total,
+                            total,
+                            indeterminate: true
+                        ));
+
+                        await storageProvider.InitializeAsync(ct).ConfigureAwait(false);
+                        await CommitSyncIndexAsync(ct).ConfigureAwait(false);
+                        settings.LastSyncUtc = DateTime.UtcNow;
+                    }
+
                     Logger.Info("SyncIncrementalLibraryAsync: Entire library is up to date (0 changes).");
                     progress?.Report(new ExportProgressReport("Step 1/3: Complete • No changes detected. Library is up to date.", total, total));
                     return diff;
@@ -863,6 +889,11 @@ namespace PlayniteExporterPlugin.Services
                 // Save locally
                 File.WriteAllText(localIndexCachePath, indexJson, Encoding.UTF8);
             }
+        }
+
+        public Task<Dictionary<string, object?>> ExtractAllAddonDataAsync(Game game, string userDataDir)
+        {
+            return addonRegistry.ExtractAllAsync(game, userDataDir);
         }
     }
 }
