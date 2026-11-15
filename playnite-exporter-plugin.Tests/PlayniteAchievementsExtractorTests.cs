@@ -267,6 +267,8 @@ namespace PlayniteExporterPlugin.Tests
             Assert.Equal("ACH_1", item1!.Value<string>("api_name"));
             Assert.Equal("First Win", item1.Value<string>("name"));
             Assert.Equal("Win the first match", item1.Value<string>("description"));
+            Assert.True(item1.Value<bool>("unlocked"));
+            Assert.True(item1.Value<bool>("is_unlocked"));
             Assert.Equal(20.0, item1.Value<double>("gamerscore"));
             Assert.Equal(75.5, item1.Value<double>("percent"));
             Assert.Equal(75.5, item1.Value<double>("rarity_percentage"));
@@ -279,6 +281,8 @@ namespace PlayniteExporterPlugin.Tests
             Assert.NotNull(item2);
             Assert.Equal("ACH_2", item2!.Value<string>("api_name"));
             Assert.Equal("Secret Boss", item2.Value<string>("name"));
+            Assert.False(item2.Value<bool>("unlocked"));
+            Assert.False(item2.Value<bool>("is_unlocked"));
             Assert.Null(item2["date_unlocked_utc"]?.Value<string>());
             Assert.True(item2.Value<bool>("is_hidden"));
             Assert.Equal(10.2, item2.Value<double>("rarity_percentage"));
@@ -396,6 +400,70 @@ namespace PlayniteExporterPlugin.Tests
             var obj = JObject.FromObject(result!);
             Assert.Equal(1, obj.Value<int>("total_count"));
             Assert.Equal(1, obj.Value<int>("unlocked_count"));
+        }
+
+        [Fact]
+        public async Task ExtractDataAsync_ApiNameWithInvalidFileNameChars_SanitizesAndExtractsWithoutArgumentException()
+        {
+            var gameId = Guid.NewGuid();
+            var iconRelDir = Path.Combine("icon_cache", gameId.ToString(), "original");
+            var iconFullDir = Path.Combine(pluginDataDir, iconRelDir);
+            Directory.CreateDirectory(iconFullDir);
+
+            // The sanitized name for "minecraft:story/root" should be "minecraftstoryroot"
+            var sanitized1 = string.Concat("minecraft:story/root".Split(Path.GetInvalidFileNameChars()));
+            var iconPath1 = Path.Combine(iconFullDir, $"{sanitized1}.jpg");
+            File.WriteAllText(iconPath1, "fake_bytes");
+
+            InitializeDatabase(conn =>
+            {
+                using var cmd = conn.CreateCommand();
+                cmd.CommandText = @"
+                    INSERT INTO Users (Id, ProviderKey, ExternalUserId, DisplayName, IsCurrentUser)
+                    VALUES (1, 'Steam', '12345', 'Player', 1);
+
+                    INSERT INTO Games (Id, ProviderKey, PlayniteGameId, GameName)
+                    VALUES (1, 'Steam', @playniteId, 'Invalid Chars Game');
+
+                    INSERT INTO UserGameProgress (Id, UserId, GameId, CacheKey, HasAchievements, AchievementsUnlocked, TotalAchievements, LastUpdatedUtc)
+                    VALUES (1, 1, 1, 'game_1', 1, 1, 2, '2026-10-24T10:00:00Z');
+
+                    INSERT INTO AchievementDefinitions (Id, GameId, ApiName, DisplayName, Description, UnlockedIconPath, LockedIconPath, Points, Category, Hidden, GlobalPercentUnlocked, ProgressMax)
+                    VALUES 
+                    (1, 1, 'minecraft:story/root', 'Minecraft Root', 'Root advancement', NULL, NULL, 10, 'Story', 0, 95.0, NULL),
+                    (2, 1, 'advancement/nether:fast_travel?id=1*', 'Fast Travel', 'Travel 7km', NULL, NULL, 30, 'Nether', 0, 5.0, NULL);
+
+                    INSERT INTO UserAchievements (Id, UserGameProgressId, AchievementDefinitionId, Unlocked, UnlockTimeUtc, ProgressNum, ProgressDenom)
+                    VALUES 
+                    (1, 1, 1, 1, '2026-06-01T12:00:00Z', NULL, NULL),
+                    (2, 1, 2, 0, NULL, NULL, NULL);
+                ";
+                cmd.Parameters.AddWithValue("@playniteId", gameId.ToString());
+                cmd.ExecuteNonQuery();
+            });
+
+            var game = new Game("Invalid Chars Game") { Id = gameId };
+            var result = await extractor.ExtractDataAsync(game, tempDir);
+
+            Assert.NotNull(result);
+            var obj = JObject.FromObject(result!);
+            var items = obj["items"] as JArray;
+            Assert.NotNull(items);
+            Assert.Equal(2, items!.Count);
+
+            var item1 = items[0] as JObject;
+            Assert.NotNull(item1);
+            Assert.Equal("minecraft:story/root", item1!.Value<string>("api_name"));
+            Assert.True(item1.Value<bool>("unlocked"));
+            Assert.True(item1.Value<bool>("is_unlocked"));
+            Assert.Equal(iconPath1, item1.Value<string>("local_icon_path"));
+
+            var item2 = items[1] as JObject;
+            Assert.NotNull(item2);
+            Assert.Equal("advancement/nether:fast_travel?id=1*", item2!.Value<string>("api_name"));
+            Assert.False(item2.Value<bool>("unlocked"));
+            Assert.False(item2.Value<bool>("is_unlocked"));
+            Assert.Null(item2.Value<string>("local_icon_path"));
         }
 
         [Fact]

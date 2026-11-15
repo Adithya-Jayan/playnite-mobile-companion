@@ -160,18 +160,26 @@ namespace PlayniteExporterPlugin.Addons.Extractors
                         }
                         gamerscoreTotal += points;
 
+                        var safeApiName = string.Concat(apiName.Split(Path.GetInvalidFileNameChars()));
                         var unlockedRel = !string.IsNullOrEmpty(unlockedIcon)
                             ? unlockedIcon!
-                            : Path.Combine("icon_cache", game.Id.ToString(), "original", $"{apiName}.jpg");
+                            : Path.Combine("icon_cache", game.Id.ToString(), "original", $"{safeApiName}.jpg");
 
                         string? localUnlockedPath = null;
-                        var candidateUnlocked = Path.IsPathRooted(unlockedRel)
-                            ? unlockedRel
-                            : Path.Combine(pluginDir, unlockedRel);
-
-                        if (File.Exists(candidateUnlocked))
+                        try
                         {
-                            localUnlockedPath = candidateUnlocked;
+                            var candidateUnlocked = Path.IsPathRooted(unlockedRel)
+                                ? unlockedRel
+                                : Path.Combine(pluginDir, unlockedRel);
+
+                            if (File.Exists(candidateUnlocked))
+                            {
+                                localUnlockedPath = candidateUnlocked;
+                            }
+                        }
+                        catch
+                        {
+                            localUnlockedPath = null;
                         }
 
                         var lockedRel = !string.IsNullOrEmpty(lockedIcon)
@@ -191,6 +199,8 @@ namespace PlayniteExporterPlugin.Addons.Extractors
                             name = string.IsNullOrEmpty(displayName) ? apiName : displayName,
                             api_name = apiName,
                             description = description,
+                            unlocked = isUnlocked,
+                            is_unlocked = isUnlocked,
                             url_unlocked = unlockedRel,
                             url_locked = lockedRel,
                             icon_unlocked = unlockedRel,
