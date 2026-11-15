@@ -3,8 +3,8 @@ import 'package:playnite_mobile_companion/core/database/app_database.dart';
 import 'package:playnite_mobile_companion/features/sync/domain/sync_models.dart';
 import 'i_addon_db_handler.dart';
 
-/// Database handler that unpacks achievements from 'achievements', 'success_story',
-/// or 'playnite_achievements' into the relational `achievements` SQLite table.
+/// Database handler that unpacks achievements from 'achievements', 'playnite_achievements',
+/// or 'success_story' into the relational `achievements` SQLite table.
 class AchievementsDbHandler implements IAddonDbHandler {
   @override
   String get addonKey => 'achievements';
@@ -12,8 +12,8 @@ class AchievementsDbHandler implements IAddonDbHandler {
   /// Addon keys that this handler recognizes for achievement payloads.
   static const List<String> supportedKeys = [
     'achievements',
-    'success_story',
     'playnite_achievements',
+    'success_story',
   ];
 
   @override
@@ -57,9 +57,18 @@ class AchievementsDbHandler implements IAddonDbHandler {
             item['icon_locked'] ??
             item['ImageLocked'] ??
             item['icon'])?.toString();
-        final dateUnlocked = (item['date_unlocked_utc'] ??
+        final isUnlocked = (item['unlocked'] == true ||
+            item['is_unlocked'] == true ||
+            item['unlocked'] == 1 ||
+            item['is_unlocked'] == 1 ||
+            item['unlocked'] == 'true' ||
+            item['is_unlocked'] == 'true');
+        final rawDate = (item['date_unlocked_utc'] ??
             item['date_unlocked'] ??
             item['unlock_time_utc'])?.toString();
+        final dateUnlocked = (rawDate != null && rawDate.isNotEmpty)
+            ? rawDate
+            : (isUnlocked ? '1970-01-01T00:00:00.000Z' : null);
         final percent = (item['percent'] ??
             item['rarity_percent'] ??
             item['rarity_percentage'] ??
