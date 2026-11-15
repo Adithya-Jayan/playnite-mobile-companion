@@ -1,11 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:playnite_mobile_companion/core/database/app_database.dart';
+import 'package:playnite_mobile_companion/core/database/daos/addon_db_handlers/achievements_db_handler.dart';
 import 'package:playnite_mobile_companion/features/game_detail/presentation/addon_registry/addon_section_registry.dart';
 import 'package:playnite_mobile_companion/features/game_detail/presentation/addon_registry/sections/achievements_section.dart';
 import 'package:playnite_mobile_companion/features/game_detail/presentation/addon_registry/sections/fallback_addon_section.dart';
 import 'package:playnite_mobile_companion/features/sync/domain/sync_models.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  sqfliteFfiInit();
+  databaseFactory = databaseFactoryFfi;
+
   setUp(() {
     AddonSectionRegistry.reset();
   });
@@ -289,6 +296,311 @@ void main() {
 
       expect(find.text('Achievements (1 / 1)'), findsOneWidget);
       expect(find.text('One and Only'), findsOneWidget);
+    });
+
+    testWidgets('9. Prioritizes playnite_achievements over success_story without duplicate cards', (tester) async {
+      const gameWithBoth = UnifiedGamePayload(
+        id: 'game-both',
+        gameId: 'app-both',
+        pluginId: 'steam',
+        name: 'Dual Addons Game',
+        sortingName: 'Dual Addons Game',
+        addons: {
+          'playnite_achievements': {
+            'total_count': 1,
+            'unlocked_count': 1,
+            'items': [
+              {
+                'name': 'PA Specific Ach',
+                'description': 'From playnite achievements',
+                'unlocked': true,
+              },
+            ],
+          },
+          'success_story': {
+            'total': 1,
+            'unlocked': 1,
+            'items': [
+              {
+                'name': 'SS Specific Ach',
+                'description': 'From legacy success story',
+                'unlocked': true,
+              },
+            ],
+          },
+        },
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Builder(
+              builder: (context) {
+                final sections = AddonSectionRegistry.buildAvailableSections(context, gameWithBoth);
+                return ListView(children: sections);
+              },
+            ),
+          ),
+        ),
+      );
+
+      expect(find.text('PA Specific Ach'), findsOneWidget);
+      expect(find.text('SS Specific Ach'), findsNothing);
+      expect(find.text('Achievements (1 / 1)'), findsOneWidget);
+    });
+
+    testWidgets('10. Suppresses achievements if prioritized playnite_achievements is zero even when success_story has items', (tester) async {
+      const gameWithZeroPAAndStaleSS = UnifiedGamePayload(
+        id: 'game-zero-pa-stale-ss',
+        gameId: 'app-zero-pa',
+        pluginId: 'steam',
+        name: 'Zero PA Game',
+        sortingName: 'Zero PA Game',
+        addons: {
+          'playnite_achievements': {
+            'total_count': 0,
+            'unlocked_count': 0,
+            'items': [],
+          },
+          'success_story': {
+            'total': 1,
+            'unlocked': 1,
+            'items': [
+              {
+                'name': 'Stale SS Ach',
+                'unlocked': true,
+              },
+            ],
+          },
+        },
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Builder(
+              builder: (context) {
+                final sections = AddonSectionRegistry.buildAvailableSections(context, gameWithZeroPAAndStaleSS);
+                return ListView(children: sections);
+              },
+            ),
+          ),
+        ),
+      );
+
+      expect(find.textContaining('Achievements'), findsNothing);
+      expect(find.byType(Card), findsNothing);
+      expect(find.text('Stale SS Ach'), findsNothing);
+    });
+
+    testWidgets('11. Renders achievement as unlocked when item has explicit is_unlocked: true and no date', (tester) async {
+      const gameWithNoDateUnlocked = UnifiedGamePayload(
+        id: 'game-no-date-unlocked',
+        gameId: 'app-no-date',
+        pluginId: 'gog',
+        name: 'No Date Unlocked Game',
+        sortingName: 'No Date Unlocked Game',
+        addons: {
+          'playnite_achievements': {
+            'total_count': 1,
+            'items': [
+              {
+                'name': 'Unlocked Without Date',
+                'description': 'Unlocked by explicit boolean flag',
+                'is_unlocked': true,
+              },
+            ],
+          },
+        },
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Builder(
+              builder: (context) {
+                final sections = AddonSectionRegistry.buildAvailableSections(context, gameWithNoDateUnlocked);
+                return ListView(children: sections);
+              },
+            ),
+          ),
+        ),
+      );
+
+      expect(find.text('Achievements (1 / 1)'), findsOneWidget);
+      expect(find.text('Unlocked Without Date'), findsOneWidget);
+      expect(find.text('Unlocked'), findsOneWidget);
+    });
+  });
+
+  group('AchievementsDbHandler Prioritization & Ingestion Tests', () {
+    late AppDatabase database;
+    late AchievementsDbHandler handler;
+
+    setUp(() async {
+      database = AppDatabase.instance;
+      await database.init(inMemory: true);
+      await database.reset();
+      handler = AchievementsDbHandler();
+    });
+
+    tearDown(() async {
+      await database.close();
+    });
+
+    test('Unpacks playnite_achievements over success_story when both exist in payload', () async {
+      const payload = UnifiedGamePayload(
+        id: 'db-game-both',
+        gameId: 'app-both',
+        pluginId: 'steam',
+        name: 'DB Dual Addons Game',
+        sortingName: 'DB Dual Addons Game',
+        addons: {
+          'playnite_achievements': {
+            'total_count': 1,
+            'unlocked_count': 1,
+            'items': [
+              {
+                'api_name': 'PA_01',
+                'name': 'PA Achievement',
+                'unlocked': true,
+              },
+            ],
+          },
+          'success_story': {
+            'total': 1,
+            'unlocked': 1,
+            'items': [
+              {
+                'api_name': 'SS_01',
+                'name': 'SS Achievement',
+                'unlocked': true,
+              },
+            ],
+          },
+        },
+      );
+
+      final batch = database.db.batch();
+      await handler.unpack(payload, batch, database);
+      await batch.commit(noResult: true);
+
+      final rows = await database.db.query(
+        'achievements',
+        where: 'game_id = ?',
+        whereArgs: ['db-game-both'],
+      );
+
+      expect(rows.length, equals(1));
+      expect(rows.first['api_name'], equals('PA_01'));
+      expect(rows.first['name'], equals('PA Achievement'));
+    });
+
+    test('Marks item with explicit unlocked: true or is_unlocked: true as unlocked in SQLite even if date is missing', () async {
+      const payload = UnifiedGamePayload(
+        id: 'db-game-boolean-flags',
+        gameId: 'app-flags',
+        pluginId: 'gog',
+        name: 'Boolean Flags Game',
+        sortingName: 'Boolean Flags Game',
+        addons: {
+          'playnite_achievements': {
+            'total_count': 3,
+            'items': [
+              {
+                'api_name': 'FLAG_UNLOCKED',
+                'name': 'Unlocked by Flag',
+                'unlocked': true,
+              },
+              {
+                'api_name': 'FLAG_IS_UNLOCKED',
+                'name': 'Unlocked by IsUnlocked Flag',
+                'is_unlocked': true,
+              },
+              {
+                'api_name': 'FLAG_LOCKED',
+                'name': 'Locked Item',
+                'unlocked': false,
+              },
+            ],
+          },
+        },
+      );
+
+      final batch = database.db.batch();
+      await handler.unpack(payload, batch, database);
+      await batch.commit(noResult: true);
+
+      final rows = await database.db.query(
+        'achievements',
+        where: 'game_id = ?',
+        whereArgs: ['db-game-boolean-flags'],
+        orderBy: 'api_name ASC',
+      );
+
+      expect(rows.length, equals(3));
+
+      // FLAG_IS_UNLOCKED
+      expect(rows[0]['api_name'], equals('FLAG_IS_UNLOCKED'));
+      expect(rows[0]['date_unlocked_utc'], isNotNull);
+
+      // FLAG_LOCKED
+      expect(rows[1]['api_name'], equals('FLAG_LOCKED'));
+      expect(rows[1]['date_unlocked_utc'], isNull);
+
+      // FLAG_UNLOCKED
+      expect(rows[2]['api_name'], equals('FLAG_UNLOCKED'));
+      expect(rows[2]['date_unlocked_utc'], isNotNull);
+    });
+
+    test('Zero-achievement payload wipes previous achievements from database', () async {
+      const initialPayload = UnifiedGamePayload(
+        id: 'db-game-wiping',
+        gameId: 'app-wipe',
+        pluginId: 'steam',
+        name: 'Wipe Test Game',
+        sortingName: 'Wipe Test Game',
+        addons: {
+          'playnite_achievements': {
+            'total_count': 1,
+            'items': [
+              {
+                'api_name': 'WILL_BE_WIPED',
+                'name': 'Temporary Achievement',
+                'unlocked': true,
+              },
+            ],
+          },
+        },
+      );
+
+      final batch1 = database.db.batch();
+      await handler.unpack(initialPayload, batch1, database);
+      await batch1.commit(noResult: true);
+
+      final rowsBefore = await database.db.query('achievements', where: 'game_id = ?', whereArgs: ['db-game-wiping']);
+      expect(rowsBefore.length, equals(1));
+
+      const zeroPayload = UnifiedGamePayload(
+        id: 'db-game-wiping',
+        gameId: 'app-wipe',
+        pluginId: 'steam',
+        name: 'Wipe Test Game',
+        sortingName: 'Wipe Test Game',
+        addons: {
+          'playnite_achievements': {
+            'total_count': 0,
+            'items': [],
+          },
+        },
+      );
+
+      final batch2 = database.db.batch();
+      await handler.unpack(zeroPayload, batch2, database);
+      await batch2.commit(noResult: true);
+
+      final rowsAfter = await database.db.query('achievements', where: 'game_id = ?', whereArgs: ['db-game-wiping']);
+      expect(rowsAfter, isEmpty);
     });
   });
 }
