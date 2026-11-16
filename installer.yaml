@@ -1,5 +1,15 @@
 AddonId: "MobileDeltaSyncExporter_d3b07384-d113-4c90-951b-10f88a91a92a"
 Packages:
+  - Version: 1.4.0
+    RequiredApiVersion: 6.0.0
+    ReleaseDate: 2026-11-16
+    PackageUrl: https://github.com/Adithya-Jayan/playnite-mobile-companion/releases/download/v1.4.0/MobileDeltaSyncExporter.pext
+    Changelog:
+      - Fixed unhandled illegal path character crash in PlayniteAchievementsExtractor (e.g. Minecraft colons/slashes)
+      - Implemented automatic sync_index.json state hash self-healing, eliminating false +256 -255 delta sync churn
+      - Added Playnite Achievements prioritization over obsolete Success Story caches with explicit boolean unlock flags
+      - Introduced 4-tier offline media download policy (Cache Only, Static Media, Static + Microtrailers, Full Offline)
+      - Decoupled media storage settings into Sync Settings and refined pure video playback priority in Gallery Settings
   - Version: 1.3.0
     RequiredApiVersion: 6.0.0
     ReleaseDate: 2026-10-20
