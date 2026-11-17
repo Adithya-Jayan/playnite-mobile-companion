@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
@@ -51,6 +52,12 @@ class PlayniteImageLoader {
   // Synchronous in-memory set of keys confirmed to exist on local flash disk
   final Set<String> _knownOnDisk = {};
 
+  // Alias mapping: maps secondary keys (e.g. relativePath, sha256) to primaryKey (e.g. driveFileId)
+  // preventing physical duplication of files on disk.
+  final Map<String, String> _aliasToPrimaryKey = {};
+  File? _aliasIndexFile;
+  Timer? _aliasSaveTimer;
+
   // Set of keys marked as high priority (e.g. game detail view hero assets)
   final Set<String> _priorityKeys = {};
 
@@ -69,6 +76,7 @@ class PlayniteImageLoader {
     if (_isInitialized) return;
     if (_isTesting) {
       _cacheDir = Directory.systemTemp.createTempSync('playnite_test_cache_');
+      _aliasIndexFile = File(p.join(_cacheDir!.path, '_alias_index.json'));
       _isInitialized = true;
       if (!_initCompleter.isCompleted) _initCompleter.complete();
       return;
@@ -77,6 +85,7 @@ class PlayniteImageLoader {
     try {
       final baseDir = await getApplicationSupportDirectory();
       _cacheDir = Directory(p.join(baseDir.path, 'media_cache', 'thumbnails'));
+      _aliasIndexFile = File(p.join(_cacheDir!.path, '_alias_index.json'));
       if (!await _cacheDir!.exists()) {
         await _cacheDir!.create(recursive: true);
       } else {
@@ -84,9 +93,35 @@ class PlayniteImageLoader {
         final entries = _cacheDir!.listSync();
         for (final entry in entries) {
           if (entry is File) {
-            final key = p.basenameWithoutExtension(entry.path);
-            _knownOnDisk.add(key);
+            final fileName = p.basename(entry.path);
+            if (!fileName.startsWith('_')) {
+              final key = p.basenameWithoutExtension(entry.path);
+              _knownOnDisk.add(key);
+            }
           }
+        }
+
+        // Load alias index if present
+        if (_aliasIndexFile!.existsSync()) {
+          try {
+            final content = _aliasIndexFile!.readAsStringSync();
+            final decoded = jsonDecode(content);
+            if (decoded is Map) {
+              for (final e in decoded.entries) {
+                final alias = e.key.toString();
+                final primary = e.value.toString();
+                _aliasToPrimaryKey[alias] = primary;
+                if (_knownOnDisk.contains(primary)) {
+                  _knownOnDisk.add(alias);
+                }
+              }
+            }
+          } catch (e) {
+            debugPrint('Error loading alias index: $e');
+          }
+        } else {
+          // Perform one-time deduplication pass for existing installations
+          await deduplicateCache();
         }
       }
 
@@ -123,13 +158,17 @@ class PlayniteImageLoader {
     }
 
     final key = sanitizeKey(raw);
+    final resolvedKey = _aliasToPrimaryKey[key] ?? key;
 
-    if (_knownOnDisk.contains(key) && _cacheDir != null) {
-      final file = File(p.join(_cacheDir!.path, '$key.bin'));
+    if ((_knownOnDisk.contains(key) || _knownOnDisk.contains(resolvedKey)) && _cacheDir != null) {
+      final file = File(p.join(_cacheDir!.path, '$resolvedKey.bin'));
       if (file.existsSync()) {
+        _knownOnDisk.add(key);
+        _knownOnDisk.add(resolvedKey);
         return file;
       } else {
         _knownOnDisk.remove(key);
+        _knownOnDisk.remove(resolvedKey);
       }
     }
     return null;
@@ -382,6 +421,7 @@ class PlayniteImageLoader {
 
   /// Persists a binary media payload directly into the flash disk cache.
   /// Used by DeltaPullManager to store pre-downloaded offline covers, backgrounds, and videos.
+  /// Stores exactly ONE physical file on disk to prevent multi-gigabyte duplication across aliases.
   Future<void> saveToCache({
     required String keyOrMediaId,
     required List<int> bytes,
@@ -398,14 +438,27 @@ class PlayniteImageLoader {
       await primaryFile.writeAsBytes(bytes, flush: true);
       _knownOnDisk.add(primaryKey);
 
+      bool hasNewAliases = false;
       for (final alias in aliases) {
         if (alias.trim().isEmpty) continue;
         final aliasKey = sanitizeKey(alias);
         if (aliasKey != primaryKey) {
-          final aliasFile = File(p.join(_cacheDir!.path, '$aliasKey.bin'));
-          await primaryFile.copy(aliasFile.path);
+          _aliasToPrimaryKey[aliasKey] = primaryKey;
           _knownOnDisk.add(aliasKey);
+          hasNewAliases = true;
+
+          // If an older build wrote a duplicate file on disk, remove it to reclaim storage!
+          final legacyDupFile = File(p.join(_cacheDir!.path, '$aliasKey.bin'));
+          if (legacyDupFile.existsSync()) {
+            try {
+              legacyDupFile.deleteSync();
+            } catch (_) {}
+          }
         }
+      }
+
+      if (hasNewAliases) {
+        _scheduleSaveAliasIndex();
       }
 
       // Notify any active listeners waiting on this image
@@ -433,6 +486,66 @@ class PlayniteImageLoader {
     }
   }
 
+  void _scheduleSaveAliasIndex() {
+    _aliasSaveTimer?.cancel();
+    _aliasSaveTimer = Timer(const Duration(milliseconds: 500), () {
+      saveAliasIndex();
+    });
+  }
+
+  /// Flushes in-memory alias mappings to `_alias_index.json` on disk.
+  Future<void> saveAliasIndex() async {
+    if (_cacheDir == null || _aliasIndexFile == null) return;
+    try {
+      await _aliasIndexFile!.writeAsString(jsonEncode(_aliasToPrimaryKey), flush: true);
+    } catch (e) {
+      debugPrint('PlayniteImageLoader saveAliasIndex error: $e');
+    }
+  }
+
+  /// Scans cache directory for physical duplicate files from older app builds,
+  /// maps duplicates into the alias index, and deletes the redundant copies on disk.
+  Future<int> deduplicateCache() async {
+    if (_cacheDir == null || !await _cacheDir!.exists()) return 0;
+    int bytesReclaimed = 0;
+    try {
+      final files = _cacheDir!.listSync().whereType<File>().toList();
+      final sizeMap = <int, List<File>>{};
+      for (final f in files) {
+        if (p.basename(f.path).startsWith('_')) continue;
+        final len = f.lengthSync();
+        if (len > 0) {
+          sizeMap.putIfAbsent(len, () => []).add(f);
+        }
+      }
+
+      for (final entry in sizeMap.entries) {
+        if (entry.value.length < 2) continue;
+        final group = entry.value;
+        final primary = group.first;
+        final primaryKey = p.basenameWithoutExtension(primary.path);
+
+        for (int i = 1; i < group.length; i++) {
+          final dupFile = group[i];
+          final dupKey = p.basenameWithoutExtension(dupFile.path);
+          _aliasToPrimaryKey[dupKey] = primaryKey;
+          _knownOnDisk.add(dupKey);
+          bytesReclaimed += dupFile.lengthSync();
+          try {
+            dupFile.deleteSync();
+          } catch (_) {}
+        }
+      }
+
+      if (_aliasIndexFile != null && bytesReclaimed > 0) {
+        await saveAliasIndex();
+      }
+    } catch (e) {
+      debugPrint('PlayniteImageLoader deduplicateCache error: $e');
+    }
+    return bytesReclaimed;
+  }
+
   /// Total count of images cached on local flash disk
   int get cachedImagesCount => _knownOnDisk.length;
 
@@ -443,7 +556,7 @@ class PlayniteImageLoader {
       int total = 0;
       final files = _cacheDir!.listSync();
       for (final f in files) {
-        if (f is File) {
+        if (f is File && !p.basename(f.path).startsWith('_')) {
           total += f.lengthSync();
         }
       }
@@ -456,7 +569,9 @@ class PlayniteImageLoader {
   /// Clears the thumbnail cache on local flash disk
   Future<void> clearCache() async {
     try {
+      _aliasSaveTimer?.cancel();
       _knownOnDisk.clear();
+      _aliasToPrimaryKey.clear();
       _lifoQueue.clear();
       _listeners.clear();
       _inFlightKeys.clear();

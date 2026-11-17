@@ -468,6 +468,7 @@ class DeltaPullManager {
 
       // Backfill missing media drive file IDs for all library games using remoteIndex
       await _backfillMediaDriveFileIds(remoteIndex);
+      await PlayniteImageLoader.instance.saveAliasIndex();
 
       stopwatch.stop();
       onProgress?.call(SyncProgress(
