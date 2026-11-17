@@ -1,13 +1,16 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
+using Newtonsoft.Json.Linq;
 using Playnite.SDK;
 using Playnite.SDK.Models;
 using PlayniteExporterPlugin.Addons;
+using PlayniteExporterPlugin.Common;
 using PlayniteExporterPlugin.Models;
 
 namespace PlayniteExporterPlugin.Services
@@ -91,6 +94,7 @@ namespace PlayniteExporterPlugin.Services
 
             // Addons
             var addons = await addonRegistry.ExtractAllAsync(game, userDataDir);
+            ResolveAchievementMedia(game, addons, mediaUploads);
 
             // Duplicate copies & DuplicateHider resolution
             var (isDuplicate, duplicateGroupId, otherCopies) = ResolveDuplicateCopies(game);
@@ -471,6 +475,86 @@ namespace PlayniteExporterPlugin.Services
             }
 
             return null;
+        }
+
+        private void ResolveAchievementMedia(Game game, Dictionary<string, object?> addons, List<PlannedUpload> mediaUploads)
+        {
+            if (addons == null || addons.Count == 0) return;
+
+            string[] achKeys = { "playnite_achievements", "achievements", "success_story" };
+            foreach (var key in achKeys)
+            {
+                if (!addons.TryGetValue(key, out var achObj) || achObj == null) continue;
+
+                try
+                {
+                    var jObj = JObject.FromObject(achObj);
+                    var items = jObj["items"] as JArray ?? jObj["achievements"] as JArray;
+                    if (items == null || items.Count == 0) continue;
+
+                    bool isGamePlayed = game.Playtime > 0 || game.LastActivity != null || game.IsInstalled;
+                    int iconCount = 0;
+
+                    foreach (var itemToken in items)
+                    {
+                        if (itemToken is not JObject item) continue;
+
+                        var localIconPath = item.Value<string>("local_icon_path");
+                        if (string.IsNullOrEmpty(localIconPath) || !File.Exists(localIconPath)) continue;
+
+                        bool isUnlocked = item.Value<bool>("unlocked") || item.Value<bool>("is_unlocked");
+                        var urlUnlocked = item.Value<string>("url_unlocked");
+                        bool isHttp = !string.IsNullOrEmpty(urlUnlocked) &&
+                            (urlUnlocked.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+                             urlUnlocked.StartsWith("https://", StringComparison.OrdinalIgnoreCase));
+
+                        // Upload real icons if unlocked, or for games with playtime (up to 100 per game)
+                        if (!isHttp && (isUnlocked || (isGamePlayed && iconCount < 100)))
+                        {
+                            var apiName = item.Value<string>("api_name");
+                            if (string.IsNullOrEmpty(apiName)) apiName = Guid.NewGuid().ToString();
+                            var safeApiName = string.Concat(apiName.Split(Path.GetInvalidFileNameChars()));
+                            var iconRelPath = $"media/{game.Id}/achievements/{safeApiName}.jpg";
+
+                            try
+                            {
+                                var fileInfo = new FileInfo(localIconPath);
+                                var sha = Sha256Hasher.ComputeFileHash(localIconPath);
+
+                                if (!mediaUploads.Any(u => string.Equals(u.RelativePath, iconRelPath, StringComparison.OrdinalIgnoreCase)))
+                                {
+                                    mediaUploads.Add(new PlannedUpload(
+                                        iconRelPath,
+                                        content: string.Empty,
+                                        sha256: sha,
+                                        sizeBytes: fileInfo.Length,
+                                        category: "achievement_icon",
+                                        gameId: game.Id,
+                                        existingDriveFileId: null,
+                                        mimeType: "image/jpeg",
+                                        sourceFilePath: localIconPath
+                                    ));
+                                }
+
+                                item["url_unlocked"] = iconRelPath;
+                                item["icon_unlocked"] = iconRelPath;
+                                item["icon"] = iconRelPath;
+                                iconCount++;
+                            }
+                            catch (Exception ex)
+                            {
+                                Logger.Warn(ex, $"Failed preparing achievement icon upload for '{safeApiName}' in game '{game.Name}'");
+                            }
+                        }
+                    }
+
+                    addons[key] = jObj.ToObject<Dictionary<string, object?>>() ?? (object)jObj;
+                }
+                catch (Exception ex)
+                {
+                    Logger.Warn(ex, $"Failed resolving achievement media for key '{key}' in game '{game.Name}'");
+                }
+            }
         }
     }
 }

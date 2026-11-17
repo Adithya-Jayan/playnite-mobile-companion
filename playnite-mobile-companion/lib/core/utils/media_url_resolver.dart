@@ -12,6 +12,7 @@ class MediaUrlResolver {
 
   /// Returns direct Google Drive download/stream URL for given file ID or direct URL.
   static String getDriveMediaStreamUrl(String driveFileId) {
+    if (driveFileId.isEmpty) return '';
     if (driveFileId.startsWith('http://') ||
         driveFileId.startsWith('https://') ||
         driveFileId.startsWith('file://')) {
@@ -21,6 +22,12 @@ class MediaUrlResolver {
         driveFileId.contains(':\\') ||
         driveFileId.contains(':/')) {
       return 'file://$driveFileId';
+    }
+    // Prevent invalid Drive API queries on un-resolved relative or legacy cache paths
+    if (driveFileId.contains('\\') ||
+        driveFileId.startsWith('icon_cache') ||
+        driveFileId.startsWith('media/')) {
+      return '';
     }
     return 'https://www.googleapis.com/drive/v3/files/$driveFileId?alt=media';
   }

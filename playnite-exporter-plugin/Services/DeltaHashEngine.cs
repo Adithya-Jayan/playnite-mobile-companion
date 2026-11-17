@@ -91,6 +91,9 @@ namespace PlayniteExporterPlugin.Services
             sb.Append("SortingName:").Append(game.SortingName).Append(';');
             sb.Append("Playtime:").Append(game.Playtime).Append(';');
             sb.Append("PlayCount:").Append(game.PlayCount).Append(';');
+            sb.Append("LastActivity:").Append(game.LastActivity?.ToUniversalTime().ToString("o")).Append(';');
+            sb.Append("RecentActivity:").Append(game.RecentActivity?.ToUniversalTime().ToString("o")).Append(';');
+            sb.Append("Modified:").Append(game.Modified?.ToUniversalTime().ToString("o")).Append(';');
             sb.Append("UserScore:").Append(game.UserScore).Append(';');
             sb.Append("CriticScore:").Append(game.CriticScore).Append(';');
             sb.Append("CommunityScore:").Append(game.CommunityScore).Append(';');

@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:playnite_mobile_companion/core/utils/media_url_resolver.dart';
+import 'package:playnite_mobile_companion/features/sync/domain/sync_models.dart';
 
 typedef TokenRefreshCallback = Future<String?> Function();
 
@@ -55,6 +56,8 @@ class PlayniteImageLoader {
   // Alias mapping: maps secondary keys (e.g. relativePath, sha256) to primaryKey (e.g. driveFileId)
   // preventing physical duplication of files on disk.
   final Map<String, String> _aliasToPrimaryKey = {};
+  @visibleForTesting
+  Map<String, String> get aliasToPrimaryKey => Map.unmodifiable(_aliasToPrimaryKey);
   File? _aliasIndexFile;
   Timer? _aliasSaveTimer;
 
@@ -348,7 +351,20 @@ class PlayniteImageLoader {
     }
 
     try {
-      final streamUrl = MediaUrlResolver.getDriveMediaStreamUrl(rawMediaId);
+      final effectiveId = _aliasToPrimaryKey[key] ??
+          _aliasToPrimaryKey[sanitizeKey(rawMediaId)] ??
+          rawMediaId;
+      final streamUrl = MediaUrlResolver.getDriveMediaStreamUrl(effectiveId);
+      if (streamUrl.isEmpty) {
+        final callbacks = _listeners.remove(key);
+        _keyToMediaId.remove(key);
+        if (callbacks != null) {
+          for (final cb in callbacks) {
+            cb(null);
+          }
+        }
+        return;
+      }
       final isGoogleDrive = streamUrl.contains('googleapis.com');
       final headers = isGoogleDrive ? MediaUrlResolver.getAuthHeaders() : <String, String>{};
 
@@ -501,6 +517,37 @@ class PlayniteImageLoader {
     } catch (e) {
       debugPrint('PlayniteImageLoader saveAliasIndex error: $e');
     }
+  }
+
+  /// Registers all entries from a remote SyncIndex so relativePaths, legacy icon paths,
+  /// and sha256s map directly to their Google Drive file ID without physical duplication.
+  void registerRemoteIndex(SyncIndex remoteIndex) {
+    for (final entry in remoteIndex.entries.values) {
+      if (entry.driveFileId.isNotEmpty) {
+        final driveId = entry.driveFileId;
+        final relKey = sanitizeKey(entry.relativePath);
+        _aliasToPrimaryKey[relKey] = driveId;
+
+        if (entry.sha256.isNotEmpty) {
+          _aliasToPrimaryKey[sanitizeKey(entry.sha256)] = driveId;
+        }
+
+        // Achievement icons alias mapping:
+        // entry.relativePath: "media/{gameId}/achievements/{apiName}.jpg"
+        // Also map legacy PC cache paths: "icon_cache\{gameId}\original\{apiName}.jpg"
+        if (entry.relativePath.startsWith('media/') &&
+            entry.relativePath.contains('/achievements/')) {
+          final parts = entry.relativePath.split('/');
+          if (parts.length >= 4) {
+            final gameId = parts[1];
+            final filename = parts[3];
+            _aliasToPrimaryKey[sanitizeKey('icon_cache\\$gameId\\original\\$filename')] = driveId;
+            _aliasToPrimaryKey[sanitizeKey('icon_cache/$gameId/original/$filename')] = driveId;
+          }
+        }
+      }
+    }
+    _scheduleSaveAliasIndex();
   }
 
   /// Scans cache directory for physical duplicate files from older app builds,

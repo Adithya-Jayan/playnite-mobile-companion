@@ -56,7 +56,7 @@ void main() {
 
     testWidgets('2. Tapping achievement in RecentAchievementsTimeline opens detail modal', (tester) async {
       final sampleAchievements = [
-        RecentAchievementEntry(
+        const RecentAchievementEntry(
           id: 1,
           gameId: 'silksong-uuid',
           gameName: 'Hollow Knight: Silksong',

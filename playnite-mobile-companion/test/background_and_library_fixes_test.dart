@@ -150,6 +150,9 @@ void main() {
       expect(find.text('Welcome to Playnite Companion'), findsOneWidget);
       expect(find.text('Configure Sync & Google Drive'), findsOneWidget);
       expect(find.text('Sync Library Now'), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
     });
 
     testWidgets('Shows "No games match your current filters" when DB has games but query matches 0', (tester) async {
@@ -204,6 +207,9 @@ void main() {
       await tester.pump();
 
       expect(find.text('Secret Game'), findsAtLeastNWidgets(1));
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
     });
   });
 }

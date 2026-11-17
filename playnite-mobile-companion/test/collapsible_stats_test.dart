@@ -9,13 +9,13 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(
           theme: AppTheme.darkTheme,
-          home: Scaffold(
+          home: const Scaffold(
             body: SingleChildScrollView(
               child: CollapsibleStatsCard(
                 title: 'Collapsible Section',
                 icon: Icons.star,
                 badge: '5 items',
-                child: const Text('Inner Content Visible'),
+                child: Text('Inner Content Visible'),
               ),
             ),
           ),

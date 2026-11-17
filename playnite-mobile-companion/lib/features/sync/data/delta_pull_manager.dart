@@ -155,6 +155,7 @@ class DeltaPullManager {
         stepText: 'Step 1/3: Checking Cloud Index',
       ));
       final remoteIndex = await driveService.fetchSyncIndex();
+      PlayniteImageLoader.instance.registerRemoteIndex(remoteIndex);
       await _recordMediaTierSizes(remoteIndex);
 
       // 2. Query local sync metadata & compute diff
