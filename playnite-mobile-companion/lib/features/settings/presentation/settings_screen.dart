@@ -153,8 +153,13 @@ class SettingsScreen extends StatelessWidget {
                   trailing: const Icon(Icons.open_in_new, color: AppTheme.textMuted, size: 18),
                   onTap: () async {
                     final uri = Uri.parse('https://github.com/Adithya-Jayan/playnite-mobile-companion');
-                    if (await canLaunchUrl(uri)) {
-                      await launchUrl(uri, mode: LaunchMode.externalApplication);
+                    try {
+                      final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
+                      if (!launched) {
+                        await launchUrl(uri, mode: LaunchMode.platformDefault);
+                      }
+                    } catch (e) {
+                      debugPrint('Error launching GitHub URL: $e');
                     }
                   },
                 ),
