@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:playnite_mobile_companion/core/config/app_theme.dart';
 import 'package:playnite_mobile_companion/core/database/daos/stats_dao.dart';
+import 'package:playnite_mobile_companion/core/ui/achievement_detail_modal.dart';
 import 'package:playnite_mobile_companion/core/ui/playnite_cached_image.dart';
 
 class RecentAchievementsTimeline extends StatelessWidget {
@@ -73,11 +74,26 @@ class RecentAchievementsTimeline extends StatelessWidget {
                 final item = achievements[index];
                 final dateStr = _formatDate(item.dateUnlockedUtc);
 
-                return Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 8),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    children: [
+                return InkWell(
+                  borderRadius: BorderRadius.circular(8),
+                  onTap: () {
+                    AchievementDetailModal.show(
+                      context,
+                      name: item.name,
+                      description: item.description,
+                      gameName: item.gameName,
+                      iconUrl: item.urlUnlocked,
+                      isUnlocked: true,
+                      dateUnlockedUtc: item.dateUnlockedUtc,
+                      percent: item.percent,
+                      gamerScore: item.gamerScore,
+                    );
+                  },
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
                       // Achievement Icon or Game Cover
                       ClipRRect(
                         borderRadius: BorderRadius.circular(6),
@@ -184,8 +200,9 @@ class RecentAchievementsTimeline extends StatelessWidget {
                       ),
                     ],
                   ),
-                );
-              },
+                ),
+              );
+            },
             ),
           ],
         ),

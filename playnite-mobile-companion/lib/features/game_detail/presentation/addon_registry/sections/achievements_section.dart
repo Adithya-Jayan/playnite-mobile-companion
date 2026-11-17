@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:playnite_mobile_companion/core/config/app_theme.dart';
+import 'package:playnite_mobile_companion/core/ui/achievement_detail_modal.dart';
 import 'package:playnite_mobile_companion/core/ui/playnite_cached_image.dart';
 import 'package:playnite_mobile_companion/core/utils/achievement_helper.dart';
 import 'package:playnite_mobile_companion/features/sync/domain/sync_models.dart';
@@ -70,7 +71,7 @@ class AchievementsSection extends StatefulWidget implements IAddonSectionWidget 
       return const SizedBox.shrink();
     }
 
-    return _AchievementsSectionWidget(addonData: addonData);
+    return _AchievementsSectionWidget(addonData: addonData, gameName: game.name);
   }
 
   @override
@@ -84,8 +85,9 @@ class _AchievementsSectionState extends State<AchievementsSection> {
 
 class _AchievementsSectionWidget extends StatefulWidget {
   final Map<String, dynamic> addonData;
+  final String? gameName;
 
-  const _AchievementsSectionWidget({required this.addonData});
+  const _AchievementsSectionWidget({required this.addonData, this.gameName});
 
   @override
   State<_AchievementsSectionWidget> createState() => _AchievementsSectionWidgetState();
@@ -313,6 +315,22 @@ class _AchievementsSectionWidgetState extends State<_AchievementsSectionWidget> 
 
                   return ListTile(
                     contentPadding: const EdgeInsets.symmetric(vertical: 4, horizontal: 0),
+                    onTap: () {
+                      AchievementDetailModal.show(
+                        context,
+                        name: name,
+                        description: desc,
+                        gameName: widget.gameName,
+                        iconUrl: iconUrl,
+                        isUnlocked: isUnlocked,
+                        dateUnlockedUtc: date,
+                        percent: percent,
+                        gamerScore: (ach['gamerscore'] as num?)?.toDouble() ??
+                            (ach['points'] as num?)?.toDouble(),
+                        category: ach['category'] as String?,
+                        isHidden: ach['is_hidden'] == true,
+                      );
+                    },
                     leading: Container(
                       width: 40,
                       height: 40,
