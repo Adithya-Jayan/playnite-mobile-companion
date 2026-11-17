@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Security.Cryptography;
 using System.Text;
@@ -66,7 +67,7 @@ namespace PlayniteExporterPlugin.Addons.Extractors
 
                     var dateUnlockedStr = item.Value<string>("DateUnlocked");
                     DateTime? dateUnlockedUtc = null;
-                    if (!string.IsNullOrEmpty(dateUnlockedStr) && DateTime.TryParse(dateUnlockedStr, out var parsedDate))
+                    if (!string.IsNullOrEmpty(dateUnlockedStr) && DateTime.TryParse(dateUnlockedStr, CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out var parsedDate))
                     {
                         if (parsedDate > DateTime.MinValue && parsedDate.Year > 1970)
                         {
@@ -144,7 +145,7 @@ namespace PlayniteExporterPlugin.Addons.Extractors
 
             string? lastRefreshUtc = null;
             var refreshStr = root.Value<string>("DateLastRefresh");
-            if (!string.IsNullOrEmpty(refreshStr) && DateTime.TryParse(refreshStr, out var parsedRefresh))
+            if (!string.IsNullOrEmpty(refreshStr) && DateTime.TryParse(refreshStr, CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out var parsedRefresh))
             {
                 lastRefreshUtc = parsedRefresh.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ");
             }

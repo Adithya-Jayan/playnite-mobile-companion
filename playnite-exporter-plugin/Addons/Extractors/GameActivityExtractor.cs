@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Threading.Tasks;
 using Newtonsoft.Json.Linq;
@@ -54,7 +55,7 @@ namespace PlayniteExporterPlugin.Addons.Extractors
 
                     var dateSessionStr = item.Value<string>("DateSession");
                     DateTime dateSessionUtc = DateTime.MinValue;
-                    if (!string.IsNullOrEmpty(dateSessionStr) && DateTime.TryParse(dateSessionStr, out var parsedDate))
+                    if (!string.IsNullOrEmpty(dateSessionStr) && DateTime.TryParse(dateSessionStr, CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out var parsedDate))
                     {
                         dateSessionUtc = parsedDate.ToUniversalTime();
                     }

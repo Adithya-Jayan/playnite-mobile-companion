@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Data.SQLite;
+using System.Globalization;
 using System.IO;
 using System.Threading.Tasks;
 using Playnite.SDK.Models;
@@ -141,7 +142,7 @@ namespace PlayniteExporterPlugin.Addons.Extractors
                         if (isUnlocked && !reader.IsDBNull(11))
                         {
                             var dateStr = reader.GetString(11);
-                            if (DateTime.TryParse(dateStr, out var parsedDate))
+                            if (DateTime.TryParse(dateStr, CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out var parsedDate))
                             {
                                 if (parsedDate > DateTime.MinValue && parsedDate.Year > 1970)
                                 {
@@ -231,7 +232,7 @@ namespace PlayniteExporterPlugin.Addons.Extractors
                 : 0.0;
 
             string? formattedLastRefreshUtc = null;
-            if (!string.IsNullOrEmpty(lastUpdatedUtc) && DateTime.TryParse(lastUpdatedUtc, out var parsedRefresh))
+            if (!string.IsNullOrEmpty(lastUpdatedUtc) && DateTime.TryParse(lastUpdatedUtc, CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out var parsedRefresh))
             {
                 formattedLastRefreshUtc = parsedRefresh.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ");
             }

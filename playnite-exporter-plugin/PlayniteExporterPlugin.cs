@@ -99,6 +99,23 @@ namespace PlayniteExporterPlugin
             );
         }
 
+        private bool IsLibraryExported()
+        {
+            if (settings.LastSyncUtc != null)
+            {
+                return true;
+            }
+
+            if (coordinator.CurrentIndex?.Entries != null && coordinator.CurrentIndex.Entries.Count > 0)
+            {
+                settings.LastSyncUtc = DateTime.UtcNow;
+                SavePluginSettings(settings);
+                return true;
+            }
+
+            return false;
+        }
+
         public override void OnApplicationStarted(OnApplicationStartedEventArgs args)
         {
             Task.Run(async () =>
@@ -108,7 +125,7 @@ namespace PlayniteExporterPlugin
                     await coordinator.InitializeAsync();
                     if (settings.AutoSyncOnStartup)
                     {
-                        if (settings.LastSyncUtc == null)
+                        if (!IsLibraryExported())
                         {
                             Logger.Info("Skipping auto-sync on startup: library has never been exported yet. Initial manual export required.");
                             return;
@@ -137,7 +154,7 @@ namespace PlayniteExporterPlugin
                 return;
             }
 
-            if (settings.LastSyncUtc == null)
+            if (!IsLibraryExported())
             {
                 Logger.Info("Skipping auto-sync on game stopped: initial export has not been completed yet.");
                 return;
@@ -172,7 +189,7 @@ namespace PlayniteExporterPlugin
                 return;
             }
 
-            if (settings.LastSyncUtc == null)
+            if (!IsLibraryExported())
             {
                 Logger.Info("Skipping auto-sync on library update: initial export has not been completed yet.");
                 return;
