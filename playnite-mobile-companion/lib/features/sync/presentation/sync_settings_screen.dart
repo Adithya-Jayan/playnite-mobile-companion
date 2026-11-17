@@ -1648,49 +1648,64 @@ class _SyncSettingsScreenState extends State<SyncSettingsScreen> {
         ),
         const SizedBox(height: 8),
         Container(
-          padding: const EdgeInsets.symmetric(vertical: 8),
+          padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
             color: AppTheme.surface,
             borderRadius: BorderRadius.circular(12),
           ),
-          child: ListTile(
-            title: const Text(
-              'Media Storage Mode',
-              style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: AppTheme.textPrimary),
-            ),
-            subtitle: Text(
-              _getMediaStorageTierSubtitle(_gallerySettings.mediaStorageTier),
-              style: const TextStyle(fontSize: 12, color: AppTheme.textMuted),
-            ),
-            trailing: DropdownButton<MediaStorageTier>(
-              key: const Key('dropdown_mediaStorageTier'),
-              value: _gallerySettings.mediaStorageTier,
-              dropdownColor: AppTheme.surfaceLight,
-              underline: const SizedBox.shrink(),
-              items: [
-                const DropdownMenuItem(
-                  value: MediaStorageTier.cacheOnly,
-                  child: Text('Cache Only (On-demand)'),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Media Storage Mode',
+                style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: AppTheme.textPrimary),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                _getMediaStorageTierSubtitle(_gallerySettings.mediaStorageTier),
+                style: const TextStyle(fontSize: 12, color: AppTheme.textMuted),
+              ),
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+                decoration: BoxDecoration(
+                  color: AppTheme.surfaceLight,
+                  borderRadius: BorderRadius.circular(8),
                 ),
-                DropdownMenuItem(
-                  value: MediaStorageTier.staticMedia,
-                  child: Text('Static Media (${_getStaticMediaSizeLabel()})'),
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<MediaStorageTier>(
+                    key: const Key('dropdown_mediaStorageTier'),
+                    isExpanded: true,
+                    value: _gallerySettings.mediaStorageTier,
+                    dropdownColor: AppTheme.surfaceLight,
+                    icon: const Icon(Icons.arrow_drop_down, color: AppTheme.accentPurple),
+                    items: [
+                      const DropdownMenuItem(
+                        value: MediaStorageTier.cacheOnly,
+                        child: Text('Cache Only (On-demand)'),
+                      ),
+                      DropdownMenuItem(
+                        value: MediaStorageTier.staticMedia,
+                        child: Text('Static Media (${_getStaticMediaSizeLabel()})'),
+                      ),
+                      DropdownMenuItem(
+                        value: MediaStorageTier.staticAndMicrotrailers,
+                        child: Text('Static Media + Microtrailers (${_getStaticAndMicrotrailersSizeLabel()})'),
+                      ),
+                      DropdownMenuItem(
+                        value: MediaStorageTier.completeOffline,
+                        child: Text('Full Offline (${_getCompleteOfflineSizeLabel()})'),
+                      ),
+                    ],
+                    onChanged: (val) {
+                      if (val != null) {
+                        _updateMediaStorageTier(val);
+                      }
+                    },
+                  ),
                 ),
-                DropdownMenuItem(
-                  value: MediaStorageTier.staticAndMicrotrailers,
-                  child: Text('Static Media + Microtrailers (${_getStaticAndMicrotrailersSizeLabel()})'),
-                ),
-                DropdownMenuItem(
-                  value: MediaStorageTier.completeOffline,
-                  child: Text('Full Offline (${_getCompleteOfflineSizeLabel()})'),
-                ),
-              ],
-              onChanged: (val) {
-                if (val != null) {
-                  _updateMediaStorageTier(val);
-                }
-              },
-            ),
+              ),
+            ],
           ),
         ),
       ],
