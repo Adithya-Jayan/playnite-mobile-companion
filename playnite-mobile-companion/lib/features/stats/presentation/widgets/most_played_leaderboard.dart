@@ -3,35 +3,32 @@ import 'package:playnite_mobile_companion/core/config/app_theme.dart';
 import 'package:playnite_mobile_companion/core/database/daos/stats_dao.dart';
 import 'package:playnite_mobile_companion/core/ui/playnite_cached_image.dart';
 import 'package:playnite_mobile_companion/core/utils/duration_formatter.dart';
+import 'collapsible_stats_card.dart';
 
 class MostPlayedLeaderboard extends StatelessWidget {
   final List<TopPlayedGameEntry> topGames;
+  final bool? isExpanded;
+  final ValueChanged<bool>? onToggle;
 
-  const MostPlayedLeaderboard({super.key, required this.topGames});
+  const MostPlayedLeaderboard({
+    super.key,
+    required this.topGames,
+    this.isExpanded,
+    this.onToggle,
+  });
 
   @override
   Widget build(BuildContext context) {
     if (topGames.isEmpty) return const SizedBox.shrink();
 
-    return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Row(
-              children: [
-                Icon(Icons.leaderboard, color: AppTheme.accentPurple, size: 22),
-                SizedBox(width: 8),
-                Text(
-                  'Most Played Games',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppTheme.textPrimary),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            ListView.separated(
+    return CollapsibleStatsCard(
+      title: 'Most Played Games',
+      icon: Icons.leaderboard,
+      iconColor: AppTheme.accentPurple,
+      badge: 'Top ${topGames.length}',
+      isExpanded: isExpanded,
+      onToggle: onToggle,
+      child: ListView.separated(
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
               itemCount: topGames.length,
@@ -93,9 +90,6 @@ class MostPlayedLeaderboard extends StatelessWidget {
                 );
               },
             ),
-          ],
-        ),
-      ),
     );
   }
 

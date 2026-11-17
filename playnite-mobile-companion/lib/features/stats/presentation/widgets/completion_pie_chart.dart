@@ -1,11 +1,19 @@
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:playnite_mobile_companion/core/config/app_theme.dart';
+import 'collapsible_stats_card.dart';
 
 class CompletionPieChart extends StatelessWidget {
   final Map<String, int> completionBreakdown;
+  final bool? isExpanded;
+  final ValueChanged<bool>? onToggle;
 
-  const CompletionPieChart({super.key, required this.completionBreakdown});
+  const CompletionPieChart({
+    super.key,
+    required this.completionBreakdown,
+    this.isExpanded,
+    this.onToggle,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -55,27 +63,15 @@ class CompletionPieChart extends StatelessWidget {
       );
     });
 
-    return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Row(
-              children: [
-                Icon(Icons.pie_chart_outline, color: AppTheme.accentCyan, size: 22),
-                SizedBox(width: 8),
-                Text(
-                  'Completion Status',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppTheme.textPrimary),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            SizedBox(
-              height: 180,
-              child: Row(
+    return CollapsibleStatsCard(
+      title: 'Completion Status',
+      icon: Icons.pie_chart_outline,
+      iconColor: AppTheme.accentCyan,
+      isExpanded: isExpanded,
+      onToggle: onToggle,
+      child: SizedBox(
+        height: 180,
+        child: Row(
                 children: [
                   Expanded(
                     flex: 5,
@@ -128,9 +124,6 @@ class CompletionPieChart extends StatelessWidget {
                 ],
               ),
             ),
-          ],
-        ),
-      ),
     );
   }
 }

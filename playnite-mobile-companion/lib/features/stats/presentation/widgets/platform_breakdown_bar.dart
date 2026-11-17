@@ -1,17 +1,22 @@
 import 'package:flutter/material.dart';
 import 'package:playnite_mobile_companion/core/config/app_theme.dart';
 import 'package:playnite_mobile_companion/core/utils/duration_formatter.dart';
+import 'collapsible_stats_card.dart';
 
 class PlatformBreakdownBar extends StatelessWidget {
   final String title;
   final IconData icon;
   final Map<String, int> distribution;
+  final bool? isExpanded;
+  final ValueChanged<bool>? onToggle;
 
   const PlatformBreakdownBar({
     super.key,
     required this.title,
     required this.icon,
     required this.distribution,
+    this.isExpanded,
+    this.onToggle,
   });
 
   @override
@@ -24,25 +29,16 @@ class PlatformBreakdownBar extends StatelessWidget {
     final sorted = distribution.entries.toList()
       ..sort((a, b) => b.value.compareTo(a.value));
 
-    return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(icon, color: AppTheme.primaryLight, size: 22),
-                const SizedBox(width: 8),
-                Text(
-                  title,
-                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppTheme.textPrimary),
-                ),
-              ],
-            ),
-            const SizedBox(height: 14),
-            ...sorted.take(6).map((entry) {
+    return CollapsibleStatsCard(
+      title: title,
+      icon: icon,
+      iconColor: AppTheme.primaryLight,
+      isExpanded: isExpanded,
+      onToggle: onToggle,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          ...sorted.take(6).map((entry) {
               final ratio = (entry.value / totalSeconds).clamp(0.01, 1.0);
               final pct = ((entry.value / totalSeconds) * 100).toStringAsFixed(1);
               final durationStr = DurationFormatter.formatSecondsToHoursMinutes(entry.value);
@@ -81,7 +77,6 @@ class PlatformBreakdownBar extends StatelessWidget {
             }),
           ],
         ),
-      ),
-    );
-  }
+      );
+    }
 }

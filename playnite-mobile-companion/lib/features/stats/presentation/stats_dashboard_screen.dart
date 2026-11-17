@@ -18,10 +18,21 @@ class StatsDashboardScreen extends StatefulWidget {
   State<StatsDashboardScreen> createState() => _StatsDashboardScreenState();
 }
 
+enum StatsSectionKey {
+  overview,
+  completion,
+  storefronts,
+  platforms,
+  topPlayed,
+  recentActivity,
+  recentAchievements,
+}
+
 class _StatsDashboardScreenState extends State<StatsDashboardScreen> {
   late final StatsDao _statsDao;
   LibraryStats? _stats;
   bool _isLoading = true;
+  final Set<StatsSectionKey> _expandedSections = Set.from(StatsSectionKey.values);
 
   @override
   void initState() {
@@ -46,12 +57,45 @@ class _StatsDashboardScreenState extends State<StatsDashboardScreen> {
     }
   }
 
+  void _toggleAllSections() {
+    setState(() {
+      if (_expandedSections.isEmpty) {
+        _expandedSections.addAll(StatsSectionKey.values);
+      } else {
+        _expandedSections.clear();
+      }
+    });
+  }
+
+  void _toggleSection(StatsSectionKey key, bool expanded) {
+    setState(() {
+      if (expanded) {
+        _expandedSections.add(key);
+      } else {
+        _expandedSections.remove(key);
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
+    final anyExpanded = _expandedSections.isNotEmpty;
+
     return Scaffold(
       backgroundColor: AppTheme.background,
       appBar: AppBar(
         title: const Text('Library Statistics'),
+        actions: [
+          if (_stats != null && _stats!.totalGames > 0)
+            IconButton(
+              icon: Icon(
+                anyExpanded ? Icons.unfold_less : Icons.unfold_more,
+                color: AppTheme.textPrimary,
+              ),
+              tooltip: anyExpanded ? 'Collapse all sections' : 'Expand all sections',
+              onPressed: _toggleAllSections,
+            ),
+        ],
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator(color: AppTheme.primary))
@@ -64,16 +108,26 @@ class _StatsDashboardScreenState extends State<StatsDashboardScreen> {
                     padding: const EdgeInsets.symmetric(vertical: 8),
                     children: [
                       // Total playtime & overview metrics
-                      PlaytimeSummaryCard(stats: _stats!),
+                      PlaytimeSummaryCard(
+                        stats: _stats!,
+                        isExpanded: _expandedSections.contains(StatsSectionKey.overview),
+                        onToggle: (v) => _toggleSection(StatsSectionKey.overview, v),
+                      ),
 
                       // Completion Status Donut Chart
-                      CompletionPieChart(completionBreakdown: _stats!.completionBreakdown),
+                      CompletionPieChart(
+                        completionBreakdown: _stats!.completionBreakdown,
+                        isExpanded: _expandedSections.contains(StatsSectionKey.completion),
+                        onToggle: (v) => _toggleSection(StatsSectionKey.completion, v),
+                      ),
 
                       // Playtime by Storefront / Source
                       PlatformBreakdownBar(
                         title: 'Playtime by Storefront',
                         icon: Icons.storefront,
                         distribution: _stats!.playtimeBySource,
+                        isExpanded: _expandedSections.contains(StatsSectionKey.storefronts),
+                        onToggle: (v) => _toggleSection(StatsSectionKey.storefronts, v),
                       ),
 
                       // Playtime by Platform
@@ -81,16 +135,30 @@ class _StatsDashboardScreenState extends State<StatsDashboardScreen> {
                         title: 'Playtime by Platform',
                         icon: Icons.devices,
                         distribution: _stats!.playtimeByPlatform,
+                        isExpanded: _expandedSections.contains(StatsSectionKey.platforms),
+                        onToggle: (v) => _toggleSection(StatsSectionKey.platforms, v),
                       ),
 
                       // Top 10 Most Played Games Leaderboard
-                      MostPlayedLeaderboard(topGames: _stats!.topPlayedGames),
+                      MostPlayedLeaderboard(
+                        topGames: _stats!.topPlayedGames,
+                        isExpanded: _expandedSections.contains(StatsSectionKey.topPlayed),
+                        onToggle: (v) => _toggleSection(StatsSectionKey.topPlayed, v),
+                      ),
 
                       // Recent Play Sessions Timeline
-                      RecentActivityTimeline(sessions: _stats!.recentSessions),
+                      RecentActivityTimeline(
+                        sessions: _stats!.recentSessions,
+                        isExpanded: _expandedSections.contains(StatsSectionKey.recentActivity),
+                        onToggle: (v) => _toggleSection(StatsSectionKey.recentActivity, v),
+                      ),
 
                       // Recent Achievements Timeline
-                      RecentAchievementsTimeline(achievements: _stats!.recentAchievements),
+                      RecentAchievementsTimeline(
+                        achievements: _stats!.recentAchievements,
+                        isExpanded: _expandedSections.contains(StatsSectionKey.recentAchievements),
+                        onToggle: (v) => _toggleSection(StatsSectionKey.recentAchievements, v),
+                      ),
 
                       const SizedBox(height: 32),
                     ],

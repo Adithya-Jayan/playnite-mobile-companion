@@ -4,6 +4,7 @@ import 'package:playnite_mobile_companion/core/config/app_theme.dart';
 import 'package:playnite_mobile_companion/core/database/daos/stats_dao.dart';
 import 'package:playnite_mobile_companion/core/ui/playnite_cached_image.dart';
 import 'package:playnite_mobile_companion/core/utils/duration_formatter.dart';
+import 'collapsible_stats_card.dart';
 
 /// Represents adjacent play sessions for the same game clubbed together.
 class GroupedRecentActivity {
@@ -28,8 +29,15 @@ class GroupedRecentActivity {
 
 class RecentActivityTimeline extends StatefulWidget {
   final List<RecentSessionEntry> sessions;
+  final bool? isExpanded;
+  final ValueChanged<bool>? onToggle;
 
-  const RecentActivityTimeline({super.key, required this.sessions});
+  const RecentActivityTimeline({
+    super.key,
+    required this.sessions,
+    this.isExpanded,
+    this.onToggle,
+  });
 
   @override
   State<RecentActivityTimeline> createState() => _RecentActivityTimelineState();
@@ -37,6 +45,9 @@ class RecentActivityTimeline extends StatefulWidget {
 
 class _RecentActivityTimelineState extends State<RecentActivityTimeline> {
   final Set<int> _expandedGroupIndices = {};
+  bool _showAll = false;
+
+  static const int _initialDisplayCount = 5;
 
   List<GroupedRecentActivity> _groupAdjacentSessions(List<RecentSessionEntry> rawSessions) {
     if (rawSessions.isEmpty) return const [];
@@ -120,37 +131,26 @@ class _RecentActivityTimelineState extends State<RecentActivityTimeline> {
     if (widget.sessions.isEmpty) return const SizedBox.shrink();
 
     final groups = _groupAdjacentSessions(widget.sessions);
+    final displayedGroups = _showAll ? groups : groups.take(_initialDisplayCount).toList();
+    final hasMore = groups.length > _initialDisplayCount;
 
-    return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                const Icon(Icons.timeline, color: AppTheme.accentGreen, size: 22),
-                const SizedBox(width: 8),
-                const Text(
-                  'Recent Activity',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppTheme.textPrimary),
-                ),
-                const Spacer(),
-                Text(
-                  '${widget.sessions.length} sessions',
-                  style: const TextStyle(fontSize: 12, color: AppTheme.textMuted),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            ListView.separated(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: groups.length,
-              separatorBuilder: (context, index) => const Divider(height: 1),
-              itemBuilder: (context, index) {
-                final group = groups[index];
+    return CollapsibleStatsCard(
+      title: 'Recent Activity',
+      icon: Icons.timeline,
+      iconColor: AppTheme.accentGreen,
+      badge: '${widget.sessions.length} sessions',
+      isExpanded: widget.isExpanded,
+      onToggle: widget.onToggle,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          ListView.separated(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: displayedGroups.length,
+            separatorBuilder: (context, index) => const Divider(height: 1),
+            itemBuilder: (context, index) {
+              final group = displayedGroups[index];
                 final isExpanded = _expandedGroupIndices.contains(index);
                 final hasMultiple = group.sessionCount > 1;
                 final totalDurationStr =
@@ -332,9 +332,31 @@ class _RecentActivityTimelineState extends State<RecentActivityTimeline> {
                 );
               },
             ),
+            if (hasMore) ...[
+              const SizedBox(height: 8),
+              Center(
+                child: TextButton.icon(
+                  onPressed: () => setState(() => _showAll = !_showAll),
+                  icon: Icon(
+                    _showAll ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
+                    size: 18,
+                    color: AppTheme.accentGreen,
+                  ),
+                  label: Text(
+                    _showAll
+                        ? 'Show less'
+                        : 'Show all ${groups.length} sessions',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: AppTheme.accentGreen,
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ],
         ),
-      ),
-    );
-  }
+      );
+    }
 }
