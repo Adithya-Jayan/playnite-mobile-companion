@@ -31,6 +31,34 @@ class RecentSessionEntry {
   });
 }
 
+class RecentAchievementEntry {
+  final int id;
+  final String gameId;
+  final String gameName;
+  final String apiName;
+  final String name;
+  final String? description;
+  final String? urlUnlocked;
+  final String? dateUnlockedUtc;
+  final double? percent;
+  final double? gamerScore;
+  final String? coverDriveFileId;
+
+  const RecentAchievementEntry({
+    required this.id,
+    required this.gameId,
+    required this.gameName,
+    required this.apiName,
+    required this.name,
+    this.description,
+    this.urlUnlocked,
+    this.dateUnlockedUtc,
+    this.percent,
+    this.gamerScore,
+    this.coverDriveFileId,
+  });
+}
+
 class LibraryStats {
   final int totalGames;
   final int totalPlaytimeSeconds;
@@ -41,6 +69,7 @@ class LibraryStats {
   final Map<String, int> completionBreakdown;
   final List<TopPlayedGameEntry> topPlayedGames;
   final List<RecentSessionEntry> recentSessions;
+  final List<RecentAchievementEntry> recentAchievements;
 
   const LibraryStats({
     this.totalGames = 0,
@@ -52,6 +81,7 @@ class LibraryStats {
     this.completionBreakdown = const {},
     this.topPlayedGames = const [],
     this.recentSessions = const [],
+    this.recentAchievements = const [],
   });
 }
 
@@ -170,6 +200,40 @@ class StatsDao {
       coverDriveFileId: r['cover_drive_file_id'] as String?,
     )).toList();
 
+    // 7. Recent Achievements across all games
+    final achievementRows = await db.rawQuery('''
+      SELECT 
+        a.id,
+        a.game_id,
+        g.name as game_name,
+        a.api_name,
+        a.name,
+        a.description,
+        a.url_unlocked,
+        a.date_unlocked_utc,
+        a.percent,
+        a.gamer_score,
+        g.cover_drive_file_id
+      FROM achievements a
+      JOIN games g ON a.game_id = g.id
+      WHERE a.date_unlocked_utc IS NOT NULL AND a.date_unlocked_utc != ''
+      ORDER BY a.date_unlocked_utc DESC
+      LIMIT 50;
+    ''');
+    final recentAchievements = achievementRows.map((r) => RecentAchievementEntry(
+      id: (r['id'] as num).toInt(),
+      gameId: r['game_id'] as String,
+      gameName: r['game_name'] as String? ?? 'Unknown',
+      apiName: r['api_name'] as String? ?? '',
+      name: r['name'] as String? ?? 'Unnamed Achievement',
+      description: r['description'] as String?,
+      urlUnlocked: r['url_unlocked'] as String?,
+      dateUnlockedUtc: r['date_unlocked_utc'] as String?,
+      percent: (r['percent'] as num?)?.toDouble(),
+      gamerScore: (r['gamer_score'] as num?)?.toDouble(),
+      coverDriveFileId: r['cover_drive_file_id'] as String?,
+    )).toList();
+
     return LibraryStats(
       totalGames: totalGames,
       totalPlaytimeSeconds: totalPlaytime,
@@ -180,6 +244,7 @@ class StatsDao {
       completionBreakdown: completionBreakdown,
       topPlayedGames: topPlayed,
       recentSessions: recentSessions,
+      recentAchievements: recentAchievements,
     );
   }
 }

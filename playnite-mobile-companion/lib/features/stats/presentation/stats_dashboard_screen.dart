@@ -7,6 +7,7 @@ import 'widgets/most_played_leaderboard.dart';
 import 'widgets/platform_breakdown_bar.dart';
 import 'widgets/playtime_summary_card.dart';
 import 'widgets/recent_activity_timeline.dart';
+import 'widgets/recent_achievements_timeline.dart';
 
 class StatsDashboardScreen extends StatefulWidget {
   final AppDatabase database;
@@ -87,6 +88,9 @@ class _StatsDashboardScreenState extends State<StatsDashboardScreen> {
 
                       // Recent Play Sessions Timeline
                       RecentActivityTimeline(sessions: _stats!.recentSessions),
+
+                      // Recent Achievements Timeline
+                      RecentAchievementsTimeline(achievements: _stats!.recentAchievements),
 
                       const SizedBox(height: 32),
                     ],
