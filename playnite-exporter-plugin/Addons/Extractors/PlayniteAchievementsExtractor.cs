@@ -252,6 +252,10 @@ namespace PlayniteExporterPlugin.Addons.Extractors
             };
         }
 
+        private static readonly object CacheLock = new();
+        private static string? cachedDbKey;
+        private static readonly Dictionary<string, string> progressStateCache = new(StringComparer.OrdinalIgnoreCase);
+
         public string? GetStateHash(Game game, string playniteUserDataDir)
         {
             if (game == null) return null;
@@ -261,31 +265,90 @@ namespace PlayniteExporterPlugin.Addons.Extractors
                 var dbPath = Path.Combine(playniteUserDataDir, "ExtensionsData", PluginId.ToString(), "achievement_cache.db");
                 if (!File.Exists(dbPath)) return null;
 
-                var csb = new SQLiteConnectionStringBuilder
+                var fi = new FileInfo(dbPath);
+                var currentKey = $"{fi.FullName}|{fi.LastWriteTimeUtc.Ticks}|{fi.Length}";
+
+                lock (CacheLock)
+                {
+                    if (cachedDbKey != currentKey)
+                    {
+                        progressStateCache.Clear();
+                        try
+                        {
+                            var csb = new SQLiteConnectionStringBuilder
+                            {
+                                DataSource = dbPath,
+                                ReadOnly = true
+                            };
+
+                            using var connection = new SQLiteConnection(csb.ToString());
+                            connection.Open();
+
+                            using var cmd = connection.CreateCommand();
+                            cmd.CommandText = @"
+                                SELECT g.PlayniteGameId, u.AchievementsUnlocked, u.TotalAchievements, u.LastUpdatedUtc
+                                FROM UserGameProgress u
+                                JOIN Games g ON u.GameId = g.Id
+                                WHERE g.PlayniteGameId IS NOT NULL;";
+
+                            using var reader = cmd.ExecuteReader();
+                            while (reader.Read())
+                            {
+                                var playniteId = reader.IsDBNull(0) ? null : reader.GetString(0);
+                                if (!string.IsNullOrEmpty(playniteId))
+                                {
+                                    var unlocked = reader.IsDBNull(1) ? 0 : Convert.ToInt32(reader.GetValue(1));
+                                    var total = reader.IsDBNull(2) ? 0 : Convert.ToInt32(reader.GetValue(2));
+                                    var lastUpdatedUtc = reader.IsDBNull(3) ? string.Empty : reader.GetString(3);
+                                    progressStateCache[playniteId] = $"{unlocked}_{total}_{lastUpdatedUtc}";
+                                }
+                            }
+                            cachedDbKey = currentKey;
+                        }
+                        catch
+                        {
+                            cachedDbKey = null;
+                        }
+                    }
+
+                    if (progressStateCache.TryGetValue(game.Id.ToString(), out var cachedHash))
+                    {
+                        return cachedHash;
+                    }
+                }
+
+                // Fallback: direct query with COLLATE NOCASE
+                var fallbackCsb = new SQLiteConnectionStringBuilder
                 {
                     DataSource = dbPath,
                     ReadOnly = true
                 };
 
-                using var connection = new SQLiteConnection(csb.ToString());
-                connection.Open();
-
-                using var cmd = connection.CreateCommand();
-                cmd.CommandText = @"
-                    SELECT u.AchievementsUnlocked, u.TotalAchievements, u.LastUpdatedUtc
-                    FROM UserGameProgress u
-                    JOIN Games g ON u.GameId = g.Id
-                    WHERE g.PlayniteGameId = @playniteId COLLATE NOCASE
-                    LIMIT 1;";
-                cmd.Parameters.AddWithValue("@playniteId", game.Id.ToString());
-
-                using var reader = cmd.ExecuteReader();
-                if (reader.Read())
+                using (var connection = new SQLiteConnection(fallbackCsb.ToString()))
                 {
-                    var unlocked = reader.IsDBNull(0) ? 0 : Convert.ToInt32(reader.GetValue(0));
-                    var total = reader.IsDBNull(1) ? 0 : Convert.ToInt32(reader.GetValue(1));
-                    var lastUpdatedUtc = reader.IsDBNull(2) ? string.Empty : reader.GetString(2);
-                    return $"{unlocked}_{total}_{lastUpdatedUtc}";
+                    connection.Open();
+                    using var cmd = connection.CreateCommand();
+                    cmd.CommandText = @"
+                        SELECT u.AchievementsUnlocked, u.TotalAchievements, u.LastUpdatedUtc
+                        FROM UserGameProgress u
+                        JOIN Games g ON u.GameId = g.Id
+                        WHERE g.PlayniteGameId = @playniteId COLLATE NOCASE
+                        LIMIT 1;";
+                    cmd.Parameters.AddWithValue("@playniteId", game.Id.ToString());
+
+                    using var reader = cmd.ExecuteReader();
+                    if (reader.Read())
+                    {
+                        var unlocked = reader.IsDBNull(0) ? 0 : Convert.ToInt32(reader.GetValue(0));
+                        var total = reader.IsDBNull(1) ? 0 : Convert.ToInt32(reader.GetValue(1));
+                        var lastUpdatedUtc = reader.IsDBNull(2) ? string.Empty : reader.GetString(2);
+                        var hash = $"{unlocked}_{total}_{lastUpdatedUtc}";
+                        lock (CacheLock)
+                        {
+                            progressStateCache[game.Id.ToString()] = hash;
+                        }
+                        return hash;
+                    }
                 }
 
                 return null;

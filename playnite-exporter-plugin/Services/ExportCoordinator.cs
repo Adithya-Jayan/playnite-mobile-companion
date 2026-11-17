@@ -35,6 +35,29 @@ namespace PlayniteExporterPlugin.Services
         public SyncIndex CurrentIndex => currentIndex;
         public ISyncStorageProvider StorageProvider => storageProvider;
         public bool IsSyncInProgress => syncLock.CurrentCount == 0;
+        private CancellationTokenSource? activeSyncCts;
+
+        public void CancelActiveSync()
+        {
+            try
+            {
+                activeSyncCts?.Cancel();
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn(ex, "Failed cancelling active sync CTS.");
+            }
+        }
+
+        public bool WaitForSyncLock(TimeSpan timeout)
+        {
+            if (syncLock.Wait(timeout))
+            {
+                syncLock.Release();
+                return true;
+            }
+            return false;
+        }
 
         public ExportCoordinator(
             IPlayniteAPI api,
@@ -131,6 +154,7 @@ namespace PlayniteExporterPlugin.Services
             }
             finally
             {
+                activeSyncCts = null;
                 syncLock.Release();
             }
         }
@@ -358,6 +382,7 @@ namespace PlayniteExporterPlugin.Services
             }
             finally
             {
+                activeSyncCts = null;
                 syncLock.Release();
             }
         }
@@ -381,10 +406,14 @@ namespace PlayniteExporterPlugin.Services
                 throw new InvalidOperationException(msg);
             }
 
-            await syncLock.WaitAsync(ct).ConfigureAwait(false);
+            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            activeSyncCts = linkedCts;
+            var effectiveCt = linkedCts.Token;
+
+            await syncLock.WaitAsync(effectiveCt).ConfigureAwait(false);
             try
             {
-                ct.ThrowIfCancellationRequested();
+                effectiveCt.ThrowIfCancellationRequested();
                 var games = api.Database?.Games?.ToList() ?? new List<Game>();
                 var userDataDir = api.Paths?.ConfigurationPath ?? pluginUserDataDir;
                 int total = games.Count;
@@ -394,6 +423,7 @@ namespace PlayniteExporterPlugin.Services
                 progress?.Report(new ExportProgressReport(scanEstimator.Format(0, $"Checking library games (0/{total})...", "Step 1/3: Analyzing Library"), 0, total));
 
                 var candidateFiles = new Dictionary<string, PlannedUpload>(StringComparer.OrdinalIgnoreCase);
+                var candidateLock = new object();
                 var concurrencyLimit = Math.Max(1, Math.Min(settings.MaxParallelUploads, 8));
 
                 // Pre-index existing media by GameId for fast lookups
@@ -415,98 +445,115 @@ namespace PlayniteExporterPlugin.Services
                 }
 
                 int scanned = 0;
-                foreach (var game in games)
+                var scanConcurrency = Math.Max(2, Math.Min(Environment.ProcessorCount, 8));
+                using var scanSemaphore = new SemaphoreSlim(scanConcurrency);
+
+                var scanTasks = games.Select(async game =>
                 {
-                    ct.ThrowIfCancellationRequested();
-
-                    var relPath = $"games/{game.Id}.json";
-                    bool isUnchanged = false;
-                    IndexEntry? existingEntry = null;
-                    bool isVersionMatch = currentIndex != null && currentIndex.ClientVersion == CurrentClientVersion;
-
-                    var stateHash = hashEngine.ComputeGameStateHash(game, userDataDir, addonRegistry);
-
-                    if (isVersionMatch && currentIndex!.Entries.TryGetValue(relPath, out existingEntry))
+                    await scanSemaphore.WaitAsync(effectiveCt).ConfigureAwait(false);
+                    try
                     {
-                        isUnchanged = existingEntry != null &&
-                                      !string.IsNullOrEmpty(existingEntry.Sha256) &&
-                                      existingEntry.StateHash == stateHash;
-                    }
+                        effectiveCt.ThrowIfCancellationRequested();
 
-                    if (isUnchanged && existingEntry != null)
-                    {
-                        candidateFiles[relPath] = new PlannedUpload(
-                            relPath,
-                            string.Empty,
-                            existingEntry.Sha256,
-                            existingEntry.SizeBytes,
-                            "game_metadata",
-                            game.Id,
-                            existingEntry.DriveFileId,
-                            existingEntry.MimeType ?? "application/json",
-                            sourceFilePath: null,
-                            stateHash: existingEntry.StateHash
-                        );
+                        var relPath = $"games/{game.Id}.json";
+                        bool isUnchanged = false;
+                        IndexEntry? existingEntry = null;
+                        bool isVersionMatch = currentIndex != null && currentIndex.ClientVersion == CurrentClientVersion;
 
-                        if (existingMediaByGame.TryGetValue(game.Id, out var mediaEntries))
+                        var stateHash = hashEngine.ComputeGameStateHash(game, userDataDir, addonRegistry);
+
+                        if (isVersionMatch && currentIndex!.Entries.TryGetValue(relPath, out existingEntry))
                         {
-                            foreach (var mediaKvp in mediaEntries)
+                            isUnchanged = existingEntry != null &&
+                                          !string.IsNullOrEmpty(existingEntry.Sha256) &&
+                                          existingEntry.StateHash == stateHash;
+                        }
+
+                        if (isUnchanged && existingEntry != null)
+                        {
+                            lock (candidateLock)
                             {
-                                if (!candidateFiles.ContainsKey(mediaKvp.Key))
+                                candidateFiles[relPath] = new PlannedUpload(
+                                    relPath,
+                                    string.Empty,
+                                    existingEntry.Sha256,
+                                    existingEntry.SizeBytes,
+                                    "game_metadata",
+                                    game.Id,
+                                    existingEntry.DriveFileId,
+                                    existingEntry.MimeType ?? "application/json",
+                                    sourceFilePath: null,
+                                    stateHash: existingEntry.StateHash
+                                );
+
+                                if (existingMediaByGame.TryGetValue(game.Id, out var mediaEntries))
                                 {
-                                    candidateFiles[mediaKvp.Key] = new PlannedUpload(
-                                        mediaKvp.Key,
-                                        string.Empty,
-                                        mediaKvp.Value.Sha256,
-                                        mediaKvp.Value.SizeBytes,
-                                        mediaKvp.Value.Category ?? "media",
-                                        game.Id,
-                                        mediaKvp.Value.DriveFileId,
-                                        mediaKvp.Value.MimeType ?? "application/octet-stream"
-                                    );
+                                    foreach (var mediaKvp in mediaEntries)
+                                    {
+                                        if (!candidateFiles.ContainsKey(mediaKvp.Key))
+                                        {
+                                            candidateFiles[mediaKvp.Key] = new PlannedUpload(
+                                                mediaKvp.Key,
+                                                string.Empty,
+                                                mediaKvp.Value.Sha256,
+                                                mediaKvp.Value.SizeBytes,
+                                                mediaKvp.Value.Category ?? "media",
+                                                game.Id,
+                                                mediaKvp.Value.DriveFileId,
+                                                mediaKvp.Value.MimeType ?? "application/octet-stream"
+                                            );
+                                        }
+                                    }
                                 }
                             }
                         }
-                    }
-                    else
-                    {
-                        var (payload, mediaUploads) = await aggregator.BuildGamePayloadAsync(game, userDataDir).ConfigureAwait(false);
-                        var jsonContent = DeterministicJsonSerializer.Serialize(payload);
-                        var sha = Sha256Hasher.ComputeStringHash(jsonContent);
-                        var size = Encoding.UTF8.GetByteCount(jsonContent);
-
-                        candidateFiles[relPath] = new PlannedUpload(
-                            relPath,
-                            jsonContent,
-                            sha,
-                            size,
-                            "game_metadata",
-                            game.Id,
-                            existingDriveFileId: null,
-                            mimeType: "application/json",
-                            sourceFilePath: null,
-                            stateHash: stateHash
-                        );
-
-                        foreach (var media in mediaUploads)
+                        else
                         {
-                            if (!candidateFiles.ContainsKey(media.RelativePath))
+                            var (payload, mediaUploads) = await aggregator.BuildGamePayloadAsync(game, userDataDir).ConfigureAwait(false);
+                            var jsonContent = DeterministicJsonSerializer.Serialize(payload);
+                            var sha = Sha256Hasher.ComputeStringHash(jsonContent);
+                            var size = Encoding.UTF8.GetByteCount(jsonContent);
+
+                            lock (candidateLock)
                             {
-                                candidateFiles[media.RelativePath] = media;
+                                candidateFiles[relPath] = new PlannedUpload(
+                                    relPath,
+                                    jsonContent,
+                                    sha,
+                                    size,
+                                    "game_metadata",
+                                    game.Id,
+                                    existingDriveFileId: null,
+                                    mimeType: "application/json",
+                                    sourceFilePath: null,
+                                    stateHash: stateHash
+                                );
+
+                                foreach (var media in mediaUploads)
+                                {
+                                    if (!candidateFiles.ContainsKey(media.RelativePath))
+                                    {
+                                        candidateFiles[media.RelativePath] = media;
+                                    }
+                                }
                             }
                         }
-                    }
 
-                    scanned++;
-                    // Ensure progress is reported immediately at step 0, 1, 2... and smoothly throughout
-                    if (scanned <= 10 || scanned % Math.Max(1, total / 50) == 0 || scanned == total)
+                        var curScanned = Interlocked.Increment(ref scanned);
+                        if (curScanned <= 10 || curScanned % Math.Max(1, total / 50) == 0 || curScanned == total)
+                        {
+                            var scanReport = scanEstimator.Format(curScanned, $"Checking game {curScanned}/{total}: {game.Name}", "Step 1/3: Analyzing Library");
+                            progress?.Report(new ExportProgressReport(scanReport, curScanned, total));
+                        }
+                    }
+                    finally
                     {
-                        var scanReport = scanEstimator.Format(scanned, $"Checking game {scanned}/{total}: {game.Name}", "Step 1/3: Analyzing Library");
-                        progress?.Report(new ExportProgressReport(scanReport, scanned, total));
+                        scanSemaphore.Release();
                     }
-                }
+                });
 
-                ct.ThrowIfCancellationRequested();
+                await Task.WhenAll(scanTasks).ConfigureAwait(false);
+                effectiveCt.ThrowIfCancellationRequested();
 
                 // Compute diff against previous index
                 progress?.Report(new ExportProgressReport(
@@ -811,6 +858,7 @@ namespace PlayniteExporterPlugin.Services
             }
             finally
             {
+                activeSyncCts = null;
                 syncLock.Release();
             }
         }
@@ -846,6 +894,7 @@ namespace PlayniteExporterPlugin.Services
             }
             finally
             {
+                activeSyncCts = null;
                 syncLock.Release();
             }
 

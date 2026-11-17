@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Controls;
 using Playnite.SDK;
@@ -116,6 +117,102 @@ namespace PlayniteExporterPlugin
             return false;
         }
 
+        private CancellationTokenSource? backgroundSyncCts;
+        private readonly object syncCtsLock = new();
+
+        private void RunBackgroundAutoSync(string reason, Func<CancellationToken, Task> syncAction)
+        {
+            CancellationTokenSource cts;
+            lock (syncCtsLock)
+            {
+                if (coordinator.IsSyncInProgress)
+                {
+                    Logger.Info($"Skipping auto-sync ({reason}): a sync is already running.");
+                    return;
+                }
+                backgroundSyncCts = new CancellationTokenSource();
+                cts = backgroundSyncCts;
+            }
+
+            Task.Run(async () =>
+            {
+                const string notificationId = "mobile_sync_bg_active";
+                try
+                {
+                    PlayniteApi.Notifications.Add(new NotificationMessage(
+                        notificationId,
+                        "Mobile Delta Sync is running in the background...",
+                        NotificationType.Info
+                    ));
+
+                    await syncAction(cts.Token);
+                }
+                catch (OperationCanceledException)
+                {
+                    Logger.Info($"Background auto-sync ({reason}) was cancelled.");
+                }
+                catch (Exception ex)
+                {
+                    Logger.Error(ex, $"Failed background auto-sync ({reason}).");
+                }
+                finally
+                {
+                    PlayniteApi.Notifications.Remove(notificationId);
+                    lock (syncCtsLock)
+                    {
+                        if (backgroundSyncCts == cts)
+                        {
+                            backgroundSyncCts = null;
+                        }
+                    }
+                }
+            });
+        }
+
+        private bool EnsureSyncLockAvailable(string actionName)
+        {
+            if (!coordinator.IsSyncInProgress)
+            {
+                return true;
+            }
+
+            bool cancelledBg = false;
+            lock (syncCtsLock)
+            {
+                if (backgroundSyncCts != null && !backgroundSyncCts.IsCancellationRequested)
+                {
+                    Logger.Info($"Cancelling background auto-sync to prioritize user '{actionName}' request.");
+                    backgroundSyncCts.Cancel();
+                    cancelledBg = true;
+                }
+            }
+
+            if (cancelledBg)
+            {
+                coordinator.WaitForSyncLock(TimeSpan.FromSeconds(2));
+            }
+
+            if (coordinator.IsSyncInProgress)
+            {
+                var choice = PlayniteApi.Dialogs.ShowMessage(
+                    "A library sync is currently active. Would you like to stop it and start your sync now?",
+                    "Mobile Sync Active",
+                    System.Windows.MessageBoxButton.YesNo
+                );
+
+                if (choice == System.Windows.MessageBoxResult.Yes)
+                {
+                    coordinator.CancelActiveSync();
+                    coordinator.WaitForSyncLock(TimeSpan.FromSeconds(3));
+                    return !coordinator.IsSyncInProgress;
+                }
+
+                return false;
+            }
+
+            return true;
+        }
+
         public override void OnApplicationStarted(OnApplicationStartedEventArgs args)
         {
             Task.Run(async () =>
@@ -136,8 +233,15 @@ namespace PlayniteExporterPlugin
                             Logger.Warn("Skipping auto-sync on startup: storage provider is not authenticated.");
                             return;
                         }
-                        Logger.Info("AutoSync on startup triggered. Starting incremental sync...");
-                        await coordinator.SyncIncrementalLibraryAsync();
+
+                        // Delay startup sync slightly so Playnite UI and metadata providers finish booting smoothly
+                        await Task.Delay(8000);
+
+                        RunBackgroundAutoSync("startup", async ct =>
+                        {
+                            Logger.Info("AutoSync on startup triggered. Starting incremental sync...");
+                            await coordinator.SyncIncrementalLibraryAsync(ct: ct);
+                        });
                     }
                 }
                 catch (Exception ex)
@@ -169,16 +273,9 @@ namespace PlayniteExporterPlugin
             var game = args.Game;
             Logger.Info($"Game stopped: '{game.Name}' ({game.Id}). Enqueuing instant atomic delta sync.");
 
-            Task.Run(async () =>
+            RunBackgroundAutoSync($"game_stopped_{game.Id}", async ct =>
             {
-                try
-                {
-                    await coordinator.SyncSingleGameAsync(game);
-                }
-                catch (Exception ex)
-                {
-                    Logger.Error(ex, $"Failed atomic delta sync for game '{game.Name}' ({game.Id}).");
-                }
+                await coordinator.SyncSingleGameAsync(game, ct: ct);
             });
         }
 
@@ -201,18 +298,10 @@ namespace PlayniteExporterPlugin
                 return;
             }
 
-            Logger.Info("Playnite library updated. Enqueuing incremental delta sync.");
-
-            Task.Run(async () =>
+            RunBackgroundAutoSync("library_updated", async ct =>
             {
-                try
-                {
-                    await coordinator.SyncIncrementalLibraryAsync();
-                }
-                catch (Exception ex)
-                {
-                    Logger.Error(ex, "Failed incremental delta sync after library update.");
-                }
+                Logger.Info("Playnite library updated. Enqueuing incremental delta sync.");
+                await coordinator.SyncIncrementalLibraryAsync(ct: ct);
             });
         }
 
@@ -232,12 +321,8 @@ namespace PlayniteExporterPlugin
                             return;
                         }
 
-                        if (coordinator.IsSyncInProgress)
+                        if (!EnsureSyncLockAvailable("Sync Library Now"))
                         {
-                            PlayniteApi.Notifications.Add(
-                                new NotificationMessage("mobile_sync_busy", "A mobile library sync is already currently running. Please wait for it to complete.", NotificationType.Info)
-                            );
-                            PlayniteApi.Dialogs.ShowMessage("A mobile library sync is already in progress. Please wait for it to finish.", "Mobile Sync Busy");
                             return;
                         }
 
@@ -316,12 +401,8 @@ namespace PlayniteExporterPlugin
                             return;
                         }
 
-                        if (coordinator.IsSyncInProgress)
+                        if (!EnsureSyncLockAvailable("Force Full Re-Export"))
                         {
-                            PlayniteApi.Notifications.Add(
-                                new NotificationMessage("mobile_sync_busy", "A mobile library sync is already currently running. Please wait for it to complete.", NotificationType.Info)
-                            );
-                            PlayniteApi.Dialogs.ShowMessage("A mobile library sync is already in progress. Please wait for it to finish.", "Mobile Sync Busy");
                             return;
                         }
 

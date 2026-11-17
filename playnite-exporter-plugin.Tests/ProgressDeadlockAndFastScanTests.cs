@@ -181,5 +181,47 @@ namespace PlayniteExporterPlugin.Tests
             Assert.Equal(0, firstReport.CurrentProgressValue);
             Assert.Equal(10, firstReport.ProgressMaxValue);
         }
+
+        [Fact]
+        public async Task CancelActiveSync_CancelsRunningSyncAndReleasesSyncLock()
+        {
+            await coordinator.InitializeAsync();
+
+            for (int i = 0; i < 50; i++)
+            {
+                env.Games.Add(new Game($"Game {i}") { Id = Guid.NewGuid() });
+            }
+
+            var syncStarted = new TaskCompletionSource<bool>();
+            var syncTask = Task.Run(async () =>
+            {
+                var progress = new SynchronousProgress<ExportProgressReport>(_ =>
+                {
+                    syncStarted.TrySetResult(true);
+                });
+                return await coordinator.SyncIncrementalLibraryAsync(progress);
+            });
+
+            await syncStarted.Task;
+            Assert.True(coordinator.IsSyncInProgress);
+
+            // Cancel active sync
+            coordinator.CancelActiveSync();
+
+            // Task must complete (or throw OperationCanceledException)
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await syncTask);
+
+            // Sync lock must be released
+            Assert.False(coordinator.IsSyncInProgress);
+            Assert.True(coordinator.WaitForSyncLock(TimeSpan.FromSeconds(1)));
+        }
+
+        [Fact]
+        public async Task WaitForSyncLock_WhenUnlocked_ReturnsTrueImmediately()
+        {
+            await coordinator.InitializeAsync();
+            Assert.False(coordinator.IsSyncInProgress);
+            Assert.True(coordinator.WaitForSyncLock(TimeSpan.FromSeconds(1)));
+        }
     }
 }
