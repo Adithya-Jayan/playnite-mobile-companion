@@ -38,7 +38,12 @@ jobs:
           flutter pub get
           flutter analyze
 
-      - name: Run Unified Test Suites
+      - name: Run Unified Test Suites & Guardrails
         shell: powershell
         run: |
           powershell -File scripts/test_all.ps1
+
+      - name: Verify Distribution Packaging (C# Exporter Plugin)
+        shell: powershell
+        run: |
+          powershell -File scripts/package_dist.ps1 -SkipApk

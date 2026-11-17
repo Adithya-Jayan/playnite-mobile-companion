@@ -13,22 +13,42 @@ if (-not (Test-Path $distDir)) {
     New-Item -ItemType Directory -Path $distDir -Force | Out-Null
 }
 
-Write-Host "=== Playnite Mobile Companion Packaging ===" -ForegroundColor Cyan
+Write-Host "==========================================================" -ForegroundColor Cyan
+Write-Host " Playnite Mobile Companion & Exporter Packaging" -ForegroundColor Cyan
+Write-Host "==========================================================" -ForegroundColor Cyan
 
-# 1. Version Parity Check
+# 1. Version Parity Guardrail Check
 $extensionYamlPath = Join-Path $repoRoot "playnite-exporter-plugin\extension.yaml"
 $pubspecPath = Join-Path $repoRoot "playnite-mobile-companion\pubspec.yaml"
 $installerYamlPath = Join-Path $repoRoot "installer.yaml"
 
-$extensionVer = (Select-String -Path $extensionYamlPath -Pattern '^Version:\s*([0-9\.]+)').Matches.Groups[1].Value
-$pubspecVer = (Select-String -Path $pubspecPath -Pattern '^version:\s*([0-9\.]+)').Matches.Groups[1].Value
+$extensionVerMatch = Select-String -Path $extensionYamlPath -Pattern '(?m)^Version:\s*([0-9\.]+)'
+if (-not $extensionVerMatch) {
+    throw "Unable to extract Version from $extensionYamlPath"
+}
+$extensionVer = $extensionVerMatch.Matches[0].Groups[1].Value.Trim()
 
-Write-Host "Detected Addon Version:  $extensionVer"
-Write-Host "Detected Mobile Version: $pubspecVer"
+$pubspecVerMatch = Select-String -Path $pubspecPath -Pattern '(?m)^version:\s*([0-9\.]+)'
+if (-not $pubspecVerMatch) {
+    throw "Unable to extract version from $pubspecPath"
+}
+$pubspecVer = $pubspecVerMatch.Matches[0].Groups[1].Value.Trim()
+
+$installerContent = Get-Content -Path $installerYamlPath -Raw
+$installerHasVer = $installerContent -match "(?m)^\s*-\s*Version:\s*$([regex]::Escape($extensionVer))\b"
+
+Write-Host "Detected Addon Version:     $extensionVer"
+Write-Host "Detected Mobile Version:    $pubspecVer"
+Write-Host "Installer Changelog Matched: $installerHasVer"
 
 if ($extensionVer -ne $pubspecVer) {
-    Write-Warning "Version mismatch between extension.yaml ($extensionVer) and pubspec.yaml ($pubspecVer)!"
+    throw "Version Parity Guardrail Failed: extension.yaml ($extensionVer) != pubspec.yaml ($pubspecVer)!"
 }
+
+if (-not $installerHasVer) {
+    throw "Version Parity Guardrail Failed: installer.yaml does not contain an entry for Version $extensionVer!"
+}
+Write-Host ">> Version parity check PASSED." -ForegroundColor Green
 
 # 2. Build & Package .pext
 if (-not $SkipPext) {
@@ -54,18 +74,26 @@ if (-not $SkipPext) {
         Write-Host "Packaging .pext with all dependencies..."
         [System.IO.Compression.ZipFile]::CreateFromDirectory($stagingDir, $pextTarget)
 
+        # Check if Playnite is running before attempting hot-update
+        $playniteProc = Get-Process -Name "Playnite.DesktopApp" -ErrorAction SilentlyContinue
+        if ($playniteProc) {
+            Write-Warning "Playnite is currently running (PID: $($playniteProc.Id)) and holding locks on addon assemblies."
+            Write-Warning "To update installed extension in-place, please close Playnite."
+        }
+
         # Hot-update local Playnite installation if present
         $installedAddonDir = "$env:AppData\Playnite\Extensions\MobileDeltaSyncExporter_d3b07384-d113-4c90-951b-10f88a91a92a"
         if (Test-Path $installedAddonDir) {
-            Write-Host "Hot-updating installed Playnite extension at $installedAddonDir..."
+            Write-Host "Attempting hot-update of installed Playnite extension at $installedAddonDir..."
             try {
                 Copy-Item (Join-Path $stagingDir "*") -Destination $installedAddonDir -Recurse -Force -ErrorAction Stop
+                Write-Host "Hot-update succeeded!" -ForegroundColor Green
             } catch {
-                Write-Warning "Playnite is currently running and locking addon DLLs ($($_.Exception.Message)). Addon files will update upon Playnite restart or manual .pext install."
+                Write-Warning "Could not hot-update installed extension files ($($_.Exception.Message)). Addon files will update upon Playnite restart or manual .pext install."
             }
         }
 
-        # Verify key dependencies
+        # Verify key dependencies inside the archive
         $archive = [System.IO.Compression.ZipFile]::OpenRead($pextTarget)
         $entryNames = $archive.Entries | ForEach-Object { $_.FullName }
         $archive.Dispose()
