@@ -518,8 +518,8 @@ namespace PlayniteExporterPlugin.Services
 
                             try
                             {
-                                var fileInfo = new FileInfo(localIconPath);
-                                var sha = Sha256Hasher.ComputeFileHash(localIconPath);
+                                var fileInfo = new FileInfo(localIconPath!);
+                                var sha = Sha256Hasher.ComputeFileHash(localIconPath!);
 
                                 if (!mediaUploads.Any(u => string.Equals(u.RelativePath, iconRelPath, StringComparison.OrdinalIgnoreCase)))
                                 {
