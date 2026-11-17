@@ -31,10 +31,23 @@
   - Extensions log: `%APPDATA%\Playnite\extensions.log`
   - Playnite main log: `%APPDATA%\Playnite\playnite.log`
   - Installed extension folder: `%APPDATA%\Playnite\Extensions\MobileDeltaSyncExporter_d3b07384-d113-4c90-951b-10f88a91a92a`
+  - Addon data & media caches:
+    - Base folder: `%APPDATA%\Playnite\ExtensionsData`
+    - PlayniteAchievements cache: `%APPDATA%\Playnite\ExtensionsData\e6aad2c9-6e06-4d8d-ac55-ac3b252b5f7b\icon_cache`
+    - SuccessStory cache: `%APPDATA%\Playnite\ExtensionsData\cebe6d32-7d2d-4b21-aa07-074492bf3532`
   - Quick log inspection:
     ```powershell
     Get-Content -Tail 50 "$env:AppData\Playnite\extensions.log"
     ```
+
+## Testing & Quality Guardrails
+
+- **Widget Test Teardown Invariant**: Any Flutter test mounting `LibraryScreen` or screens with active database subscriptions must pump `const SizedBox.shrink()` before the test completes to ensure clean unmounting before `database.close()`:
+  ```dart
+  await tester.pumpWidget(const SizedBox.shrink());
+  await tester.pump();
+  ```
+- **Static Analysis Pre-Flight**: `scripts/test_all.ps1` runs `flutter analyze` before `flutter test`. Ensure zero warnings or errors prior to committing.
 
 ## Subagent & Shell Directives
 

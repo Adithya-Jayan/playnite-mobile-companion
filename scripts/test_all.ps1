@@ -140,13 +140,23 @@ if (-not (Test-Path $FlutterDir)) {
 } else {
     Push-Location $FlutterDir
     try {
-        flutter test
-        if ($LASTEXITCODE -eq 0) {
-            $FlutterSuccess = $true
-            Write-Host ">> Playnite Mobile Companion tests PASSED." -ForegroundColor Green
-        } else {
+        Write-Host "Running flutter analyze..." -ForegroundColor DarkGray
+        flutter analyze
+        if ($LASTEXITCODE -ne 0) {
             $FlutterSuccess = $false
-            Write-Host ">> Playnite Mobile Companion tests FAILED (exit code: $LASTEXITCODE)." -ForegroundColor Red
+            Write-Host ">> Playnite Mobile Companion analysis FAILED (exit code: $LASTEXITCODE)." -ForegroundColor Red
+        } else {
+            Write-Host ">> Playnite Mobile Companion analysis PASSED." -ForegroundColor Green
+            Write-Host ""
+            Write-Host "Running flutter test..." -ForegroundColor DarkGray
+            flutter test
+            if ($LASTEXITCODE -eq 0) {
+                $FlutterSuccess = $true
+                Write-Host ">> Playnite Mobile Companion tests PASSED." -ForegroundColor Green
+            } else {
+                $FlutterSuccess = $false
+                Write-Host ">> Playnite Mobile Companion tests FAILED (exit code: $LASTEXITCODE)." -ForegroundColor Red
+            }
         }
     } finally {
         Pop-Location
