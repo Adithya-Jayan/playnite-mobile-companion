@@ -10,6 +10,12 @@ enum ActivityChartMode {
   cumulativeLine,
 }
 
+enum HistogramRange {
+  sevenDays,
+  thirtyDays,
+  allTime,
+}
+
 class ActivitySection implements IAddonSectionWidget {
   const ActivitySection();
 
@@ -39,7 +45,31 @@ class _ActivitySectionWidget extends StatefulWidget {
 
 class _ActivitySectionWidgetState extends State<_ActivitySectionWidget> {
   ActivityChartMode _chartMode = ActivityChartMode.barHistogram;
+  HistogramRange _histogramRange = HistogramRange.thirtyDays;
+  final ScrollController _histogramScrollController = ScrollController();
+  String? _selectedHistogramDay;
+  int? _selectedHistogramSeconds;
   bool _showAllSessions = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollToRecent();
+  }
+
+  @override
+  void dispose() {
+    _histogramScrollController.dispose();
+    super.dispose();
+  }
+
+  void _scrollToRecent() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_histogramScrollController.hasClients) {
+        _histogramScrollController.jumpTo(_histogramScrollController.position.maxScrollExtent);
+      }
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -75,8 +105,19 @@ class _ActivitySectionWidgetState extends State<_ActivitySectionWidget> {
     }
 
     final sortedDays = dailySecondsMap.keys.toList()..sort();
-    final recentDays = sortedDays.length > 20 ? sortedDays.sublist(sortedDays.length - 20) : sortedDays;
-    final dailyData = recentDays.map((d) => (day: d, seconds: dailySecondsMap[d] ?? 0)).toList();
+    List<String> rangeDays;
+    switch (_histogramRange) {
+      case HistogramRange.sevenDays:
+        rangeDays = sortedDays.length > 7 ? sortedDays.sublist(sortedDays.length - 7) : sortedDays;
+        break;
+      case HistogramRange.thirtyDays:
+        rangeDays = sortedDays.length > 30 ? sortedDays.sublist(sortedDays.length - 30) : sortedDays;
+        break;
+      case HistogramRange.allTime:
+        rangeDays = sortedDays;
+        break;
+    }
+    final dailyData = rangeDays.map((d) => (day: d, seconds: dailySecondsMap[d] ?? 0)).toList();
 
     // Cumulative points (ascending)
     final sortedAscSessions = List<Map<String, dynamic>>.from(sessions)
@@ -152,6 +193,9 @@ class _ActivitySectionWidgetState extends State<_ActivitySectionWidget> {
                 selected: {_chartMode},
                 onSelectionChanged: (newSelection) {
                   setState(() => _chartMode = newSelection.first);
+                  if (newSelection.first == ActivityChartMode.barHistogram) {
+                    _scrollToRecent();
+                  }
                 },
                 style: const ButtonStyle(
                   visualDensity: VisualDensity.compact,
@@ -159,11 +203,47 @@ class _ActivitySectionWidgetState extends State<_ActivitySectionWidget> {
                 ),
               ),
             ),
-            const SizedBox(height: 14),
+            if (_chartMode == ActivityChartMode.barHistogram) ...[
+              const SizedBox(height: 10),
+              Center(
+                child: Wrap(
+                  alignment: WrapAlignment.center,
+                  spacing: 8,
+                  runSpacing: 6,
+                  children: [
+                    _buildRangeChip(HistogramRange.sevenDays, '7 Days'),
+                    _buildRangeChip(HistogramRange.thirtyDays, '30 Days'),
+                    _buildRangeChip(HistogramRange.allTime, 'All Time'),
+                  ],
+                ),
+              ),
+              if (_selectedHistogramDay != null && _selectedHistogramSeconds != null) ...[
+                const SizedBox(height: 8),
+                Center(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: AppTheme.accentGreen.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: AppTheme.accentGreen.withValues(alpha: 0.4)),
+                    ),
+                    child: Text(
+                      '${_selectedHistogramDay!}: ${DurationFormatter.formatSecondsToHoursMinutes(_selectedHistogramSeconds!)}',
+                      style: const TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                        color: AppTheme.accentGreen,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ],
+            const SizedBox(height: 12),
 
             // Visualizer Chart Area
             Container(
-              height: 140,
+              height: 155,
               width: double.infinity,
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
               decoration: BoxDecoration(
@@ -182,9 +262,12 @@ class _ActivitySectionWidgetState extends State<_ActivitySectionWidget> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text(
-                  'Session History',
-                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppTheme.textSecondary),
+                const Expanded(
+                  child: Text(
+                    'Session History',
+                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppTheme.textSecondary),
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
                 if (recentSessions.length > previewSessionsLimit)
                   TextButton(
@@ -243,6 +326,35 @@ class _ActivitySectionWidgetState extends State<_ActivitySectionWidget> {
     );
   }
 
+  Widget _buildRangeChip(HistogramRange range, String label) {
+    final isSelected = _histogramRange == range;
+    return ChoiceChip(
+      label: Text(
+        label,
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+          color: isSelected ? Colors.white : AppTheme.textSecondary,
+        ),
+      ),
+      selected: isSelected,
+      selectedColor: AppTheme.primary,
+      backgroundColor: AppTheme.surfaceLight,
+      side: BorderSide(color: isSelected ? AppTheme.primary : AppTheme.dividerColor),
+      visualDensity: VisualDensity.compact,
+      onSelected: (selected) {
+        if (selected && _histogramRange != range) {
+          setState(() {
+            _histogramRange = range;
+            _selectedHistogramDay = null;
+            _selectedHistogramSeconds = null;
+          });
+          _scrollToRecent();
+        }
+      },
+    );
+  }
+
   Widget _buildBarHistogram(List<({String day, int seconds})> data) {
     if (data.isEmpty) {
       return const Center(child: Text('No daily session data', style: TextStyle(color: AppTheme.textMuted, fontSize: 12)));
@@ -255,43 +367,77 @@ class _ActivitySectionWidgetState extends State<_ActivitySectionWidget> {
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final barWidth = max(6.0, (constraints.maxWidth - (data.length * 4)) / data.length);
-        return Row(
-          crossAxisAlignment: CrossAxisAlignment.end,
-          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-          children: data.map((d) {
-            final ratio = (d.seconds / maxSeconds).clamp(0.05, 1.0);
-            final barHeight = max(2.0, ratio * (constraints.maxHeight - 32));
-            final hours = (d.seconds / 3600).toStringAsFixed(1);
-            final dayLabel = d.day.length >= 5 ? d.day.substring(5) : d.day;
+        const barWidth = 28.0;
+        const barSpacing = 10.0;
 
-            return Tooltip(
-              message: '${d.day}: ${DurationFormatter.formatSecondsToHoursMinutes(d.seconds)}',
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  Text(
-                    '${hours}h',
-                    style: const TextStyle(fontSize: 8, color: AppTheme.textMuted),
-                  ),
-                  const SizedBox(height: 2),
-                  Container(
-                    width: barWidth,
-                    height: barHeight,
-                    decoration: BoxDecoration(
-                      color: AppTheme.accentGreen,
-                      borderRadius: BorderRadius.circular(3),
+        return SingleChildScrollView(
+          controller: _histogramScrollController,
+          scrollDirection: Axis.horizontal,
+          physics: const BouncingScrollPhysics(),
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: data.map((d) {
+              final isSelected = _selectedHistogramDay == d.day;
+              final ratio = (d.seconds / maxSeconds).clamp(0.06, 1.0);
+              final barHeight = max(4.0, ratio * (constraints.maxHeight - 44));
+              final hours = (d.seconds / 3600).toStringAsFixed(1);
+              final dayLabel = d.day.length >= 10 ? '${d.day.substring(5, 7)}/${d.day.substring(8, 10)}' : d.day;
+
+              return Padding(
+                padding: const EdgeInsets.symmetric(horizontal: barSpacing / 2),
+                child: Tooltip(
+                  message: '${d.day}: ${DurationFormatter.formatSecondsToHoursMinutes(d.seconds)}',
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(6),
+                    onTap: () {
+                      setState(() {
+                        if (_selectedHistogramDay == d.day) {
+                          _selectedHistogramDay = null;
+                          _selectedHistogramSeconds = null;
+                        } else {
+                          _selectedHistogramDay = d.day;
+                          _selectedHistogramSeconds = d.seconds;
+                        }
+                      });
+                    },
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        Text(
+                          '${hours}h',
+                          style: TextStyle(
+                            fontSize: 9,
+                            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                            color: isSelected ? AppTheme.accentGreen : AppTheme.textMuted,
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        Container(
+                          width: barWidth,
+                          height: barHeight,
+                          decoration: BoxDecoration(
+                            color: isSelected ? AppTheme.accentGreen : AppTheme.accentGreen.withValues(alpha: 0.75),
+                            borderRadius: const BorderRadius.vertical(top: Radius.circular(4)),
+                            border: isSelected ? Border.all(color: Colors.white, width: 1.5) : null,
+                          ),
+                        ),
+                        const SizedBox(height: 5),
+                        Text(
+                          dayLabel,
+                          style: TextStyle(
+                            fontSize: 9,
+                            fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                            color: isSelected ? AppTheme.textPrimary : AppTheme.textSecondary,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    dayLabel,
-                    style: const TextStyle(fontSize: 8, color: AppTheme.textMuted),
-                  ),
-                ],
-              ),
-            );
-          }).toList(),
+                ),
+              );
+            }).toList(),
+          ),
         );
       },
     );
