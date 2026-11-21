@@ -238,16 +238,12 @@ class GameDao {
 
       case UtilityFilterMode.missingCovers:
         whereClauses.add("((cover_sha256 IS NULL OR cover_sha256 = '') AND (cover_drive_file_id IS NULL OR cover_drive_file_id = ''))");
-        if (!criteria.includeUserHidden) {
-          whereClauses.add('(hidden = 0 OR hidden IS NULL)');
-        }
+        _applyBaselineVisibility(whereClauses, criteria, hasDuplicateCol: hasDuplicateCol);
         break;
 
       case UtilityFilterMode.missingMicrotrailers:
         whereClauses.add("(microtrailer_drive_file_id IS NULL OR microtrailer_drive_file_id = '')");
-        if (!criteria.includeUserHidden) {
-          whereClauses.add('(hidden = 0 OR hidden IS NULL)');
-        }
+        _applyBaselineVisibility(whereClauses, criteria, hasDuplicateCol: hasDuplicateCol);
         break;
 
       case UtilityFilterMode.none:

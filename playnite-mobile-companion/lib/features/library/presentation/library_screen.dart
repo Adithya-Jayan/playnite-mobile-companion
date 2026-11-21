@@ -511,7 +511,11 @@ class _LibraryScreenState extends State<LibraryScreen> {
                   curve: Curves.easeOutCubic,
                 );
               }
+              final previousTab = _currentTabIndex;
               setState(() => _currentTabIndex = index);
+              if (previousTab != 0 && index == 0) {
+                _loadLibrary();
+              }
             },
             items: const [
               BottomNavigationBarItem(
