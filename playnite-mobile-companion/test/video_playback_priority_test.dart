@@ -273,7 +273,7 @@ void main() {
       final reorderable = tester.widget<ReorderableListView>(reorderableFinder);
 
       await tester.runAsync(() async {
-        reorderable.onReorder(2, 0);
+        (reorderable.onReorder as dynamic)(2, 0);
         await Future.delayed(const Duration(milliseconds: 200));
       });
       await tester.pump();
