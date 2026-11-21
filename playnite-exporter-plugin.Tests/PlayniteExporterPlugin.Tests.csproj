@@ -22,11 +22,13 @@
 
   <ItemGroup>
     <Reference Include="Playnite.SDK">
-      <HintPath>C:\Users\adith\AppData\Local\Playnite\Playnite.SDK.dll</HintPath>
+      <HintPath Condition="Exists('$(MSBuildThisFileDirectory)..\libs\Playnite.SDK.dll')">$(MSBuildThisFileDirectory)..\libs\Playnite.SDK.dll</HintPath>
+      <HintPath Condition="!Exists('$(MSBuildThisFileDirectory)..\libs\Playnite.SDK.dll')">$(LocalAppData)\Playnite\Playnite.SDK.dll</HintPath>
       <Private>True</Private>
     </Reference>
     <Reference Include="LiteDB">
-      <HintPath>C:\Users\adith\AppData\Local\Playnite\LiteDB.dll</HintPath>
+      <HintPath Condition="Exists('$(MSBuildThisFileDirectory)..\libs\LiteDB.dll')">$(MSBuildThisFileDirectory)..\libs\LiteDB.dll</HintPath>
+      <HintPath Condition="!Exists('$(MSBuildThisFileDirectory)..\libs\LiteDB.dll')">$(LocalAppData)\Playnite\LiteDB.dll</HintPath>
       <Private>True</Private>
     </Reference>
   </ItemGroup>
