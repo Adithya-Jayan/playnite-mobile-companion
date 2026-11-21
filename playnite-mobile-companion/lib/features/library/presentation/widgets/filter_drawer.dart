@@ -231,42 +231,12 @@ class _FilterDrawerState extends State<FilterDrawer> {
                               spacing: 8,
                               runSpacing: 8,
                               children: [
-                                ChoiceChip(
-                                  label: const Text('None'),
-                                  selected: _utilityMode == UtilityFilterMode.none,
-                                  selectedColor: AppTheme.primary,
-                                  onSelected: (_) => setState(() => _utilityMode = UtilityFilterMode.none),
-                                ),
-                                ChoiceChip(
-                                  label: const Text('Only Hidden'),
-                                  selected: _utilityMode == UtilityFilterMode.onlyHidden,
-                                  selectedColor: AppTheme.primary,
-                                  onSelected: (sel) => setState(() => _utilityMode = sel ? UtilityFilterMode.onlyHidden : UtilityFilterMode.none),
-                                ),
-                                ChoiceChip(
-                                  label: const Text('Only Duplicates'),
-                                  selected: _utilityMode == UtilityFilterMode.onlyDuplicates,
-                                  selectedColor: AppTheme.primary,
-                                  onSelected: (sel) => setState(() => _utilityMode = sel ? UtilityFilterMode.onlyDuplicates : UtilityFilterMode.none),
-                                ),
-                                ChoiceChip(
-                                  label: const Text('Only Unplayed'),
-                                  selected: _utilityMode == UtilityFilterMode.onlyUnplayed,
-                                  selectedColor: AppTheme.primary,
-                                  onSelected: (sel) => setState(() => _utilityMode = sel ? UtilityFilterMode.onlyUnplayed : UtilityFilterMode.none),
-                                ),
-                                ChoiceChip(
-                                  label: const Text('Missing Covers'),
-                                  selected: _utilityMode == UtilityFilterMode.missingCovers,
-                                  selectedColor: AppTheme.primary,
-                                  onSelected: (sel) => setState(() => _utilityMode = sel ? UtilityFilterMode.missingCovers : UtilityFilterMode.none),
-                                ),
-                                ChoiceChip(
-                                  label: const Text('Missing Microtrailers'),
-                                  selected: _utilityMode == UtilityFilterMode.missingMicrotrailers,
-                                  selectedColor: AppTheme.primary,
-                                  onSelected: (sel) => setState(() => _utilityMode = sel ? UtilityFilterMode.missingMicrotrailers : UtilityFilterMode.none),
-                                ),
+                                _buildUtilityChoiceChip(label: 'None', mode: UtilityFilterMode.none),
+                                _buildUtilityChoiceChip(label: 'Only Hidden', mode: UtilityFilterMode.onlyHidden),
+                                _buildUtilityChoiceChip(label: 'Only Duplicates', mode: UtilityFilterMode.onlyDuplicates),
+                                _buildUtilityChoiceChip(label: 'Only Unplayed', mode: UtilityFilterMode.onlyUnplayed),
+                                _buildUtilityChoiceChip(label: 'Missing Covers', mode: UtilityFilterMode.missingCovers),
+                                _buildUtilityChoiceChip(label: 'Missing Microtrailers', mode: UtilityFilterMode.missingMicrotrailers),
                               ],
                             ),
                           ),
@@ -320,6 +290,33 @@ class _FilterDrawerState extends State<FilterDrawer> {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildUtilityChoiceChip({
+    required String label,
+    required UtilityFilterMode mode,
+  }) {
+    final isSelected = _utilityMode == mode;
+    return ChoiceChip(
+      label: Text(label),
+      selected: isSelected,
+      selectedColor: AppTheme.primary,
+      checkmarkColor: Colors.white,
+      labelStyle: TextStyle(
+        color: isSelected ? Colors.white : AppTheme.textSecondary,
+        fontSize: 12,
+        fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+      ),
+      onSelected: (sel) {
+        setState(() {
+          if (mode == UtilityFilterMode.none) {
+            _utilityMode = UtilityFilterMode.none;
+          } else {
+            _utilityMode = sel ? mode : UtilityFilterMode.none;
+          }
+        });
+      },
     );
   }
 
@@ -396,10 +393,14 @@ class _FilterDrawerState extends State<FilterDrawer> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(
-            'Minimum ${_getScoreLabel()}',
-            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.textPrimary),
+          Expanded(
+            child: Text(
+              'Minimum ${_getScoreLabel()}',
+              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.textPrimary),
+              overflow: TextOverflow.ellipsis,
+            ),
           ),
+          const SizedBox(width: 8),
           Text(
             _minScore > 0 ? '${_minScore.toInt()}%' : 'Any',
             style: TextStyle(
@@ -419,10 +420,14 @@ class _FilterDrawerState extends State<FilterDrawer> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          const Text(
-            'Max Beat Time (HLTB)',
-            style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.textPrimary),
+          const Expanded(
+            child: Text(
+              'Max Beat Time (HLTB)',
+              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.textPrimary),
+              overflow: TextOverflow.ellipsis,
+            ),
           ),
+          const SizedBox(width: 8),
           Text(
             _maxHltbHours > 0 ? 'Under ${_maxHltbHours.toInt()}h' : 'Any',
             style: TextStyle(

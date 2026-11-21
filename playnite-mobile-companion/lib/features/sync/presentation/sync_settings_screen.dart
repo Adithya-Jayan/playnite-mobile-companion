@@ -820,12 +820,42 @@ class _SyncSettingsScreenState extends State<SyncSettingsScreen> {
                   style: const TextStyle(fontSize: 12, color: AppTheme.textMuted),
                   overflow: TextOverflow.ellipsis,
                 ),
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    Icon(Icons.history, size: 14, color: AppTheme.textMuted.withValues(alpha: 0.8)),
+                    const SizedBox(width: 4),
+                    Text(
+                      _formatLastSyncTime(_config.lastSyncUtc),
+                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: AppTheme.textMuted.withValues(alpha: 0.9)),
+                    ),
+                  ],
+                ),
               ],
             ),
           ),
         ],
       ),
     );
+  }
+
+  String _formatLastSyncTime(String? utcString) {
+    if (utcString == null || utcString.trim().isEmpty) {
+      return 'Never synced';
+    }
+    try {
+      final dt = DateTime.parse(utcString).toLocal();
+      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      final month = months[dt.month - 1];
+      final day = dt.day;
+      final year = dt.year;
+      final hour = dt.hour == 0 ? 12 : (dt.hour > 12 ? dt.hour - 12 : dt.hour);
+      final minute = dt.minute.toString().padLeft(2, '0');
+      final ampm = dt.hour >= 12 ? 'PM' : 'AM';
+      return 'Last Synced: $month $day, $year • $hour:$minute $ampm';
+    } catch (_) {
+      return 'Last Synced: $utcString';
+    }
   }
 
   Widget _buildStorageTypeSelector() {

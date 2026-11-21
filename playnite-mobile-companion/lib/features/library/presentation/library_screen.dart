@@ -794,6 +794,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
             return GameListTile(
               key: ValueKey(_games[index].id),
               game: _games[index],
+              ratingScoreSource: _gallerySettings.ratingScoreSource,
             );
           },
         );

@@ -6,12 +6,18 @@ import 'package:playnite_mobile_companion/core/ui/playnite_cached_image.dart';
 import 'package:playnite_mobile_companion/core/utils/duration_formatter.dart';
 import 'package:playnite_mobile_companion/core/utils/media_url_resolver.dart';
 import 'package:playnite_mobile_companion/features/game_detail/presentation/game_detail_screen.dart';
+import 'package:playnite_mobile_companion/features/settings/data/gallery_settings_repository.dart';
 import 'package:playnite_mobile_companion/features/sync/domain/sync_models.dart';
 
 class GameListTile extends StatelessWidget {
   final UnifiedGamePayload game;
+  final RatingScoreSource? ratingScoreSource;
 
-  const GameListTile({super.key, required this.game});
+  const GameListTile({
+    super.key,
+    required this.game,
+    this.ratingScoreSource,
+  });
 
   static bool get _isTesting {
     if (kIsWeb) return false;
@@ -20,6 +26,31 @@ class GameListTile extends StatelessWidget {
     } catch (_) {
       return false;
     }
+  }
+
+  ({int score, String label})? _getEffectiveScore() {
+    switch (ratingScoreSource) {
+      case RatingScoreSource.user:
+        if (game.userScore != null) return (score: game.userScore!, label: 'User Score');
+        break;
+      case RatingScoreSource.critic:
+        if (game.criticScore != null) return (score: game.criticScore!, label: 'Critic Score');
+        break;
+      case RatingScoreSource.community:
+        if (game.communityScore != null) return (score: game.communityScore!, label: 'Community Score');
+        break;
+      case RatingScoreSource.composite:
+      default:
+        if (game.communityScore != null) return (score: game.communityScore!, label: 'Community Score');
+        if (game.criticScore != null) return (score: game.criticScore!, label: 'Critic Score');
+        if (game.userScore != null) return (score: game.userScore!, label: 'User Score');
+        break;
+    }
+    // Fallback if preferred score is null:
+    if (game.communityScore != null) return (score: game.communityScore!, label: 'Community Score');
+    if (game.criticScore != null) return (score: game.criticScore!, label: 'Critic Score');
+    if (game.userScore != null) return (score: game.userScore!, label: 'User Score');
+    return null;
   }
 
   @override
@@ -34,6 +65,8 @@ class GameListTile extends StatelessWidget {
     if (game.source != null) subParts.add(game.source!.name);
     if (playtime != null) subParts.add(playtime);
     if (game.completionStatus != null) subParts.add(game.completionStatus!.name);
+
+    final scoreInfo = _getEffectiveScore();
 
     return ListTile(
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
@@ -83,17 +116,31 @@ class GameListTile extends StatelessWidget {
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          if (game.userScore != null || game.criticScore != null)
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-              decoration: BoxDecoration(
-                color: AppTheme.surfaceLight,
-                borderRadius: BorderRadius.circular(4),
-                border: Border.all(color: AppTheme.primary.withValues(alpha: 0.4), width: 0.6),
-              ),
-              child: Text(
-                '${game.userScore ?? game.criticScore}%',
-                style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppTheme.primaryLight),
+          if (scoreInfo != null)
+            Tooltip(
+              message: '${scoreInfo.label}: ${scoreInfo.score}%',
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                decoration: BoxDecoration(
+                  color: AppTheme.surfaceLight,
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: Colors.amber.withValues(alpha: 0.5), width: 0.8),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.star_rounded, color: Colors.amber, size: 14),
+                    const SizedBox(width: 3),
+                    Text(
+                      '${scoreInfo.score}%',
+                      style: const TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.amber,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           if (game.favorite) ...[
