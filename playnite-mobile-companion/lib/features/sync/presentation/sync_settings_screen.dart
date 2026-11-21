@@ -7,8 +7,10 @@ import 'package:playnite_mobile_companion/core/database/app_database.dart';
 import 'package:playnite_mobile_companion/core/database/daos/game_dao.dart';
 import 'package:playnite_mobile_companion/core/database/daos/sync_meta_dao.dart';
 import 'package:playnite_mobile_companion/core/network/google_drive_api_service.dart';
+import 'package:playnite_mobile_companion/core/network/local_folder_drive_service.dart';
 import 'package:playnite_mobile_companion/core/services/background_sync_service.dart';
 import 'package:playnite_mobile_companion/core/services/playnite_image_loader.dart';
+import 'package:playnite_mobile_companion/core/services/storage_permission_service.dart';
 import 'package:playnite_mobile_companion/core/utils/duration_formatter.dart';
 import 'package:playnite_mobile_companion/core/utils/media_url_resolver.dart';
 import 'package:playnite_mobile_companion/features/settings/data/gallery_settings_repository.dart';
@@ -31,7 +33,7 @@ class SyncSettingsScreen extends StatefulWidget {
   State<SyncSettingsScreen> createState() => _SyncSettingsScreenState();
 }
 
-class _SyncSettingsScreenState extends State<SyncSettingsScreen> {
+class _SyncSettingsScreenState extends State<SyncSettingsScreen> with WidgetsBindingObserver {
   late final SyncConfigRepository _configRepo;
   late final GallerySettingsRepository _galleryRepo;
 
@@ -59,9 +61,15 @@ class _SyncSettingsScreenState extends State<SyncSettingsScreen> {
   bool _isIgnoringBatteryOptimizations = false;
   bool _isCheckingBattery = false;
 
+  bool _hasStoragePermission = true;
+  bool _isCheckingStoragePermission = false;
+  bool _isValidatingLocalFolder = false;
+  LocalFolderValidationResult? _localFolderValidationResult;
+
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _configRepo = SyncConfigRepository(widget.database);
     _galleryRepo = GallerySettingsRepository(widget.database);
     _loadSettings();
@@ -69,6 +77,7 @@ class _SyncSettingsScreenState extends State<SyncSettingsScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _folderNameController.dispose();
     _folderIdController.dispose();
     _clientIdController.dispose();
@@ -79,11 +88,20 @@ class _SyncSettingsScreenState extends State<SyncSettingsScreen> {
     super.dispose();
   }
 
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _checkStoragePermission();
+      _checkBatteryStatus();
+    }
+  }
+
   Future<void> _loadSettings() async {
     setState(() => _isLoading = true);
     final cfg = await _configRepo.loadConfig();
     final galSettings = await _galleryRepo.loadSettings();
     final isIgnoringBattery = await BackgroundSyncService.isIgnoringBatteryOptimizations();
+    final hasStorage = await StoragePermissionService.isStoragePermissionGranted();
 
     if (mounted) {
       setState(() {
@@ -97,6 +115,7 @@ class _SyncSettingsScreenState extends State<SyncSettingsScreen> {
         _tokenController.text = cfg.googleAccessToken;
         _localPathController.text = cfg.localFolderPath;
         _isIgnoringBatteryOptimizations = isIgnoringBattery;
+        _hasStoragePermission = hasStorage;
         _isLoading = false;
       });
     }
@@ -114,6 +133,47 @@ class _SyncSettingsScreenState extends State<SyncSettingsScreen> {
     if (mounted) {
       setState(() {
         _isIgnoringBatteryOptimizations = status;
+      });
+    }
+  }
+
+  Future<void> _checkStoragePermission() async {
+    final status = await StoragePermissionService.isStoragePermissionGranted();
+    if (mounted) {
+      setState(() => _hasStoragePermission = status);
+    }
+  }
+
+  Future<void> _requestStoragePermission() async {
+    setState(() => _isCheckingStoragePermission = true);
+    await StoragePermissionService.requestStoragePermission();
+    await Future.delayed(const Duration(milliseconds: 1000));
+    final status = await StoragePermissionService.isStoragePermissionGranted();
+    if (mounted) {
+      setState(() {
+        _hasStoragePermission = status;
+        _isCheckingStoragePermission = false;
+      });
+    }
+  }
+
+  Future<void> _validateLocalFolder() async {
+    setState(() {
+      _isValidatingLocalFolder = true;
+      _localFolderValidationResult = null;
+    });
+    await _saveSettings(showToast: false);
+    final service = LocalFolderDriveService(_localPathController.text.trim());
+    final result = await service.validateFolder();
+    if (mounted) {
+      setState(() {
+        _isValidatingLocalFolder = false;
+        _localFolderValidationResult = result;
+        if (!result.permissionDenied) {
+          _hasStoragePermission = true;
+        } else {
+          _hasStoragePermission = false;
+        }
       });
     }
   }
@@ -1485,6 +1545,79 @@ class _SyncSettingsScreenState extends State<SyncSettingsScreen> {
             ],
           ),
           const SizedBox(height: 12),
+
+          // Android All Files Access Permission Banner
+          if (StoragePermissionService.isAndroid) ...[
+            if (!_hasStoragePermission) ...[
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.amber.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.amber.withValues(alpha: 0.35)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Row(
+                      children: [
+                        Icon(Icons.warning_amber_rounded, color: Colors.amber, size: 18),
+                        SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            'Android All Files Access Required',
+                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.amber),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    const Text(
+                      'On Android 11+, reading sync files from shared folders (such as Syncthing or /storage/emulated/0/...) requires "All files access" permission.',
+                      style: TextStyle(fontSize: 11, color: AppTheme.textSecondary, height: 1.3),
+                    ),
+                    const SizedBox(height: 10),
+                    ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.amber.shade800,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      ),
+                      onPressed: _isCheckingStoragePermission ? null : _requestStoragePermission,
+                      icon: _isCheckingStoragePermission
+                          ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                          : const Icon(Icons.security, size: 16),
+                      label: const Text('Grant All Files Access', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+            ] else ...[
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: AppTheme.accentGreen.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: AppTheme.accentGreen.withValues(alpha: 0.3)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.check_circle_outline, color: AppTheme.accentGreen, size: 16),
+                    const SizedBox(width: 6),
+                    const Text('All Files Access granted', style: TextStyle(fontSize: 12, color: AppTheme.accentGreen)),
+                    const Spacer(),
+                    InkWell(
+                      onTap: _requestStoragePermission,
+                      child: const Text('Manage', style: TextStyle(fontSize: 11, color: AppTheme.textMuted, decoration: TextDecoration.underline)),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+            ],
+          ],
+
           TextField(
             controller: _localPathController,
             style: const TextStyle(color: AppTheme.textPrimary),
@@ -1500,6 +1633,85 @@ class _SyncSettingsScreenState extends State<SyncSettingsScreen> {
             'Copy the "PlayniteSync" export folder from your PC to your phone (e.g. via USB or Syncthing) and point this directory here.',
             style: TextStyle(fontSize: 11, color: AppTheme.textMuted),
           ),
+          const SizedBox(height: 12),
+
+          // Verification button and feedback
+          Row(
+            children: [
+              ElevatedButton.icon(
+                key: const Key('btn_verify_local_folder'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppTheme.surfaceLight,
+                  foregroundColor: AppTheme.textPrimary,
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                ),
+                icon: _isValidatingLocalFolder
+                    ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                    : const Icon(Icons.folder_open, size: 16, color: AppTheme.textPrimary),
+                label: Text(
+                  _isValidatingLocalFolder ? 'Checking Directory...' : 'Verify Folder Access',
+                  style: const TextStyle(fontSize: 12, color: AppTheme.textPrimary, fontWeight: FontWeight.bold),
+                ),
+                onPressed: _isValidatingLocalFolder ? null : _validateLocalFolder,
+              ),
+            ],
+          ),
+
+          if (_localFolderValidationResult != null) ...[
+            const SizedBox(height: 10),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: _localFolderValidationResult!.isValid
+                    ? AppTheme.accentGreen.withValues(alpha: 0.12)
+                    : AppTheme.accentRed.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: _localFolderValidationResult!.isValid
+                      ? AppTheme.accentGreen.withValues(alpha: 0.3)
+                      : AppTheme.accentRed.withValues(alpha: 0.3),
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(
+                        _localFolderValidationResult!.isValid ? Icons.check_circle : Icons.error_outline,
+                        color: _localFolderValidationResult!.isValid ? AppTheme.accentGreen : AppTheme.accentRed,
+                        size: 16,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          _localFolderValidationResult!.message,
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: _localFolderValidationResult!.isValid ? AppTheme.accentGreen : AppTheme.accentRed,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (_localFolderValidationResult!.permissionDenied) ...[
+                    const SizedBox(height: 8),
+                    ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppTheme.primary,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      ),
+                      icon: const Icon(Icons.security, size: 14),
+                      label: const Text('Grant All Files Access', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                      onPressed: _requestStoragePermission,
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
         ],
       ),
     );

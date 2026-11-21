@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:playnite_mobile_companion/core/config/app_theme.dart';
 import 'package:playnite_mobile_companion/core/database/app_database.dart';
 import 'package:playnite_mobile_companion/core/network/drive_api_service.dart';
+import 'package:playnite_mobile_companion/core/network/local_folder_drive_service.dart';
 import 'package:playnite_mobile_companion/core/network/mock_drive_service.dart';
+import 'package:playnite_mobile_companion/core/services/storage_permission_service.dart';
 import 'package:playnite_mobile_companion/core/utils/duration_formatter.dart';
 import 'package:playnite_mobile_companion/features/sync/data/delta_pull_manager.dart';
 import 'package:playnite_mobile_companion/features/sync/data/sync_config_repository.dart';
@@ -89,6 +91,30 @@ class _SyncDialogState extends State<SyncDialog> {
       }
     } catch (e) {
       debugPrint('Failed to load active drive service: $e');
+    }
+
+    if (service is LocalFolderDriveService && StoragePermissionService.isAndroid) {
+      final hasPerm = await StoragePermissionService.isStoragePermissionGranted();
+      if (!hasPerm) {
+        await StoragePermissionService.requestStoragePermission();
+        final granted = await StoragePermissionService.isStoragePermissionGranted();
+        if (!granted) {
+          if (mounted) {
+            setState(() {
+              _isSyncing = false;
+              _report = const SyncReport(
+                isSuccess: false,
+                downloadedCount: 0,
+                deletedCount: 0,
+                bytesTransferred: 0,
+                durationMs: 0,
+                errorMessage: 'Storage permission denied: Android requires "All Files Access" to sync from local folders. Please grant permission in Settings.',
+              );
+            });
+          }
+          return;
+        }
+      }
     }
 
     final pullManager = DeltaPullManager(
@@ -320,16 +346,40 @@ class _SyncDialogState extends State<SyncDialog> {
                     borderRadius: BorderRadius.circular(8),
                     border: Border.all(color: AppTheme.accentRed.withValues(alpha: 0.3)),
                   ),
-                  child: Row(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Icon(Icons.error_outline, color: AppTheme.accentRed, size: 18),
-                      const SizedBox(width: 6),
-                      Expanded(
-                        child: Text(
-                          _report!.errorMessage ?? 'Unknown sync failure',
-                          style: const TextStyle(fontSize: 12, color: AppTheme.accentRed),
-                        ),
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Icon(Icons.error_outline, color: AppTheme.accentRed, size: 18),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              _report!.errorMessage ?? 'Unknown sync failure',
+                              style: const TextStyle(fontSize: 12, color: AppTheme.accentRed),
+                            ),
+                          ),
+                        ],
                       ),
+                      if ((_report!.errorMessage ?? '').toLowerCase().contains('permission')) ...[
+                        const SizedBox(height: 10),
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton.icon(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AppTheme.primary,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 8),
+                            ),
+                            icon: const Icon(Icons.security, size: 16),
+                            label: const Text('Grant Storage Permission', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                            onPressed: () async {
+                              await StoragePermissionService.requestStoragePermission();
+                            },
+                          ),
+                        ),
+                      ],
                     ],
                   ),
                 ),
