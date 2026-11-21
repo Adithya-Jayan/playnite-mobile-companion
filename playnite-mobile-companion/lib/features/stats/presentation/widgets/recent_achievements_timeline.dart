@@ -10,12 +10,14 @@ class RecentAchievementsTimeline extends StatefulWidget {
   final List<RecentAchievementEntry> achievements;
   final bool? isExpanded;
   final ValueChanged<bool>? onToggle;
+  final ValueChanged<String>? onGameTap;
 
   const RecentAchievementsTimeline({
     super.key,
     required this.achievements,
     this.isExpanded,
     this.onToggle,
+    this.onGameTap,
   });
 
   @override
@@ -96,6 +98,7 @@ class _RecentAchievementsTimelineState extends State<RecentAchievementsTimeline>
                     dateUnlockedUtc: item.dateUnlockedUtc,
                     percent: item.percent,
                     gamerScore: item.gamerScore,
+                    onViewGame: widget.onGameTap != null ? () => widget.onGameTap!(item.gameId) : null,
                   );
                 },
                 child: Padding(

@@ -31,12 +31,14 @@ class RecentActivityTimeline extends StatefulWidget {
   final List<RecentSessionEntry> sessions;
   final bool? isExpanded;
   final ValueChanged<bool>? onToggle;
+  final ValueChanged<String>? onGameTap;
 
   const RecentActivityTimeline({
     super.key,
     required this.sessions,
     this.isExpanded,
     this.onToggle,
+    this.onGameTap,
   });
 
   @override
@@ -167,7 +169,7 @@ class _RecentActivityTimelineState extends State<RecentActivityTimeline> {
                             }
                           });
                         }
-                      : null,
+                      : (widget.onGameTap != null ? () => widget.onGameTap!(group.gameId) : null),
                   borderRadius: BorderRadius.circular(8),
                   child: Padding(
                     padding: const EdgeInsets.symmetric(vertical: 8),
@@ -178,29 +180,32 @@ class _RecentActivityTimelineState extends State<RecentActivityTimeline> {
                           crossAxisAlignment: CrossAxisAlignment.center,
                           children: [
                             // Game Cover or Game Icon
-                            ClipRRect(
-                              borderRadius: BorderRadius.circular(6),
-                              child: Container(
-                                width: 36,
-                                height: 48,
-                                color: AppTheme.surfaceLight,
-                                child: (group.coverDriveFileId != null && group.coverDriveFileId!.isNotEmpty)
-                                    ? PlayniteCachedImage(
-                                        mediaId: group.coverDriveFileId,
-                                        fit: BoxFit.cover,
-                                        placeholder: const Center(
+                            GestureDetector(
+                              onTap: widget.onGameTap != null ? () => widget.onGameTap!(group.gameId) : null,
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(6),
+                                child: Container(
+                                  width: 36,
+                                  height: 48,
+                                  color: AppTheme.surfaceLight,
+                                  child: (group.coverDriveFileId != null && group.coverDriveFileId!.isNotEmpty)
+                                      ? PlayniteCachedImage(
+                                          mediaId: group.coverDriveFileId,
+                                          fit: BoxFit.cover,
+                                          placeholder: const Center(
+                                            child: Icon(Icons.videogame_asset_outlined,
+                                                color: AppTheme.textMuted, size: 18),
+                                          ),
+                                          errorWidget: const Center(
+                                            child: Icon(Icons.videogame_asset_outlined,
+                                                color: AppTheme.textMuted, size: 18),
+                                          ),
+                                        )
+                                      : const Center(
                                           child: Icon(Icons.videogame_asset_outlined,
-                                              color: AppTheme.textMuted, size: 18),
+                                              color: AppTheme.accentGreen, size: 20),
                                         ),
-                                        errorWidget: const Center(
-                                          child: Icon(Icons.videogame_asset_outlined,
-                                              color: AppTheme.textMuted, size: 18),
-                                        ),
-                                      )
-                                    : const Center(
-                                        child: Icon(Icons.videogame_asset_outlined,
-                                            color: AppTheme.accentGreen, size: 20),
-                                      ),
+                                ),
                               ),
                             ),
                             const SizedBox(width: 12),
@@ -210,14 +215,17 @@ class _RecentActivityTimelineState extends State<RecentActivityTimeline> {
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Text(
-                                    group.gameName,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.bold,
-                                      color: AppTheme.textPrimary,
+                                  GestureDetector(
+                                    onTap: widget.onGameTap != null ? () => widget.onGameTap!(group.gameId) : null,
+                                    child: Text(
+                                      group.gameName,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.bold,
+                                        color: AppTheme.textPrimary,
+                                      ),
                                     ),
                                   ),
                                   const SizedBox(height: 3),

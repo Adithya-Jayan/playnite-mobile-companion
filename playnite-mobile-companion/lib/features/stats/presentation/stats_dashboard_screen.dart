@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:playnite_mobile_companion/core/config/app_theme.dart';
 import 'package:playnite_mobile_companion/core/database/app_database.dart';
+import 'package:playnite_mobile_companion/core/database/daos/game_dao.dart';
 import 'package:playnite_mobile_companion/core/database/daos/stats_dao.dart';
+import 'package:playnite_mobile_companion/features/game_detail/presentation/game_detail_screen.dart';
 import 'widgets/completion_pie_chart.dart';
 import 'widgets/most_played_leaderboard.dart';
 import 'widgets/platform_breakdown_bar.dart';
@@ -57,6 +59,19 @@ class _StatsDashboardScreenState extends State<StatsDashboardScreen> {
     }
   }
 
+  Future<void> _navigateToGame(String gameId) async {
+    try {
+      final game = await GameDao(widget.database).getGameById(gameId);
+      if (game != null && mounted) {
+        await Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => GameDetailScreen(game: game)),
+        );
+      }
+    } catch (e) {
+      debugPrint('Error navigating to game $gameId: $e');
+    }
+  }
+
   void _toggleAllSections() {
     setState(() {
       if (_expandedSections.isEmpty) {
@@ -81,89 +96,121 @@ class _StatsDashboardScreenState extends State<StatsDashboardScreen> {
   Widget build(BuildContext context) {
     final anyExpanded = _expandedSections.isNotEmpty;
 
-    return Scaffold(
-      backgroundColor: AppTheme.background,
-      appBar: AppBar(
-        title: const Text('Library Statistics'),
-        actions: [
-          if (_stats != null && _stats!.totalGames > 0)
-            IconButton(
-              icon: Icon(
-                anyExpanded ? Icons.unfold_less : Icons.unfold_more,
-                color: AppTheme.textPrimary,
+    return DefaultTabController(
+      length: 3,
+      child: Scaffold(
+        backgroundColor: AppTheme.background,
+        appBar: AppBar(
+          title: const Text('Library Statistics'),
+          bottom: const TabBar(
+            indicatorColor: AppTheme.primary,
+            indicatorWeight: 3,
+            labelColor: AppTheme.primaryLight,
+            unselectedLabelColor: AppTheme.textMuted,
+            tabs: [
+              Tab(text: 'Overview', icon: Icon(Icons.dashboard_outlined, size: 20)),
+              Tab(text: 'Activity', icon: Icon(Icons.history, size: 20)),
+              Tab(text: 'Achievements', icon: Icon(Icons.emoji_events_outlined, size: 20)),
+            ],
+          ),
+          actions: [
+            if (_stats != null && _stats!.totalGames > 0)
+              IconButton(
+                icon: Icon(
+                  anyExpanded ? Icons.unfold_less : Icons.unfold_more,
+                  color: AppTheme.textPrimary,
+                ),
+                tooltip: anyExpanded ? 'Collapse all sections' : 'Expand all sections',
+                onPressed: _toggleAllSections,
               ),
-              tooltip: anyExpanded ? 'Collapse all sections' : 'Expand all sections',
-              onPressed: _toggleAllSections,
-            ),
-        ],
-      ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator(color: AppTheme.primary))
-          : _stats == null || _stats!.totalGames == 0
-              ? _buildEmptyState()
-              : RefreshIndicator(
-                  color: AppTheme.primary,
-                  onRefresh: _loadStats,
-                  child: ListView(
-                    padding: const EdgeInsets.symmetric(vertical: 8),
+          ],
+        ),
+        body: _isLoading
+            ? const Center(child: CircularProgressIndicator(color: AppTheme.primary))
+            : _stats == null || _stats!.totalGames == 0
+                ? _buildEmptyState()
+                : TabBarView(
                     children: [
-                      // Total playtime & overview metrics
-                      PlaytimeSummaryCard(
-                        stats: _stats!,
-                        isExpanded: _expandedSections.contains(StatsSectionKey.overview),
-                        onToggle: (v) => _toggleSection(StatsSectionKey.overview, v),
+                      // Tab 1: Overview
+                      RefreshIndicator(
+                        color: AppTheme.primary,
+                        onRefresh: _loadStats,
+                        child: ListView(
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          children: [
+                            PlaytimeSummaryCard(
+                              stats: _stats!,
+                              isExpanded: _expandedSections.contains(StatsSectionKey.overview),
+                              onToggle: (v) => _toggleSection(StatsSectionKey.overview, v),
+                            ),
+                            CompletionPieChart(
+                              completionBreakdown: _stats!.completionBreakdown,
+                              isExpanded: _expandedSections.contains(StatsSectionKey.completion),
+                              onToggle: (v) => _toggleSection(StatsSectionKey.completion, v),
+                            ),
+                            PlatformBreakdownBar(
+                              title: 'Playtime by Storefront',
+                              icon: Icons.storefront,
+                              distribution: _stats!.playtimeBySource,
+                              isExpanded: _expandedSections.contains(StatsSectionKey.storefronts),
+                              onToggle: (v) => _toggleSection(StatsSectionKey.storefronts, v),
+                            ),
+                            PlatformBreakdownBar(
+                              title: 'Playtime by Platform',
+                              icon: Icons.devices,
+                              distribution: _stats!.playtimeByPlatform,
+                              isExpanded: _expandedSections.contains(StatsSectionKey.platforms),
+                              onToggle: (v) => _toggleSection(StatsSectionKey.platforms, v),
+                            ),
+                            const SizedBox(height: 32),
+                          ],
+                        ),
                       ),
 
-                      // Completion Status Donut Chart
-                      CompletionPieChart(
-                        completionBreakdown: _stats!.completionBreakdown,
-                        isExpanded: _expandedSections.contains(StatsSectionKey.completion),
-                        onToggle: (v) => _toggleSection(StatsSectionKey.completion, v),
+                      // Tab 2: Activity
+                      RefreshIndicator(
+                        color: AppTheme.primary,
+                        onRefresh: _loadStats,
+                        child: ListView(
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          children: [
+                            MostPlayedLeaderboard(
+                              topGames: _stats!.topPlayedGames,
+                              isExpanded: _expandedSections.contains(StatsSectionKey.topPlayed),
+                              onToggle: (v) => _toggleSection(StatsSectionKey.topPlayed, v),
+                              onGameTap: _navigateToGame,
+                            ),
+                            RecentActivityTimeline(
+                              sessions: _stats!.recentSessions,
+                              isExpanded: _expandedSections.contains(StatsSectionKey.recentActivity),
+                              onToggle: (v) => _toggleSection(StatsSectionKey.recentActivity, v),
+                              onGameTap: _navigateToGame,
+                            ),
+                            const SizedBox(height: 32),
+                          ],
+                        ),
                       ),
 
-                      // Playtime by Storefront / Source
-                      PlatformBreakdownBar(
-                        title: 'Playtime by Storefront',
-                        icon: Icons.storefront,
-                        distribution: _stats!.playtimeBySource,
-                        isExpanded: _expandedSections.contains(StatsSectionKey.storefronts),
-                        onToggle: (v) => _toggleSection(StatsSectionKey.storefronts, v),
+                      // Tab 3: Achievements
+                      RefreshIndicator(
+                        color: AppTheme.primary,
+                        onRefresh: _loadStats,
+                        child: ListView(
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          children: [
+                            RecentAchievementsTimeline(
+                              achievements: _stats!.recentAchievements,
+                              isExpanded: _expandedSections.contains(StatsSectionKey.recentAchievements),
+                              onToggle: (v) => _toggleSection(StatsSectionKey.recentAchievements, v),
+                              onGameTap: _navigateToGame,
+                            ),
+                            const SizedBox(height: 32),
+                          ],
+                        ),
                       ),
-
-                      // Playtime by Platform
-                      PlatformBreakdownBar(
-                        title: 'Playtime by Platform',
-                        icon: Icons.devices,
-                        distribution: _stats!.playtimeByPlatform,
-                        isExpanded: _expandedSections.contains(StatsSectionKey.platforms),
-                        onToggle: (v) => _toggleSection(StatsSectionKey.platforms, v),
-                      ),
-
-                      // Top 10 Most Played Games Leaderboard
-                      MostPlayedLeaderboard(
-                        topGames: _stats!.topPlayedGames,
-                        isExpanded: _expandedSections.contains(StatsSectionKey.topPlayed),
-                        onToggle: (v) => _toggleSection(StatsSectionKey.topPlayed, v),
-                      ),
-
-                      // Recent Play Sessions Timeline
-                      RecentActivityTimeline(
-                        sessions: _stats!.recentSessions,
-                        isExpanded: _expandedSections.contains(StatsSectionKey.recentActivity),
-                        onToggle: (v) => _toggleSection(StatsSectionKey.recentActivity, v),
-                      ),
-
-                      // Recent Achievements Timeline
-                      RecentAchievementsTimeline(
-                        achievements: _stats!.recentAchievements,
-                        isExpanded: _expandedSections.contains(StatsSectionKey.recentAchievements),
-                        onToggle: (v) => _toggleSection(StatsSectionKey.recentAchievements, v),
-                      ),
-
-                      const SizedBox(height: 32),
                     ],
                   ),
-                ),
+      ),
     );
   }
 

@@ -7,6 +7,8 @@ class TopPlayedGameEntry {
   final int playtimeSeconds;
   final String? coverDriveFileId;
 
+  String get gameId => id;
+
   const TopPlayedGameEntry({
     required this.id,
     required this.name,

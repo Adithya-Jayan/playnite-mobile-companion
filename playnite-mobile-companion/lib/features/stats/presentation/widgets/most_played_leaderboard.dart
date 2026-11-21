@@ -9,12 +9,14 @@ class MostPlayedLeaderboard extends StatelessWidget {
   final List<TopPlayedGameEntry> topGames;
   final bool? isExpanded;
   final ValueChanged<bool>? onToggle;
+  final ValueChanged<String>? onGameTap;
 
   const MostPlayedLeaderboard({
     super.key,
     required this.topGames,
     this.isExpanded,
     this.onToggle,
+    this.onGameTap,
   });
 
   @override
@@ -45,6 +47,7 @@ class MostPlayedLeaderboard extends StatelessWidget {
 
                 return ListTile(
                   contentPadding: EdgeInsets.zero,
+                  onTap: onGameTap != null ? () => onGameTap!(game.gameId) : null,
                   leading: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
