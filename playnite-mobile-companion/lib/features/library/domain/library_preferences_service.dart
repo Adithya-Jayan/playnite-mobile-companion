@@ -9,6 +9,7 @@ class LibraryPreferencesService {
   static const String _sortDirectionKey = 'pref_sort_direction';
   static const String _viewModeKey = 'pref_view_mode';
   static const String _filterCriteriaKey = 'pref_filter_criteria_json';
+  static const String _achievementSortKey = 'pref_achievement_sort';
 
   Future<void> saveSortOption(SortOption option) async {
     try {
@@ -70,6 +71,22 @@ class LibraryPreferencesService {
       final raw = prefs.getString(_filterCriteriaKey);
       if (raw == null || raw.isEmpty) return null;
       return GameFilterCriteria.fromJson(jsonDecode(raw) as Map<String, dynamic>);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> saveAchievementSort(String sortName) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_achievementSortKey, sortName);
+    } catch (_) {}
+  }
+
+  Future<String?> loadAchievementSort() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return prefs.getString(_achievementSortKey);
     } catch (_) {
       return null;
     }

@@ -3,6 +3,7 @@ import 'package:playnite_mobile_companion/core/config/app_theme.dart';
 import 'package:playnite_mobile_companion/core/ui/achievement_detail_modal.dart';
 import 'package:playnite_mobile_companion/core/ui/playnite_cached_image.dart';
 import 'package:playnite_mobile_companion/core/utils/achievement_helper.dart';
+import 'package:playnite_mobile_companion/features/library/domain/library_preferences_service.dart';
 import 'package:playnite_mobile_companion/features/sync/domain/sync_models.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 import '../i_addon_widget.dart';
@@ -35,10 +36,12 @@ int _extractTotalAchievements(Map<String, dynamic> addonData, int fallbackLength
 
 class AchievementsSection extends StatefulWidget implements IAddonSectionWidget {
   final String _addonKey;
+  final LibraryPreferencesService? preferencesService;
 
   const AchievementsSection({
     super.key,
     String addonKey = 'playnite_achievements',
+    this.preferencesService,
   }) : _addonKey = addonKey;
 
   @override
@@ -75,6 +78,7 @@ class AchievementsSection extends StatefulWidget implements IAddonSectionWidget 
       addonData: addonData,
       gameName: game.name,
       game: game,
+      preferencesService: preferencesService,
     );
   }
 
@@ -91,11 +95,13 @@ class _AchievementsSectionWidget extends StatefulWidget {
   final Map<String, dynamic> addonData;
   final String? gameName;
   final UnifiedGamePayload? game;
+  final LibraryPreferencesService? preferencesService;
 
   const _AchievementsSectionWidget({
     required this.addonData,
     this.gameName,
     this.game,
+    this.preferencesService,
   });
 
   @override
@@ -106,6 +112,7 @@ class _AchievementsSectionWidgetState extends State<_AchievementsSectionWidget> 
   late String _filter;
   bool _showAll = false;
   AchievementSort _sortOrder = AchievementSort.alphabetical;
+  late final LibraryPreferencesService _prefsService = widget.preferencesService ?? LibraryPreferencesService();
 
   static bool _isAchievementUnlocked(Map<String, dynamic> a) =>
       AchievementHelper.isUnlocked(a);
@@ -127,6 +134,22 @@ class _AchievementsSectionWidgetState extends State<_AchievementsSectionWidget> 
 
     // Default to "Unlocked" if unlocked >= 1, otherwise "All"
     _filter = unlocked >= 1 ? 'Unlocked' : 'All';
+    _loadSavedSort();
+  }
+
+  Future<void> _loadSavedSort() async {
+    final saved = await _prefsService.loadAchievementSort();
+    if (saved != null && mounted) {
+      final match = AchievementSort.values.firstWhere(
+        (e) => e.name == saved,
+        orElse: () => _sortOrder,
+      );
+      if (match != _sortOrder) {
+        setState(() {
+          _sortOrder = match;
+        });
+      }
+    }
   }
 
   @override
@@ -287,7 +310,10 @@ class _AchievementsSectionWidgetState extends State<_AchievementsSectionWidget> 
                     DropdownMenuItem(value: AchievementSort.alphabetical, child: Text('A-Z', style: TextStyle(fontSize: 12))),
                   ],
                   onChanged: (val) {
-                    if (val != null) setState(() => _sortOrder = val);
+                    if (val != null) {
+                      setState(() => _sortOrder = val);
+                      _prefsService.saveAchievementSort(val.name);
+                    }
                   },
                 ),
               ],
