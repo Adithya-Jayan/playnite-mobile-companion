@@ -58,6 +58,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
   ViewMode _viewMode = ViewMode.grid;
   SortOption _sortOption = SortOption.titleAsc;
   GameFilterCriteria _filterCriteria = const GameFilterCriteria();
+  Timer? _searchDebounceTimer;
   late final GallerySettingsRepository _galleryRepo;
   late final LibraryPreferencesService _prefsService;
   GallerySettings _gallerySettings = const GallerySettings();
@@ -141,6 +142,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
 
   @override
   void dispose() {
+    _searchDebounceTimer?.cancel();
     _scrollController.removeListener(_onScroll);
     _scrollController.dispose();
     super.dispose();
@@ -205,8 +207,21 @@ class _LibraryScreenState extends State<LibraryScreen> {
     if (_scrollController.hasClients) {
       _scrollController.jumpTo(0);
     }
+    _searchDebounceTimer?.cancel();
     _filterCriteria = _filterCriteria.copyWith(searchQuery: query);
-    _loadLibrary();
+
+    // Immediate update when cleared
+    if (query.trim().isEmpty) {
+      _loadLibrary();
+      return;
+    }
+
+    // Debounce rapid typing to maintain silky smooth 60fps rendering
+    _searchDebounceTimer = Timer(const Duration(milliseconds: 250), () {
+      if (mounted) {
+        _loadLibrary();
+      }
+    });
   }
 
   void _onApplyFilters(GameFilterCriteria criteria) {

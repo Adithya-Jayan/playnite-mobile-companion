@@ -1,6 +1,8 @@
 import 'dart:convert';
+import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:playnite_mobile_companion/core/database/app_database.dart';
+import 'package:playnite_mobile_companion/core/utils/fuzzy_search_engine.dart';
 import 'package:playnite_mobile_companion/features/library/domain/game_filter_criteria.dart';
 import 'package:playnite_mobile_companion/features/library/domain/sort_options.dart';
 import 'package:playnite_mobile_companion/features/settings/data/gallery_settings_repository.dart';
@@ -251,41 +253,6 @@ class GameDao {
         break;
     }
 
-    // 2. Search Query (FTS match or LIKE fallback)
-    if (criteria.searchQuery.trim().isNotEmpty) {
-      final sanitized = criteria.searchQuery.replaceAll("'", "''").trim();
-      bool ftsSuccess = false;
-
-      if (database.isFtsSupported) {
-        try {
-          // Attempt FTS query
-          final ftsRows = await database.db.rawQuery(
-            'SELECT id FROM games_fts WHERE games_fts MATCH ?;',
-            ['"$sanitized*"'],
-          );
-          final matchIds = ftsRows.map((r) => r['id'] as String).toList();
-          if (matchIds.isNotEmpty) {
-            final placeholders = List.filled(matchIds.length, '?').join(',');
-            whereClauses.add('id IN ($placeholders)');
-            whereArgs.addAll(matchIds);
-          } else {
-            // If FTS returned 0, fallback to LIKE across name and sorting_name
-            whereClauses.add('(name LIKE ? OR sorting_name LIKE ?)');
-            whereArgs.addAll(['%$sanitized%', '%$sanitized%']);
-          }
-          ftsSuccess = true;
-        } catch (e) {
-          debugPrint('FTS query error, falling back to LIKE: $e');
-        }
-      }
-
-      if (!ftsSuccess) {
-        // Standard LIKE across name and sorting_name
-        whereClauses.add('(name LIKE ? OR sorting_name LIKE ?)');
-        whereArgs.addAll(['%$sanitized%', '%$sanitized%']);
-      }
-    }
-
     // 2. Filter: Sources
     if (criteria.sources.isNotEmpty) {
       final placeholders = List.filled(criteria.sources.length, '?').join(',');
@@ -426,6 +393,10 @@ class GameDao {
   Future<int> getFilteredGamesCount({
     required GameFilterCriteria criteria,
   }) async {
+    if (criteria.searchQuery.trim().isNotEmpty) {
+      final games = await getFilteredGames(criteria: criteria, sort: SortOption.titleAsc);
+      return games.length;
+    }
     final (:whereClauses, :whereArgs) = await _buildFilterWhere(criteria);
     final result = await database.db.query(
       'games',
@@ -448,22 +419,10 @@ class GameDao {
   }) async {
     final (:whereClauses, :whereArgs) = await _buildFilterWhere(criteria);
     final whereString = whereClauses.isNotEmpty ? whereClauses.join(' AND ') : null;
-    final baseOrderBy = sort.toSqlOrderBy();
-    final String orderBy;
-    if (criteria.searchQuery.trim().isNotEmpty) {
-      final sanitized = criteria.searchQuery.replaceAll("'", "''").trim().toLowerCase();
-      orderBy = '''
-        CASE 
-          WHEN LOWER(name) = '$sanitized' THEN 0
-          WHEN LOWER(name) LIKE '$sanitized%' THEN 1
-          WHEN LOWER(name) LIKE '%$sanitized%' THEN 2
-          ELSE 3
-        END, $baseOrderBy
-      ''';
-    } else {
-      orderBy = baseOrderBy;
-    }
+    final orderBy = sort.toSqlOrderBy();
     final safeColumns = await _getSafeLibraryColumns();
+
+    final hasSearch = criteria.searchQuery.trim().isNotEmpty;
 
     final rows = await database.db.query(
       'games',
@@ -471,8 +430,8 @@ class GameDao {
       where: whereString,
       whereArgs: whereArgs.isNotEmpty ? whereArgs : null,
       orderBy: orderBy,
-      limit: limit,
-      offset: offset,
+      limit: hasSearch ? null : limit,
+      offset: hasSearch ? null : offset,
     );
 
     final games = <UnifiedGamePayload>[];
@@ -482,6 +441,21 @@ class GameDao {
       } catch (e, stack) {
         debugPrint('Warning: Skipped corrupted game row (id: ${row['id']}): $e\n$stack');
       }
+    }
+
+    if (hasSearch) {
+      final ranked = FuzzySearchEngine.filterAndRank(
+        games,
+        criteria.searchQuery,
+        baseSort: sort,
+      );
+      if (limit != null || offset != null) {
+        final start = offset ?? 0;
+        if (start >= ranked.length) return const [];
+        final end = limit != null ? min(start + limit, ranked.length) : ranked.length;
+        return ranked.sublist(start, end);
+      }
+      return ranked;
     }
 
     return games;
