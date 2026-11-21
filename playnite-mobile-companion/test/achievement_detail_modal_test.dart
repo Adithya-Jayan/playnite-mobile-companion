@@ -4,6 +4,7 @@ import 'package:playnite_mobile_companion/core/config/app_theme.dart';
 import 'package:playnite_mobile_companion/core/ui/achievement_detail_modal.dart';
 import 'package:playnite_mobile_companion/core/database/daos/stats_dao.dart';
 import 'package:playnite_mobile_companion/features/stats/presentation/widgets/recent_achievements_timeline.dart';
+import 'package:playnite_mobile_companion/features/sync/domain/sync_models.dart';
 
 void main() {
   group('AchievementDetailModal & Tap Interaction Tests', () {
@@ -93,6 +94,163 @@ void main() {
       expect(find.text('Equip your first tool into a crest slot.'), findsNWidgets(2));
       expect(find.text('10 pts'), findsOneWidget);
       expect(find.textContaining('85.0% (Common)'), findsOneWidget);
+    });
+
+    testWidgets('3. Renders Steam storefront achievements link and launches on tap (Ticket #26)', (tester) async {
+      String? launchedUrl;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.darkTheme,
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => ElevatedButton(
+                onPressed: () {
+                  AchievementDetailModal.show(
+                    context,
+                    name: 'Soul of Cinder',
+                    description: 'Defeat the final lord.',
+                    gameName: 'Dark Souls III',
+                    isUnlocked: true,
+                    steamAppId: '374320',
+                    onUrlLaunch: (url) => launchedUrl = url,
+                  );
+                },
+                child: const Text('Open Modal'),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      await tester.tap(find.text('Open Modal'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Steam Achievements'), findsOneWidget);
+      await tester.tap(find.text('Steam Achievements'));
+      await tester.pumpAndSettle();
+
+      expect(launchedUrl, equals('https://steamcommunity.com/stats/374320/achievements'));
+    });
+
+    testWidgets('4. Renders Search Guide on Web button and game links, launching on tap (Ticket #26)', (tester) async {
+      String? launchedUrl;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.darkTheme,
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => ElevatedButton(
+                onPressed: () {
+                  AchievementDetailModal.show(
+                    context,
+                    name: 'Ghost Hunter',
+                    description: 'Find all spirits.',
+                    gameName: 'Elden Ring',
+                    isUnlocked: true,
+                    gameLinks: const [
+                      LinkItem(name: 'Fextralife Wiki', url: 'https://eldenring.wiki.fextralife.com'),
+                    ],
+                    onUrlLaunch: (url) => launchedUrl = url,
+                  );
+                },
+                child: const Text('Open Modal'),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      await tester.tap(find.text('Open Modal'));
+      await tester.pumpAndSettle();
+
+      // Test Search Guide
+      expect(find.text('Search Guide on Web'), findsOneWidget);
+      await tester.tap(find.text('Search Guide on Web'));
+      await tester.pumpAndSettle();
+
+      expect(launchedUrl, contains('google.com/search?q='));
+      expect(launchedUrl, contains(Uri.encodeComponent('"Elden Ring" "Ghost Hunter" guide')));
+
+      // Test Game Link
+      expect(find.text('Fextralife Wiki'), findsOneWidget);
+      await tester.tap(find.text('Fextralife Wiki'));
+      await tester.pumpAndSettle();
+
+      expect(launchedUrl, equals('https://eldenring.wiki.fextralife.com'));
+    });
+
+    testWidgets('5. Locked hidden achievement masks description behind spoiler reveal toggle (Ticket #26)', (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.darkTheme,
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => ElevatedButton(
+                onPressed: () {
+                  AchievementDetailModal.show(
+                    context,
+                    name: 'Lord of Hollows',
+                    description: 'Usurp the fire and rule the world in darkness.',
+                    gameName: 'Dark Souls III',
+                    isUnlocked: false,
+                    isHidden: true,
+                  );
+                },
+                child: const Text('Open Modal'),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      await tester.tap(find.text('Open Modal'));
+      await tester.pumpAndSettle();
+
+      // Description is initially masked behind spoiler button
+      expect(find.text('Usurp the fire and rule the world in darkness.'), findsNothing);
+      expect(find.text('Hidden achievement • Tap to reveal spoiler'), findsOneWidget);
+
+      // Tap spoiler reveal button
+      await tester.tap(find.text('Hidden achievement • Tap to reveal spoiler'));
+      await tester.pumpAndSettle();
+
+      // Now description is revealed
+      expect(find.text('Usurp the fire and rule the world in darkness.'), findsOneWidget);
+      expect(find.text('Hidden achievement • Tap to reveal spoiler'), findsNothing);
+    });
+
+    testWidgets('6. Unlocked hidden achievement displays description immediately (Ticket #26)', (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.darkTheme,
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => ElevatedButton(
+                onPressed: () {
+                  AchievementDetailModal.show(
+                    context,
+                    name: 'Lord of Hollows',
+                    description: 'Usurp the fire and rule the world in darkness.',
+                    gameName: 'Dark Souls III',
+                    isUnlocked: true,
+                    isHidden: true,
+                  );
+                },
+                child: const Text('Open Modal'),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      await tester.tap(find.text('Open Modal'));
+      await tester.pumpAndSettle();
+
+      // Because it is unlocked, description is visible without any spoiler tap
+      expect(find.text('Usurp the fire and rule the world in darkness.'), findsOneWidget);
+      expect(find.text('Hidden achievement • Tap to reveal spoiler'), findsNothing);
     });
   });
 }

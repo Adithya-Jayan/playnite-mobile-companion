@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:url_launcher/url_launcher_string.dart';
 import 'package:playnite_mobile_companion/core/config/app_theme.dart';
 import 'package:playnite_mobile_companion/core/ui/playnite_cached_image.dart';
 
 /// Modal bottom sheet displaying complete details of an achievement,
-/// matching Playnite desktop's achievement dialog.
-class AchievementDetailModal extends StatelessWidget {
+/// matching Playnite desktop's achievement dialog with external storefront
+/// and web guide links and spoiler reveal mechanics.
+class AchievementDetailModal extends StatefulWidget {
   final String name;
   final String? description;
   final String? gameName;
@@ -16,7 +18,10 @@ class AchievementDetailModal extends StatelessWidget {
   final double? gamerScore;
   final String? category;
   final bool isHidden;
+  final String? steamAppId;
+  final List<dynamic>? gameLinks;
   final VoidCallback? onViewGame;
+  final ValueChanged<String>? onUrlLaunch;
 
   const AchievementDetailModal({
     super.key,
@@ -30,7 +35,10 @@ class AchievementDetailModal extends StatelessWidget {
     this.gamerScore,
     this.category,
     this.isHidden = false,
+    this.steamAppId,
+    this.gameLinks,
     this.onViewGame,
+    this.onUrlLaunch,
   });
 
   /// Displays the achievement detail bottom sheet.
@@ -46,7 +54,10 @@ class AchievementDetailModal extends StatelessWidget {
     double? gamerScore,
     String? category,
     bool isHidden = false,
+    String? steamAppId,
+    List<dynamic>? gameLinks,
     VoidCallback? onViewGame,
+    ValueChanged<String>? onUrlLaunch,
   }) {
     return showModalBottomSheet(
       context: context,
@@ -63,10 +74,20 @@ class AchievementDetailModal extends StatelessWidget {
         gamerScore: gamerScore,
         category: category,
         isHidden: isHidden,
+        steamAppId: steamAppId,
+        gameLinks: gameLinks,
         onViewGame: onViewGame,
+        onUrlLaunch: onUrlLaunch,
       ),
     );
   }
+
+  @override
+  State<AchievementDetailModal> createState() => _AchievementDetailModalState();
+}
+
+class _AchievementDetailModalState extends State<AchievementDetailModal> {
+  bool _isSpoilerRevealed = false;
 
   String? _formatUnlockDate(String? utcString) {
     if (utcString == null || utcString.isEmpty) return null;
@@ -97,12 +118,72 @@ class AchievementDetailModal extends StatelessWidget {
     return AppTheme.textSecondary;
   }
 
+  String? _resolveSteamAchievementsUrl() {
+    if (widget.steamAppId != null && widget.steamAppId!.trim().isNotEmpty) {
+      return 'https://steamcommunity.com/stats/${widget.steamAppId!.trim()}/achievements';
+    }
+    if (widget.gameLinks != null) {
+      final steamRegex = RegExp(r'(?:store\.steampowered\.com|steamcommunity\.com)/app/(\d+)');
+      for (final link in widget.gameLinks!) {
+        final url = _extractLinkUrl(link);
+        final match = steamRegex.firstMatch(url);
+        if (match != null) {
+          return 'https://steamcommunity.com/stats/${match.group(1)}/achievements';
+        }
+      }
+    }
+    return null;
+  }
+
+  String _buildWebGuideSearchUrl() {
+    final gName = widget.gameName?.trim() ?? '';
+    final aName = widget.name.trim();
+    final query = (gName.isNotEmpty ? '"$gName" "$aName" guide' : '"$aName" guide').trim();
+    return 'https://www.google.com/search?q=${Uri.encodeComponent(query)}';
+  }
+
+  String _extractLinkName(dynamic link) {
+    if (link == null) return '';
+    try {
+      if (link is Map) return link['name']?.toString() ?? '';
+      return (link.name as String?) ?? '';
+    } catch (_) {
+      return '';
+    }
+  }
+
+  String _extractLinkUrl(dynamic link) {
+    if (link == null) return '';
+    try {
+      if (link is Map) return link['url']?.toString() ?? '';
+      return (link.url as String?) ?? '';
+    } catch (_) {
+      return '';
+    }
+  }
+
+  Future<void> _launchUrl(String url) async {
+    if (widget.onUrlLaunch != null) {
+      widget.onUrlLaunch!(url);
+      return;
+    }
+    try {
+      await launchUrlString(url, mode: LaunchMode.externalApplication);
+    } catch (e) {
+      debugPrint('Could not launch URL: $url ($e)');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final unlockDateStr = _formatUnlockDate(dateUnlockedUtc);
-    final rarityColor = _getRarityColor(percent);
-    final rarityText = _formatRarityText(percent);
-    final hasIcon = iconUrl != null && iconUrl!.trim().isNotEmpty;
+    final unlockDateStr = _formatUnlockDate(widget.dateUnlockedUtc);
+    final rarityColor = _getRarityColor(widget.percent);
+    final rarityText = _formatRarityText(widget.percent);
+    final hasIcon = widget.iconUrl != null && widget.iconUrl!.trim().isNotEmpty;
+    final steamAchievementsUrl = _resolveSteamAchievementsUrl();
+
+    // Determine whether locked hidden achievement description should be masked
+    final isMasked = widget.isHidden && !widget.isUnlocked && !_isSpoilerRevealed;
 
     return Container(
       decoration: const BoxDecoration(
@@ -151,10 +232,10 @@ class AchievementDetailModal extends StatelessWidget {
                   color: AppTheme.surfaceLight,
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(
-                    color: isUnlocked ? AppTheme.primaryLight : AppTheme.dividerColor,
+                    color: widget.isUnlocked ? AppTheme.primaryLight : AppTheme.dividerColor,
                     width: 1.5,
                   ),
-                  boxShadow: isUnlocked
+                  boxShadow: widget.isUnlocked
                       ? [
                           BoxShadow(
                             color: AppTheme.primary.withValues(alpha: 0.2),
@@ -168,27 +249,27 @@ class AchievementDetailModal extends StatelessWidget {
                   borderRadius: BorderRadius.circular(10),
                   child: hasIcon
                       ? PlayniteCachedImage(
-                          mediaId: iconUrl,
+                          mediaId: widget.iconUrl,
                           fit: BoxFit.cover,
                           placeholder: Center(
                             child: Icon(
-                              isUnlocked ? Icons.emoji_events_outlined : Icons.lock,
-                              color: isUnlocked ? AppTheme.textMuted : AppTheme.dividerColor,
+                              widget.isUnlocked ? Icons.emoji_events_outlined : Icons.lock,
+                              color: widget.isUnlocked ? AppTheme.textMuted : AppTheme.dividerColor,
                               size: 28,
                             ),
                           ),
                           errorWidget: Center(
                             child: Icon(
-                              isUnlocked ? Icons.emoji_events : Icons.lock,
-                              color: isUnlocked ? Colors.amber : AppTheme.textMuted,
+                              widget.isUnlocked ? Icons.emoji_events : Icons.lock,
+                              color: widget.isUnlocked ? Colors.amber : AppTheme.textMuted,
                               size: 28,
                             ),
                           ),
                         )
                       : Center(
                           child: Icon(
-                            isUnlocked ? Icons.emoji_events : Icons.lock,
-                            color: isUnlocked ? Colors.amber : AppTheme.textMuted,
+                            widget.isUnlocked ? Icons.emoji_events : Icons.lock,
+                            color: widget.isUnlocked ? Colors.amber : AppTheme.textMuted,
                             size: 28,
                           ),
                         ),
@@ -202,7 +283,7 @@ class AchievementDetailModal extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      name,
+                      widget.name,
                       style: const TextStyle(
                         fontSize: 18,
                         fontWeight: FontWeight.bold,
@@ -210,10 +291,10 @@ class AchievementDetailModal extends StatelessWidget {
                         letterSpacing: 0.2,
                       ),
                     ),
-                    if (gameName != null && gameName!.trim().isNotEmpty) ...[
+                    if (widget.gameName != null && widget.gameName!.trim().isNotEmpty) ...[
                       const SizedBox(height: 4),
                       Text(
-                        gameName!.trim(),
+                        widget.gameName!.trim(),
                         style: const TextStyle(
                           fontSize: 13,
                           fontWeight: FontWeight.w600,
@@ -237,12 +318,12 @@ class AchievementDetailModal extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                 decoration: BoxDecoration(
-                  color: isUnlocked
+                  color: widget.isUnlocked
                       ? AppTheme.accentGreen.withValues(alpha: 0.15)
                       : AppTheme.surfaceLight,
                   borderRadius: BorderRadius.circular(20),
                   border: Border.all(
-                    color: isUnlocked
+                    color: widget.isUnlocked
                         ? AppTheme.accentGreen.withValues(alpha: 0.4)
                         : AppTheme.dividerColor,
                   ),
@@ -251,19 +332,19 @@ class AchievementDetailModal extends StatelessWidget {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Icon(
-                      isUnlocked ? Icons.check_circle : Icons.lock,
+                      widget.isUnlocked ? Icons.check_circle : Icons.lock,
                       size: 14,
-                      color: isUnlocked ? AppTheme.accentGreen : AppTheme.textMuted,
+                      color: widget.isUnlocked ? AppTheme.accentGreen : AppTheme.textMuted,
                     ),
                     const SizedBox(width: 5),
                     Text(
-                      isUnlocked
+                      widget.isUnlocked
                           ? (unlockDateStr != null ? 'Unlocked: $unlockDateStr' : 'Unlocked')
                           : 'Locked',
                       style: TextStyle(
                         fontSize: 11,
                         fontWeight: FontWeight.w600,
-                        color: isUnlocked ? AppTheme.accentGreen : AppTheme.textMuted,
+                        color: widget.isUnlocked ? AppTheme.accentGreen : AppTheme.textMuted,
                       ),
                     ),
                   ],
@@ -271,7 +352,7 @@ class AchievementDetailModal extends StatelessWidget {
               ),
 
               // Rarity Badge
-              if (percent != null)
+              if (widget.percent != null)
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                   decoration: BoxDecoration(
@@ -297,7 +378,7 @@ class AchievementDetailModal extends StatelessWidget {
                 ),
 
               // Gamerscore / Points Badge
-              if (gamerScore != null && gamerScore! > 0)
+              if (widget.gamerScore != null && widget.gamerScore! > 0)
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                   decoration: BoxDecoration(
@@ -311,7 +392,7 @@ class AchievementDetailModal extends StatelessWidget {
                       const Icon(Icons.bolt, size: 14, color: Colors.amber),
                       const SizedBox(width: 4),
                       Text(
-                        '${gamerScore!.toInt()} pts',
+                        '${widget.gamerScore!.toInt()} pts',
                         style: const TextStyle(
                           fontSize: 11,
                           fontWeight: FontWeight.bold,
@@ -323,7 +404,7 @@ class AchievementDetailModal extends StatelessWidget {
                 ),
 
               // Category Badge
-              if (category != null && category!.isNotEmpty && category != 'Default')
+              if (widget.category != null && widget.category!.isNotEmpty && widget.category != 'Default')
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                   decoration: BoxDecoration(
@@ -332,7 +413,7 @@ class AchievementDetailModal extends StatelessWidget {
                     border: Border.all(color: AppTheme.dividerColor),
                   ),
                   child: Text(
-                    category!,
+                    widget.category!,
                     style: const TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.w500,
@@ -356,20 +437,118 @@ class AchievementDetailModal extends StatelessWidget {
               color: AppTheme.textMuted,
             ),
           ),
-          const SizedBox(height: 6),
-          Text(
-            (description != null && description!.trim().isNotEmpty)
-                ? description!.trim()
-                : (isHidden && !isUnlocked
-                    ? 'Hidden achievement. Details will be revealed once unlocked.'
-                    : 'No description provided for this achievement.'),
-            style: TextStyle(
-              fontSize: 14,
-              height: 1.45,
-              color: (description != null && description!.trim().isNotEmpty)
-                  ? AppTheme.textPrimary
-                  : AppTheme.textMuted,
+          const SizedBox(height: 8),
+
+          if (isMasked)
+            InkWell(
+              onTap: () => setState(() => _isSpoilerRevealed = true),
+              borderRadius: BorderRadius.circular(8),
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                decoration: BoxDecoration(
+                  color: AppTheme.surfaceLight,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: AppTheme.dividerColor),
+                ),
+                child: const Row(
+                  children: [
+                    Icon(Icons.visibility_off, size: 16, color: AppTheme.accentCyan),
+                    SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'Hidden achievement • Tap to reveal spoiler',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: AppTheme.accentCyan,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            )
+          else
+            Text(
+              (widget.description != null && widget.description!.trim().isNotEmpty)
+                  ? widget.description!.trim()
+                  : 'No description provided for this achievement.',
+              style: TextStyle(
+                fontSize: 14,
+                height: 1.45,
+                color: (widget.description != null && widget.description!.trim().isNotEmpty)
+                    ? AppTheme.textPrimary
+                    : AppTheme.textMuted,
+              ),
             ),
+          const SizedBox(height: 16),
+
+          // Links & Guides Section
+          const Text(
+            'LINKS & GUIDES',
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 0.8,
+              color: AppTheme.textMuted,
+            ),
+          ),
+          const SizedBox(height: 8),
+
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              // Search Guide on Web
+              ActionChip(
+                avatar: const Icon(Icons.search, size: 16, color: AppTheme.accentCyan),
+                label: const Text('Search Guide on Web'),
+                labelStyle: const TextStyle(
+                  fontSize: 12,
+                  color: AppTheme.textPrimary,
+                  fontWeight: FontWeight.w500,
+                ),
+                backgroundColor: AppTheme.surfaceLight,
+                side: const BorderSide(color: AppTheme.dividerColor),
+                onPressed: () => _launchUrl(_buildWebGuideSearchUrl()),
+              ),
+
+              // Steam Community Achievements link
+              if (steamAchievementsUrl != null)
+                ActionChip(
+                  avatar: const Icon(Icons.open_in_new, size: 16, color: AppTheme.primaryLight),
+                  label: const Text('Steam Achievements'),
+                  labelStyle: const TextStyle(
+                    fontSize: 12,
+                    color: AppTheme.textPrimary,
+                    fontWeight: FontWeight.w500,
+                  ),
+                  backgroundColor: AppTheme.surfaceLight,
+                  side: const BorderSide(color: AppTheme.dividerColor),
+                  onPressed: () => _launchUrl(steamAchievementsUrl),
+                ),
+
+              // Relevant game links
+              if (widget.gameLinks != null)
+                for (final link in widget.gameLinks!) ...[
+                  if (_extractLinkUrl(link).isNotEmpty)
+                    ActionChip(
+                      avatar: const Icon(Icons.link, size: 16, color: AppTheme.accentPurple),
+                      label: Text(
+                        _extractLinkName(link).isNotEmpty ? _extractLinkName(link) : 'Link',
+                      ),
+                      labelStyle: const TextStyle(
+                        fontSize: 12,
+                        color: AppTheme.textPrimary,
+                        fontWeight: FontWeight.w500,
+                      ),
+                      backgroundColor: AppTheme.surfaceLight,
+                      side: const BorderSide(color: AppTheme.dividerColor),
+                      onPressed: () => _launchUrl(_extractLinkUrl(link)),
+                    ),
+                ],
+            ],
           ),
           const SizedBox(height: 24),
 
@@ -377,11 +556,11 @@ class AchievementDetailModal extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.end,
             children: [
-              if (onViewGame != null) ...[
+              if (widget.onViewGame != null) ...[
                 TextButton.icon(
                   onPressed: () {
                     Navigator.of(context).pop();
-                    onViewGame!();
+                    widget.onViewGame!();
                   },
                   icon: const Icon(Icons.sports_esports, size: 18),
                   label: const Text('View Game'),

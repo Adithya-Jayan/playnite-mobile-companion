@@ -71,7 +71,11 @@ class AchievementsSection extends StatefulWidget implements IAddonSectionWidget 
       return const SizedBox.shrink();
     }
 
-    return _AchievementsSectionWidget(addonData: addonData, gameName: game.name);
+    return _AchievementsSectionWidget(
+      addonData: addonData,
+      gameName: game.name,
+      game: game,
+    );
   }
 
   @override
@@ -86,8 +90,13 @@ class _AchievementsSectionState extends State<AchievementsSection> {
 class _AchievementsSectionWidget extends StatefulWidget {
   final Map<String, dynamic> addonData;
   final String? gameName;
+  final UnifiedGamePayload? game;
 
-  const _AchievementsSectionWidget({required this.addonData, this.gameName});
+  const _AchievementsSectionWidget({
+    required this.addonData,
+    this.gameName,
+    this.game,
+  });
 
   @override
   State<_AchievementsSectionWidget> createState() => _AchievementsSectionWidgetState();
@@ -316,11 +325,22 @@ class _AchievementsSectionWidgetState extends State<_AchievementsSectionWidget> 
                   return ListTile(
                     contentPadding: const EdgeInsets.symmetric(vertical: 4, horizontal: 0),
                     onTap: () {
+                      String? steamAppId;
+                      if (widget.game != null) {
+                        final src = widget.game!.source?.name.toLowerCase() ?? '';
+                        final plugin = widget.game!.pluginId.toLowerCase();
+                        if (src.contains('steam') ||
+                            plugin == 'steam' ||
+                            plugin == 'cb91aec9-6843-41f9-ab81-e81171882729') {
+                          steamAppId = widget.game!.gameId;
+                        }
+                      }
+
                       AchievementDetailModal.show(
                         context,
                         name: name,
                         description: desc,
-                        gameName: widget.gameName,
+                        gameName: widget.game?.name ?? widget.gameName,
                         iconUrl: iconUrl,
                         isUnlocked: isUnlocked,
                         dateUnlockedUtc: date,
@@ -329,6 +349,8 @@ class _AchievementsSectionWidgetState extends State<_AchievementsSectionWidget> 
                             (ach['points'] as num?)?.toDouble(),
                         category: ach['category'] as String?,
                         isHidden: ach['is_hidden'] == true,
+                        steamAppId: steamAppId,
+                        gameLinks: widget.game?.links,
                       );
                     },
                     leading: Container(
