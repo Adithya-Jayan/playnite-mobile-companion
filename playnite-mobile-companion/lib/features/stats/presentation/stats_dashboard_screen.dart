@@ -9,7 +9,7 @@ import 'widgets/most_played_leaderboard.dart';
 import 'widgets/platform_breakdown_bar.dart';
 import 'widgets/playtime_summary_card.dart';
 import 'widgets/recent_activity_timeline.dart';
-import 'widgets/recent_achievements_timeline.dart';
+import 'widgets/global_achievements_browser.dart';
 
 class StatsDashboardScreen extends StatefulWidget {
   final AppDatabase database;
@@ -192,21 +192,9 @@ class _StatsDashboardScreenState extends State<StatsDashboardScreen> {
                       ),
 
                       // Tab 3: Achievements
-                      RefreshIndicator(
-                        color: AppTheme.primary,
-                        onRefresh: _loadStats,
-                        child: ListView(
-                          padding: const EdgeInsets.symmetric(vertical: 8),
-                          children: [
-                            RecentAchievementsTimeline(
-                              achievements: _stats!.recentAchievements,
-                              isExpanded: _expandedSections.contains(StatsSectionKey.recentAchievements),
-                              onToggle: (v) => _toggleSection(StatsSectionKey.recentAchievements, v),
-                              onGameTap: _navigateToGame,
-                            ),
-                            const SizedBox(height: 32),
-                          ],
-                        ),
+                      GlobalAchievementsBrowser(
+                        statsDao: _statsDao,
+                        onGameTap: _navigateToGame,
                       ),
                     ],
                   ),

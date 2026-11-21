@@ -61,6 +61,51 @@ class RecentAchievementEntry {
   });
 }
 
+enum GlobalAchievementSort {
+  unlockDateDesc, // Newest first
+  unlockDateAsc,  // Oldest first
+  rarityAsc,      // Rarest first (lowest percent first)
+  rarityDesc,     // Most common first (highest percent first)
+  scoreDesc,      // Highest score first
+  scoreAsc,       // Lowest score first
+  gameTitleAsc,   // Game title A-Z
+  titleAsc,       // Achievement name A-Z
+}
+
+class GlobalAchievementEntry {
+  final int id;
+  final String gameId;
+  final String gameName;
+  final String apiName;
+  final String name;
+  final String? description;
+  final String? urlUnlocked;
+  final String? urlLocked;
+  final String? dateUnlockedUtc;
+  final double? percent;
+  final double? gamerScore;
+  final String? coverDriveFileId;
+  final bool isHidden;
+
+  const GlobalAchievementEntry({
+    required this.id,
+    required this.gameId,
+    required this.gameName,
+    required this.apiName,
+    required this.name,
+    this.description,
+    this.urlUnlocked,
+    this.urlLocked,
+    this.dateUnlockedUtc,
+    this.percent,
+    this.gamerScore,
+    this.coverDriveFileId,
+    this.isHidden = false,
+  });
+
+  bool get isUnlocked => dateUnlockedUtc != null && dateUnlockedUtc!.isNotEmpty;
+}
+
 class LibraryStats {
   final int totalGames;
   final int totalPlaytimeSeconds;
@@ -248,5 +293,121 @@ class StatsDao {
       recentSessions: recentSessions,
       recentAchievements: recentAchievements,
     );
+  }
+
+  /// Paginated query for all unlocked achievements across the library.
+  /// Supports dynamic sorting, instant searching by name or game title, and pagination.
+  Future<List<GlobalAchievementEntry>> getGlobalAchievementsPaged({
+    int limit = 50,
+    int offset = 0,
+    String? searchQuery,
+    GlobalAchievementSort sort = GlobalAchievementSort.unlockDateDesc,
+  }) async {
+    final db = database.db;
+    final whereClauses = <String>[
+      "a.date_unlocked_utc IS NOT NULL AND a.date_unlocked_utc != ''",
+    ];
+    final whereArgs = <dynamic>[];
+
+    if (searchQuery != null && searchQuery.trim().isNotEmpty) {
+      final trimmed = searchQuery.trim();
+      whereClauses.add("(a.name LIKE ? OR g.name LIKE ?)");
+      whereArgs.add('%$trimmed%');
+      whereArgs.add('%$trimmed%');
+    }
+
+    String orderBy;
+    switch (sort) {
+      case GlobalAchievementSort.unlockDateDesc:
+        orderBy = 'a.date_unlocked_utc DESC';
+        break;
+      case GlobalAchievementSort.unlockDateAsc:
+        orderBy = 'a.date_unlocked_utc ASC';
+        break;
+      case GlobalAchievementSort.rarityAsc:
+        orderBy = 'CASE WHEN a.percent IS NULL THEN 1 ELSE 0 END, a.percent ASC, a.date_unlocked_utc DESC';
+        break;
+      case GlobalAchievementSort.rarityDesc:
+        orderBy = 'CASE WHEN a.percent IS NULL THEN 1 ELSE 0 END, a.percent DESC, a.date_unlocked_utc DESC';
+        break;
+      case GlobalAchievementSort.scoreDesc:
+        orderBy = 'COALESCE(a.gamer_score, 0) DESC, a.date_unlocked_utc DESC';
+        break;
+      case GlobalAchievementSort.scoreAsc:
+        orderBy = 'COALESCE(a.gamer_score, 0) ASC, a.date_unlocked_utc DESC';
+        break;
+      case GlobalAchievementSort.gameTitleAsc:
+        orderBy = 'g.name COLLATE NOCASE ASC, a.name COLLATE NOCASE ASC';
+        break;
+      case GlobalAchievementSort.titleAsc:
+        orderBy = 'a.name COLLATE NOCASE ASC';
+        break;
+    }
+
+    final query = '''
+      SELECT 
+        a.id,
+        a.game_id,
+        g.name as game_name,
+        a.api_name,
+        a.name,
+        a.description,
+        a.url_unlocked,
+        a.url_locked,
+        a.date_unlocked_utc,
+        a.percent,
+        a.gamer_score,
+        a.is_hidden,
+        g.cover_drive_file_id
+      FROM achievements a
+      JOIN games g ON a.game_id = g.id
+      WHERE ${whereClauses.join(' AND ')}
+      ORDER BY $orderBy
+      LIMIT ? OFFSET ?;
+    ''';
+
+    final rows = await db.rawQuery(query, [...whereArgs, limit, offset]);
+
+    return rows.map((r) => GlobalAchievementEntry(
+      id: (r['id'] as num).toInt(),
+      gameId: r['game_id'] as String,
+      gameName: r['game_name'] as String? ?? 'Unknown',
+      apiName: r['api_name'] as String? ?? '',
+      name: r['name'] as String? ?? 'Unnamed Achievement',
+      description: r['description'] as String?,
+      urlUnlocked: r['url_unlocked'] as String?,
+      urlLocked: r['url_locked'] as String?,
+      dateUnlockedUtc: r['date_unlocked_utc'] as String?,
+      percent: (r['percent'] as num?)?.toDouble(),
+      gamerScore: (r['gamer_score'] as num?)?.toDouble(),
+      coverDriveFileId: r['cover_drive_file_id'] as String?,
+      isHidden: (r['is_hidden'] as num?)?.toInt() == 1,
+    )).toList();
+  }
+
+  /// Returns the total count of unlocked achievements matching the search query.
+  Future<int> getGlobalAchievementsCount({String? searchQuery}) async {
+    final db = database.db;
+    final whereClauses = <String>[
+      "a.date_unlocked_utc IS NOT NULL AND a.date_unlocked_utc != ''",
+    ];
+    final whereArgs = <dynamic>[];
+
+    if (searchQuery != null && searchQuery.trim().isNotEmpty) {
+      final trimmed = searchQuery.trim();
+      whereClauses.add("(a.name LIKE ? OR g.name LIKE ?)");
+      whereArgs.add('%$trimmed%');
+      whereArgs.add('%$trimmed%');
+    }
+
+    final query = '''
+      SELECT COUNT(*) as count
+      FROM achievements a
+      JOIN games g ON a.game_id = g.id
+      WHERE ${whereClauses.join(' AND ')};
+    ''';
+
+    final rows = await db.rawQuery(query, whereArgs);
+    return (rows.first['count'] as num?)?.toInt() ?? 0;
   }
 }
