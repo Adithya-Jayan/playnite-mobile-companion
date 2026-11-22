@@ -2,13 +2,15 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:playnite_mobile_companion/core/database/app_database.dart';
 import 'package:playnite_mobile_companion/core/database/daos/addon_db_handlers/achievements_db_handler.dart';
 import 'package:playnite_mobile_companion/core/database/daos/addon_db_handlers/addon_db_registry.dart';
+import 'package:playnite_mobile_companion/core/database/daos/addon_db_handlers/dlc_db_handler.dart';
+import 'package:playnite_mobile_companion/core/database/daos/addon_db_handlers/hltb_db_handler.dart';
 import 'package:playnite_mobile_companion/core/database/daos/addon_db_handlers/i_addon_db_handler.dart';
 import 'package:playnite_mobile_companion/core/database/daos/addon_db_handlers/sessions_db_handler.dart';
 import 'package:playnite_mobile_companion/core/database/daos/game_dao.dart';
 import 'package:playnite_mobile_companion/features/sync/domain/sync_models.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
-class _CustomTestDbHandler implements IAddonDbHandler {
+class _CustomTestDbHandler extends IAddonDbHandler {
   bool unpackCalled = false;
   String? lastGameId;
 
@@ -46,11 +48,13 @@ void main() {
   });
 
   group('Decoupled Addon DB Ingestion Tests', () {
-    test('1. Default registry registers AchievementsDbHandler and SessionsDbHandler', () {
+    test('1. Default registry registers all canonical handlers', () {
       final handlers = AddonDbRegistry.handlers;
-      expect(handlers.length, equals(2));
+      expect(handlers.length, equals(4));
       expect(handlers.any((h) => h is AchievementsDbHandler), isTrue);
       expect(handlers.any((h) => h is SessionsDbHandler), isTrue);
+      expect(handlers.any((h) => h is HltbDbHandler), isTrue);
+      expect(handlers.any((h) => h is DlcDbHandler), isTrue);
     });
 
     test('2. Unpacks legacy success_story achievements into achievements SQLite table', () async {
@@ -299,6 +303,188 @@ void main() {
 
       expect(customHandler.unpackCalled, isTrue);
       expect(customHandler.lastGameId, equals('game-custom-addon'));
+    });
+
+    test('8. Unpacks how_long_to_beat payload into relational table and reconstructs via loadData', () async {
+      const payload = UnifiedGamePayload(
+        id: 'game-hltb',
+        gameId: 'app-hltb',
+        pluginId: 'steam',
+        name: 'HLTB Game',
+        sortingName: 'HLTB Game',
+        addons: {
+          'how_long_to_beat': {
+            'main_story_seconds': 36000,
+            'main_extra_seconds': 54000,
+            'completionist_seconds': 90000,
+            'hltb_id': 12345,
+            'url': 'https://howlongtobeat.com/game/12345',
+          },
+        },
+      );
+
+      await gameDao.batchUpsertGames([payload]);
+
+      final rows = await database.db.query(
+        'hltb_data',
+        where: 'game_id = ?',
+        whereArgs: ['game-hltb'],
+      );
+      expect(rows.length, equals(1));
+      expect(rows.first['main_story_seconds'], equals(36000));
+      expect(rows.first['completionist_seconds'], equals(90000));
+      expect(rows.first['hltb_id'], equals('12345'));
+
+      final hltbHandler = AddonDbRegistry.getHandler('how_long_to_beat')!;
+      final loaded = await hltbHandler.loadData('game-hltb', database);
+      expect(loaded, isNotNull);
+      expect(loaded!['main_story_seconds'], equals(36000));
+      expect(loaded['hltb_id'], equals('12345'));
+    });
+
+    test('9. Unpacks check_dlc payload into relational table and reconstructs via loadData', () async {
+      const payload = UnifiedGamePayload(
+        id: 'game-dlc',
+        gameId: 'app-dlc',
+        pluginId: 'steam',
+        name: 'DLC Game',
+        sortingName: 'DLC Game',
+        addons: {
+          'check_dlc': {
+            'items': [
+              {
+                'dlc_id': 'dlc-01',
+                'name': 'Expansion Pack 1',
+                'is_owned': true,
+                'price': '\$9.99',
+              },
+              {
+                'dlc_id': 'dlc-02',
+                'name': 'Expansion Pack 2',
+                'is_owned': false,
+                'price': '\$14.99',
+              },
+            ],
+          },
+        },
+      );
+
+      await gameDao.batchUpsertGames([payload]);
+
+      final rows = await database.db.query(
+        'dlc_items',
+        where: 'game_id = ?',
+        whereArgs: ['game-dlc'],
+        orderBy: 'dlc_id ASC',
+      );
+      expect(rows.length, equals(2));
+      expect(rows[0]['dlc_id'], equals('dlc-01'));
+      expect(rows[0]['is_owned'], equals(1));
+      expect(rows[1]['dlc_id'], equals('dlc-02'));
+      expect(rows[1]['is_owned'], equals(0));
+
+      final dlcHandler = AddonDbRegistry.getHandler('check_dlc')!;
+      final loaded = await dlcHandler.loadData('game-dlc', database);
+      expect(loaded, isNotNull);
+      final items = loaded!['items'] as List;
+      expect(items.length, equals(2));
+      expect(items[0]['name'], equals('Expansion Pack 1'));
+      expect(items[0]['is_owned'], isTrue);
+    });
+
+    test('10. toDatabaseRow strips relational keys from games.addons_json and keeps lightweight addons', () {
+      const payload = UnifiedGamePayload(
+        id: 'game-strip-test',
+        gameId: 'app-strip',
+        pluginId: 'steam',
+        name: 'Strip Test Game',
+        sortingName: 'Strip Test Game',
+        addons: {
+          'how_long_to_beat': {'main_story_seconds': 100},
+          'check_dlc': {'items': []},
+          'achievements': {'total': 5},
+          'game_activity': {'sessions': []},
+          'steam_reviews': {'score': 95, 'summary': 'Very Positive'},
+          'pcgamingwiki': {'has_ultrawide': true},
+        },
+      );
+
+      final row = payload.toDatabaseRow();
+      final addonsJson = row['addons_json'] as String;
+
+      expect(addonsJson.contains('how_long_to_beat'), isFalse);
+      expect(addonsJson.contains('check_dlc'), isFalse);
+      expect(addonsJson.contains('achievements'), isFalse);
+      expect(addonsJson.contains('game_activity'), isFalse);
+      expect(addonsJson.contains('steam_reviews'), isTrue);
+      expect(addonsJson.contains('pcgamingwiki'), isTrue);
+    });
+
+    test('11. GameDao.getGameAddons dynamically composes lightweight addons and relational data', () async {
+      const payload = UnifiedGamePayload(
+        id: 'game-composed',
+        gameId: 'app-comp',
+        pluginId: 'steam',
+        name: 'Composed Addon Game',
+        sortingName: 'Composed Addon Game',
+        addons: {
+          'how_long_to_beat': {
+            'main_story_seconds': 7200,
+            'hltb_id': 999,
+          },
+          'steam_reviews': {
+            'rating': 'Overwhelmingly Positive',
+          },
+        },
+      );
+
+      await gameDao.batchUpsertGames([payload]);
+
+      final fullAddons = await gameDao.getGameAddons('game-composed');
+      expect(fullAddons.containsKey('steam_reviews'), isTrue);
+      expect(fullAddons['steam_reviews']['rating'], equals('Overwhelmingly Positive'));
+      expect(fullAddons.containsKey('how_long_to_beat'), isTrue);
+      expect(fullAddons['how_long_to_beat']['main_story_seconds'], equals(7200));
+    });
+
+    test('12. batchDeleteGames cascades deletions to all relational addon tables via descriptors', () async {
+      const payload = UnifiedGamePayload(
+        id: 'game-delete-cascade',
+        gameId: 'app-del',
+        pluginId: 'steam',
+        name: 'Delete Cascade Game',
+        sortingName: 'Delete Cascade Game',
+        addons: {
+          'how_long_to_beat': {'main_story_seconds': 5000},
+          'check_dlc': {
+            'items': [{'dlc_id': 'dlc-x', 'name': 'DLC X', 'is_owned': true}],
+          },
+          'achievements': {
+            'total': 1,
+            'items': [{'api_name': 'ACH_DEL', 'name': 'To Be Deleted'}],
+          },
+          'game_activity': {
+            'sessions': [{'date_session_utc': '2024-01-01T00:00:00Z', 'elapsed_seconds': 600}],
+          },
+        },
+      );
+
+      await gameDao.batchUpsertGames([payload]);
+
+      // Confirm existence across all 4 relational tables
+      expect((await database.db.query('hltb_data', where: 'game_id = ?', whereArgs: ['game-delete-cascade'])).length, equals(1));
+      expect((await database.db.query('dlc_items', where: 'game_id = ?', whereArgs: ['game-delete-cascade'])).length, equals(1));
+      expect((await database.db.query('achievements', where: 'game_id = ?', whereArgs: ['game-delete-cascade'])).length, equals(1));
+      expect((await database.db.query('play_sessions', where: 'game_id = ?', whereArgs: ['game-delete-cascade'])).length, equals(1));
+
+      // Batch delete
+      await gameDao.batchDeleteGames(['game-delete-cascade']);
+
+      // Confirm all wiped out
+      expect((await database.db.query('hltb_data', where: 'game_id = ?', whereArgs: ['game-delete-cascade'])), isEmpty);
+      expect((await database.db.query('dlc_items', where: 'game_id = ?', whereArgs: ['game-delete-cascade'])), isEmpty);
+      expect((await database.db.query('achievements', where: 'game_id = ?', whereArgs: ['game-delete-cascade'])), isEmpty);
+      expect((await database.db.query('play_sessions', where: 'game_id = ?', whereArgs: ['game-delete-cascade'])), isEmpty);
     });
   });
 }

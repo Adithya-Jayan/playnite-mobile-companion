@@ -690,30 +690,30 @@ class UnifiedGamePayload {
     };
   }
 
+  static const Set<String> relationalAddonKeys = {
+    'playnite_achievements',
+    'achievements',
+    'success_story',
+    'game_activity',
+    'player_activities',
+    'how_long_to_beat',
+    'hltb',
+    'check_dlc',
+    'dlc',
+  };
+
   static String _safeAddonsJson(Map<String, dynamic> rawAddons) {
     if (rawAddons.isEmpty) return '{}';
     try {
-      final encoded = jsonEncode(rawAddons);
-      // Safe threshold: Keep under 300 KB to guarantee fit in any SQLite cursor window
-      if (encoded.length < 300 * 1024) return encoded;
-
-      // If oversized (e.g. 1000+ achievements or thousands of session logs),
-      // keep metadata/counters while truncating large nested item arrays to top 50
-      final sanitized = <String, dynamic>{};
+      // Exclude relational bulk addons since they are stored in dedicated SQLite tables
+      final nonRelational = <String, dynamic>{};
       rawAddons.forEach((key, value) {
-        if (value is Map<String, dynamic>) {
-          final copy = Map<String, dynamic>.from(value);
-          copy.forEach((subKey, subValue) {
-            if (subValue is List && subValue.length > 50) {
-              copy[subKey] = subValue.sublist(0, 50);
-            }
-          });
-          sanitized[key] = copy;
-        } else {
-          sanitized[key] = value;
+        if (!relationalAddonKeys.contains(key)) {
+          nonRelational[key] = value;
         }
       });
-      return jsonEncode(sanitized);
+      if (nonRelational.isEmpty) return '{}';
+      return jsonEncode(nonRelational);
     } catch (_) {
       return '{}';
     }

@@ -3,8 +3,8 @@ import 'package:playnite_mobile_companion/core/database/app_database.dart';
 import 'package:playnite_mobile_companion/features/sync/domain/sync_models.dart';
 import 'i_addon_db_handler.dart';
 
-/// Database handler that unpacks play sessions from 'game_activity' or 'player_activities'
-/// into the relational `play_sessions` SQLite table.
+/// Database handler and descriptor that unpacks play sessions from 'game_activity' or 'player_activities'
+/// into the relational `play_sessions` SQLite table and loads them on demand.
 class SessionsDbHandler implements IAddonDbHandler {
   @override
   String get addonKey => 'game_activity';
@@ -16,9 +16,12 @@ class SessionsDbHandler implements IAddonDbHandler {
   ];
 
   @override
+  List<String> get handledKeys => supportedKeys;
+
+  @override
   Future<void> unpack(UnifiedGamePayload payload, Batch batch, AppDatabase database) async {
     Map<String, dynamic>? activityData;
-    for (final key in supportedKeys) {
+    for (final key in handledKeys) {
       final raw = payload.addons[key];
       if (raw is Map<String, dynamic>) {
         activityData = raw;
@@ -42,5 +45,35 @@ class SessionsDbHandler implements IAddonDbHandler {
         }
       }
     }
+  }
+
+  @override
+  Future<void> delete(String gameId, Batch batch, AppDatabase database) async {
+    batch.delete('play_sessions', where: 'game_id = ?', whereArgs: [gameId]);
+  }
+
+  @override
+  Future<Map<String, dynamic>?> loadData(String gameId, AppDatabase database) async {
+    final rows = await database.db.query(
+      'play_sessions',
+      where: 'game_id = ?',
+      whereArgs: [gameId],
+      orderBy: 'date_session_utc ASC',
+    );
+    if (rows.isEmpty) return null;
+
+    final sessions = rows.map((r) {
+      return <String, dynamic>{
+        'date_session_utc': r['date_session_utc'] as String? ?? '',
+        'elapsed_seconds': (r['elapsed_seconds'] as num?)?.toInt() ?? 0,
+        'action_name': r['action_name'] as String?,
+      };
+    }).toList();
+
+    return {
+      'sessions': sessions,
+      'play_sessions': sessions,
+      'items': sessions,
+    };
   }
 }

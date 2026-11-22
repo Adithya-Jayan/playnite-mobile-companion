@@ -51,9 +51,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
     ]);
 
     _addons = widget.game.addons;
-    if (_addons.isEmpty) {
-      _loadAddons();
-    }
+    _loadAddons();
     _loadGallerySettings();
     // Defer related games to next frame so hero background & primary game details render instantly
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -88,7 +86,7 @@ class _GameDetailScreenState extends State<GameDetailScreen> {
         final dao = GameDao(AppDatabase.instance);
         final loaded = await dao.getGameAddons(widget.game.id);
         if (mounted && loaded.isNotEmpty) {
-          setState(() => _addons = loaded);
+          setState(() => _addons = {..._addons, ...loaded});
         }
       }
     } catch (e) {

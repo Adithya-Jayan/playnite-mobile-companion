@@ -48,48 +48,9 @@ class GameDao {
         });
       }
 
-      // 3. Delegate addon unpacking to registered handlers (achievements, sessions, etc.)
+      // 3. Delegate addon unpacking to registered descriptors (achievements, sessions, HLTB, DLC)
       for (final handler in AddonDbRegistry.handlers) {
         await handler.unpack(payload, batch, database);
-      }
-
-      // 5. Unpack HowLongToBeat (hltb_data)
-      final hltb = payload.addons['how_long_to_beat'] as Map<String, dynamic>?;
-      if (hltb != null) {
-        batch.insert(
-          'hltb_data',
-          {
-            'game_id': payload.id,
-            'main_story_seconds': (hltb['main_story_seconds'] as num?)?.toInt(),
-            'main_extra_seconds': (hltb['main_extra_seconds'] as num?)?.toInt(),
-            'completionist_seconds': (hltb['completionist_seconds'] as num?)?.toInt(),
-            'all_styles_seconds': (hltb['all_styles_seconds'] as num?)?.toInt(),
-            'hltb_id': hltb['hltb_id'] as String?,
-            'url': hltb['url'] as String?,
-          },
-          conflictAlgorithm: ConflictAlgorithm.replace,
-        );
-      }
-
-      // 6. Unpack CheckDlc (dlc_items)
-      final checkDlc = payload.addons['check_dlc'] as Map<String, dynamic>?;
-      if (checkDlc != null && checkDlc['dlcs'] is List) {
-        batch.delete('dlc_items', where: 'game_id = ?', whereArgs: [payload.id]);
-        final dlcs = checkDlc['dlcs'] as List;
-        for (final item in dlcs) {
-          if (item is Map<String, dynamic>) {
-            batch.insert('dlc_items', {
-              'game_id': payload.id,
-              'dlc_id': item['dlc_id'] as String? ?? '',
-              'name': item['name'] as String? ?? '',
-              'is_owned': (item['is_owned'] as bool? ?? false) ? 1 : 0,
-              'price': (item['price'] as num?)?.toDouble(),
-              'currency': item['currency'] as String?,
-              'url': item['url'] as String?,
-              'image_url': item['image_url'] as String?,
-            });
-          }
-        }
       }
     }
 
@@ -108,10 +69,9 @@ class GameDao {
       if (database.isFtsSupported) {
         batch.delete('games_fts', where: 'id = ?', whereArgs: [id]);
       }
-      batch.delete('achievements', where: 'game_id = ?', whereArgs: [id]);
-      batch.delete('play_sessions', where: 'game_id = ?', whereArgs: [id]);
-      batch.delete('hltb_data', where: 'game_id = ?', whereArgs: [id]);
-      batch.delete('dlc_items', where: 'game_id = ?', whereArgs: [id]);
+      for (final handler in AddonDbRegistry.handlers) {
+        await handler.delete(id, batch, database);
+      }
     }
 
     await batch.commit(noResult: true);
@@ -157,21 +117,27 @@ class GameDao {
       );
     }
     if (rows.isEmpty) return null;
+    UnifiedGamePayload? payload;
     try {
-      return _rowToPayload(rows.first);
+      payload = _rowToPayload(rows.first);
     } catch (e) {
       debugPrint('Error deserializing game $id with full addons: $e');
       final safeRow = Map<String, dynamic>.from(rows.first)..remove('addons_json');
       try {
-        return _rowToPayload(safeRow);
+        payload = _rowToPayload(safeRow);
       } catch (_) {
         return null;
       }
     }
+    final addons = await getGameAddons(id);
+    return payload.copyWith(addons: addons);
   }
 
-  /// Retrieves raw addons JSON map for a specific game on demand.
+  /// Retrieves composite addons map for a specific game on demand,
+  /// merging lightweight metadata from games.addons_json with normalized
+  /// relational tables via registered Addon Descriptors.
   Future<Map<String, dynamic>> getGameAddons(String id) async {
+    final addons = <String, dynamic>{};
     try {
       final rows = await database.db.query(
         'games',
@@ -182,12 +148,30 @@ class GameDao {
       );
       if (rows.isNotEmpty && rows.first['addons_json'] != null) {
         final decoded = jsonDecode(rows.first['addons_json'].toString());
-        if (decoded is Map<String, dynamic>) return decoded;
+        if (decoded is Map<String, dynamic>) {
+          addons.addAll(decoded);
+        }
       }
     } catch (e) {
-      debugPrint('Error loading addons for $id: $e');
+      debugPrint('Error loading raw addons for $id: $e');
     }
-    return {};
+
+    // Load normalized relational data via registered Addon Descriptors
+    for (final handler in AddonDbRegistry.handlers) {
+      try {
+        final data = await handler.loadData(id, database);
+        if (data != null && data.isNotEmpty) {
+          addons[handler.addonKey] = data;
+          for (final key in handler.handledKeys) {
+            addons[key] = data;
+          }
+        }
+      } catch (e) {
+        debugPrint('Error loading relational addon "${handler.addonKey}" for $id: $e');
+      }
+    }
+
+    return addons;
   }
 
   /// Retrieves games count in the local database.

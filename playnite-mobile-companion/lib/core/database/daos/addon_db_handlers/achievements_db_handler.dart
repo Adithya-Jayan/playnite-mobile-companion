@@ -4,8 +4,9 @@ import 'package:playnite_mobile_companion/core/utils/achievement_helper.dart';
 import 'package:playnite_mobile_companion/features/sync/domain/sync_models.dart';
 import 'i_addon_db_handler.dart';
 
-/// Database handler that unpacks achievements from 'playnite_achievements', 'achievements',
-/// or 'success_story' into the relational `achievements` SQLite table.
+/// Database handler and descriptor that unpacks achievements from 'playnite_achievements',
+/// 'achievements', or 'success_story' into the relational `achievements` SQLite table and
+/// loads them on demand for polymorphic UI rendering.
 class AchievementsDbHandler implements IAddonDbHandler {
   @override
   String get addonKey => 'achievements';
@@ -17,6 +18,9 @@ class AchievementsDbHandler implements IAddonDbHandler {
     'achievements',
     'success_story',
   ];
+
+  @override
+  List<String> get handledKeys => supportedKeys;
 
   @override
   Future<void> unpack(UnifiedGamePayload payload, Batch batch, AppDatabase database) async {
@@ -91,5 +95,48 @@ class AchievementsDbHandler implements IAddonDbHandler {
         });
       }
     }
+  }
+
+  @override
+  Future<void> delete(String gameId, Batch batch, AppDatabase database) async {
+    batch.delete('achievements', where: 'game_id = ?', whereArgs: [gameId]);
+  }
+
+  @override
+  Future<Map<String, dynamic>?> loadData(String gameId, AppDatabase database) async {
+    final rows = await database.db.query(
+      'achievements',
+      where: 'game_id = ?',
+      whereArgs: [gameId],
+      orderBy: 'id ASC',
+    );
+    if (rows.isEmpty) return null;
+
+    final items = rows.map((r) {
+      final isUnlocked = r['date_unlocked_utc'] != null && r['date_unlocked_utc'].toString().isNotEmpty;
+      return <String, dynamic>{
+        'api_name': r['api_name'] as String? ?? '',
+        'name': r['name'] as String? ?? '',
+        'description': r['description'] as String?,
+        'url_unlocked': r['url_unlocked'] as String?,
+        'url_locked': r['url_locked'] as String?,
+        'date_unlocked_utc': r['date_unlocked_utc'] as String?,
+        'percent': (r['percent'] as num?)?.toDouble(),
+        'gamer_score': (r['gamer_score'] as num?)?.toDouble(),
+        'is_hidden': (r['is_hidden'] as num?)?.toInt() == 1,
+        'unlocked': isUnlocked,
+        'is_unlocked': isUnlocked,
+      };
+    }).toList();
+
+    final unlockedCount = items.where((it) => it['unlocked'] == true).length;
+    return {
+      'total': items.length,
+      'total_count': items.length,
+      'unlocked': unlockedCount,
+      'unlocked_count': unlockedCount,
+      'items': items,
+      'achievements': items,
+    };
   }
 }
