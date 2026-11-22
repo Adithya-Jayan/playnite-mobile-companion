@@ -1,17 +1,32 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:playnite_mobile_companion/core/database/app_database.dart';
 import 'package:playnite_mobile_companion/core/utils/fuzzy_search_engine.dart';
 import 'package:playnite_mobile_companion/features/library/domain/game_filter_criteria.dart';
+import 'package:playnite_mobile_companion/features/library/domain/library_catalog.dart';
 import 'package:playnite_mobile_companion/features/library/domain/sort_options.dart';
 import 'package:playnite_mobile_companion/features/settings/data/gallery_settings_repository.dart';
 import 'package:playnite_mobile_companion/features/sync/domain/sync_models.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:playnite_mobile_companion/core/database/daos/addon_db_handlers/addon_db_registry.dart';
 
-class GameDao {
+class GameDao implements ILibraryCatalog {
   final AppDatabase database;
+
+  static final StreamController<void> _libraryChangeController = StreamController<void>.broadcast();
+
+  /// Emits whenever games in the library are inserted, updated, or deleted.
+  static Stream<void> get onLibraryChanged => _libraryChangeController.stream;
+
+  /// Broadcasts notification of library mutations to active subscribers.
+  @override
+  void notifyChanged() {
+    if (!_libraryChangeController.isClosed) {
+      _libraryChangeController.add(null);
+    }
+  }
 
   GameDao(this.database);
 
@@ -28,33 +43,14 @@ class GameDao {
       final row = payload.toDatabaseRow();
       batch.insert('games', row, conflictAlgorithm: ConflictAlgorithm.replace);
 
-      // 2. Update FTS virtual table (only if FTS table is available)
-      if (database.isFtsSupported) {
-        final devText = payload.developers.map((e) => e.name).join(' ');
-        final pubText = payload.publishers.map((e) => e.name).join(' ');
-        final genText = payload.genres.map((e) => e.name).join(' ');
-        final tagText = payload.tags.map((e) => e.name).join(' ');
-
-        batch.delete('games_fts', where: 'id = ?', whereArgs: [payload.id]);
-        batch.insert('games_fts', {
-          'id': payload.id,
-          'name': payload.name,
-          'sorting_name': payload.sortingName,
-          'description': payload.description ?? '',
-          'developers': devText,
-          'publishers': pubText,
-          'genres': genText,
-          'tags': tagText,
-        });
-      }
-
-      // 3. Delegate addon unpacking to registered descriptors (achievements, sessions, HLTB, DLC)
+      // 2. Delegate addon unpacking to registered descriptors (achievements, sessions, HLTB, DLC)
       for (final handler in AddonDbRegistry.handlers) {
         await handler.unpack(payload, batch, database);
       }
     }
 
     await batch.commit(noResult: true);
+    notifyChanged();
   }
 
   /// Cascade deletes removed games from primary and child tables.
@@ -66,15 +62,13 @@ class GameDao {
 
     for (final id in gameIds) {
       batch.delete('games', where: 'id = ?', whereArgs: [id]);
-      if (database.isFtsSupported) {
-        batch.delete('games_fts', where: 'id = ?', whereArgs: [id]);
-      }
       for (final handler in AddonDbRegistry.handlers) {
         await handler.delete(id, batch, database);
       }
     }
 
     await batch.commit(noResult: true);
+    notifyChanged();
   }
 
   /// Dynamically queries existing table columns excluding addons_json to protect against CursorWindow overflows in batch queries.
@@ -174,8 +168,12 @@ class GameDao {
     return addons;
   }
 
-  /// Retrieves games count in the local database.
-  Future<int> getGamesCount() async {
+  /// Retrieves total games count, or filtered count if [criteria] is provided.
+  @override
+  Future<int> getGamesCount({GameFilterCriteria? criteria}) async {
+    if (criteria != null) {
+      return getFilteredGamesCount(criteria: criteria);
+    }
     final result = await database.db.rawQuery('SELECT COUNT(*) as count FROM games;');
     if (result.isNotEmpty && result.first['count'] is num) {
       return (result.first['count'] as num).toInt();
@@ -373,28 +371,120 @@ class GameDao {
     }
   }
 
+  /// Constructs SQL search candidate WHERE clauses for indexed candidate pruning at the SQLite level.
+  ({List<String> clauses, List<dynamic> args}) _buildSearchCandidateWhere(String query) {
+    final q = query.trim();
+    if (q.isEmpty) return (clauses: <String>[], args: <dynamic>[]);
+
+    final likePattern = '%$q%';
+    final words = q.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
+
+    final directSubClauses = <String>[
+      'name LIKE ?',
+      'sorting_name LIKE ?',
+      'developers_json LIKE ?',
+      'publishers_json LIKE ?',
+      'genres_json LIKE ?',
+      'tags_json LIKE ?',
+      'series_json LIKE ?',
+      'description LIKE ?',
+    ];
+    final directArgs = List<dynamic>.filled(directSubClauses.length, likePattern);
+
+    if (words.length > 1) {
+      final tokenClauses = <String>[];
+      final tokenArgs = <dynamic>[];
+      for (final w in words) {
+        tokenClauses.add('(name LIKE ? OR sorting_name LIKE ?)');
+        tokenArgs.add('%$w%');
+        tokenArgs.add('%$w%');
+      }
+      return (
+        clauses: <String>[
+          '((${directSubClauses.join(' OR ')}) OR (${tokenClauses.join(' AND ')}))'
+        ],
+        args: <dynamic>[...directArgs, ...tokenArgs],
+      );
+    }
+
+    return (
+      clauses: <String>['(${directSubClauses.join(' OR ')})'],
+      args: directArgs,
+    );
+  }
+
   /// Returns count of games matching current filter criteria.
+  /// Uses direct SQLite COUNT(*) with candidate pruning without full table deserialization.
   Future<int> getFilteredGamesCount({
     required GameFilterCriteria criteria,
   }) async {
-    if (criteria.searchQuery.trim().isNotEmpty) {
-      final games = await getFilteredGames(criteria: criteria, sort: SortOption.titleAsc);
-      return games.length;
-    }
     final (:whereClauses, :whereArgs) = await _buildFilterWhere(criteria);
+    final hasSearch = criteria.searchQuery.trim().isNotEmpty;
+
+    if (!hasSearch) {
+      final result = await database.db.query(
+        'games',
+        columns: ['COUNT(*) as count'],
+        where: whereClauses.isNotEmpty ? whereClauses.join(' AND ') : null,
+        whereArgs: whereArgs.isNotEmpty ? whereArgs : null,
+      );
+      if (result.isNotEmpty && result.first['count'] is num) {
+        return (result.first['count'] as num).toInt();
+      }
+      return 0;
+    }
+
+    // Direct SQLite candidate count
+    final cleanQuery = criteria.searchQuery.trim();
+    final searchWhere = _buildSearchCandidateWhere(cleanQuery);
+    final combinedWhereClauses = [...whereClauses, ...searchWhere.clauses];
+    final combinedWhereArgs = [...whereArgs, ...searchWhere.args];
+
     final result = await database.db.query(
       'games',
       columns: ['COUNT(*) as count'],
-      where: whereClauses.isNotEmpty ? whereClauses.join(' AND ') : null,
-      whereArgs: whereArgs.isNotEmpty ? whereArgs : null,
+      where: combinedWhereClauses.join(' AND '),
+      whereArgs: combinedWhereArgs,
     );
-    if (result.isNotEmpty && result.first['count'] is num) {
-      return (result.first['count'] as num).toInt();
+    final directCount = (result.isNotEmpty && result.first['count'] is num)
+        ? (result.first['count'] as num).toInt()
+        : 0;
+
+    if (directCount > 0) {
+      return directCount;
     }
+
+    // Typo fallback candidate evaluation on lightweight title projection
+    if (FuzzySearchEngine.allowedEdits(cleanQuery.length) > 0) {
+      final whereString = whereClauses.isNotEmpty ? whereClauses.join(' AND ') : null;
+      final titleRows = await database.db.query(
+        'games',
+        columns: ['id', 'name', 'sorting_name'],
+        where: whereString,
+        whereArgs: whereArgs.isNotEmpty ? whereArgs : null,
+      );
+
+      var typoCount = 0;
+      for (final row in titleRows) {
+        final id = row['id']?.toString() ?? '';
+        final name = row['name']?.toString() ?? '';
+        final sortingName = row['sorting_name']?.toString() ?? '';
+        final match = FuzzySearchEngine.rankGame(
+          UnifiedGamePayload(id: id, gameId: id, pluginId: '', name: name, sortingName: sortingName),
+          cleanQuery,
+        );
+        if (match != null && match.tier == SearchTier.tier2Fuzzy) {
+          typoCount++;
+        }
+      }
+      return typoCount;
+    }
+
     return 0;
   }
 
   /// High-performance multi-criteria library query supporting instant search and sorting.
+  /// Uses database-level candidate pruning and lightweight column projection.
   Future<List<UnifiedGamePayload>> getFilteredGames({
     required GameFilterCriteria criteria,
     required SortOption sort,
@@ -402,47 +492,206 @@ class GameDao {
     int? offset,
   }) async {
     final (:whereClauses, :whereArgs) = await _buildFilterWhere(criteria);
-    final whereString = whereClauses.isNotEmpty ? whereClauses.join(' AND ') : null;
     final orderBy = sort.toSqlOrderBy();
     final safeColumns = await _getSafeLibraryColumns();
-
     final hasSearch = criteria.searchQuery.trim().isNotEmpty;
 
-    final rows = await database.db.query(
+    if (!hasSearch) {
+      final whereString = whereClauses.isNotEmpty ? whereClauses.join(' AND ') : null;
+      final rows = await database.db.query(
+        'games',
+        columns: safeColumns,
+        where: whereString,
+        whereArgs: whereArgs.isNotEmpty ? whereArgs : null,
+        orderBy: orderBy,
+        limit: limit,
+        offset: offset,
+      );
+
+      final games = <UnifiedGamePayload>[];
+      for (final row in rows) {
+        try {
+          games.add(_rowToPayload(row));
+        } catch (e, stack) {
+          debugPrint('Warning: Skipped corrupted game row (id: ${row['id']}): $e\n$stack');
+        }
+      }
+      return games;
+    }
+
+    // --- Search with Candidate Pruning ---
+    final cleanQuery = criteria.searchQuery.trim();
+    final searchWhere = _buildSearchCandidateWhere(cleanQuery);
+
+    final combinedWhereClauses = [...whereClauses, ...searchWhere.clauses];
+    final combinedWhereArgs = [...whereArgs, ...searchWhere.args];
+
+    final candidateRows = await database.db.query(
       'games',
       columns: safeColumns,
-      where: whereString,
-      whereArgs: whereArgs.isNotEmpty ? whereArgs : null,
+      where: combinedWhereClauses.join(' AND '),
+      whereArgs: combinedWhereArgs,
       orderBy: orderBy,
-      limit: hasSearch ? null : limit,
-      offset: hasSearch ? null : offset,
+      limit: 250, // Candidate window cap prevents CursorWindow pressure
     );
 
-    final games = <UnifiedGamePayload>[];
-    for (final row in rows) {
+    final candidateGames = <UnifiedGamePayload>[];
+    for (final row in candidateRows) {
       try {
-        games.add(_rowToPayload(row));
-      } catch (e, stack) {
-        debugPrint('Warning: Skipped corrupted game row (id: ${row['id']}): $e\n$stack');
+        candidateGames.add(_rowToPayload(row));
+      } catch (e) {
+        debugPrint('Warning: Skipped corrupted game row (id: ${row['id']}): $e');
       }
     }
 
-    if (hasSearch) {
-      final ranked = FuzzySearchEngine.filterAndRank(
-        games,
-        criteria.searchQuery,
+    List<UnifiedGamePayload> ranked;
+    if (candidateGames.isNotEmpty) {
+      ranked = FuzzySearchEngine.filterAndRank(
+        candidateGames,
+        cleanQuery,
         baseSort: sort,
       );
-      if (limit != null || offset != null) {
-        final start = offset ?? 0;
-        if (start >= ranked.length) return const [];
-        final end = limit != null ? min(start + limit, ranked.length) : ranked.length;
-        return ranked.sublist(start, end);
+    } else if (FuzzySearchEngine.allowedEdits(cleanQuery.length) > 0) {
+      // Typo-tolerant candidate fallback: query only lightweight title columns
+      final whereString = whereClauses.isNotEmpty ? whereClauses.join(' AND ') : null;
+      final titleRows = await database.db.query(
+        'games',
+        columns: ['id', 'name', 'sorting_name'],
+        where: whereString,
+        whereArgs: whereArgs.isNotEmpty ? whereArgs : null,
+      );
+
+      final matchingIds = <String>[];
+      for (final row in titleRows) {
+        final id = row['id']?.toString() ?? '';
+        final name = row['name']?.toString() ?? '';
+        final sortingName = row['sorting_name']?.toString() ?? '';
+        final match = FuzzySearchEngine.rankGame(
+          UnifiedGamePayload(id: id, gameId: id, pluginId: '', name: name, sortingName: sortingName),
+          cleanQuery,
+        );
+        if (match != null && match.tier == SearchTier.tier2Fuzzy) {
+          matchingIds.add(id);
+        }
       }
-      return ranked;
+
+      if (matchingIds.isNotEmpty) {
+        final placeholders = List.filled(matchingIds.length, '?').join(',');
+        final fullRows = await database.db.query(
+          'games',
+          columns: safeColumns,
+          where: 'id IN ($placeholders)',
+          whereArgs: matchingIds,
+        );
+        final typoGames = <UnifiedGamePayload>[];
+        for (final row in fullRows) {
+          try {
+            typoGames.add(_rowToPayload(row));
+          } catch (_) {}
+        }
+        ranked = FuzzySearchEngine.filterAndRank(
+          typoGames,
+          cleanQuery,
+          baseSort: sort,
+        );
+      } else {
+        ranked = const [];
+      }
+    } else {
+      ranked = const [];
     }
 
-    return games;
+    if (limit != null || offset != null) {
+      final start = offset ?? 0;
+      if (start >= ranked.length) return const [];
+      final end = limit != null ? min(start + limit, ranked.length) : ranked.length;
+      return ranked.sublist(start, end);
+    }
+    return ranked;
+  }
+
+  // --- ILibraryCatalog Implementation ---
+
+  @override
+  Future<List<UnifiedGamePayload>> getGames({
+    required GameFilterCriteria criteria,
+    required SortOption sort,
+    int? limit,
+    int? offset,
+  }) => getFilteredGames(criteria: criteria, sort: sort, limit: limit, offset: offset);
+
+  @override
+  Stream<List<UnifiedGamePayload>> watchGames({
+    required GameFilterCriteria criteria,
+    required SortOption sort,
+    int? limit,
+    int? offset,
+  }) {
+    late StreamController<List<UnifiedGamePayload>> controller;
+    StreamSubscription<void>? subscription;
+
+    Future<void> fetchAndEmit() async {
+      try {
+        final games = await getFilteredGames(
+          criteria: criteria,
+          sort: sort,
+          limit: limit,
+          offset: offset,
+        );
+        if (!controller.isClosed) {
+          controller.add(games);
+        }
+      } catch (e, stack) {
+        if (!controller.isClosed) {
+          controller.addError(e, stack);
+        }
+      }
+    }
+
+    controller = StreamController<List<UnifiedGamePayload>>(
+      onListen: () {
+        fetchAndEmit();
+        subscription = onLibraryChanged.listen((_) => fetchAndEmit());
+      },
+      onCancel: () async {
+        await subscription?.cancel();
+      },
+    );
+
+    return controller.stream;
+  }
+
+  @override
+  Stream<int> watchGamesCount({
+    required GameFilterCriteria criteria,
+  }) {
+    late StreamController<int> controller;
+    StreamSubscription<void>? subscription;
+
+    Future<void> fetchAndEmit() async {
+      try {
+        final count = await getFilteredGamesCount(criteria: criteria);
+        if (!controller.isClosed) {
+          controller.add(count);
+        }
+      } catch (e, stack) {
+        if (!controller.isClosed) {
+          controller.addError(e, stack);
+        }
+      }
+    }
+
+    controller = StreamController<int>(
+      onListen: () {
+        fetchAndEmit();
+        subscription = onLibraryChanged.listen((_) => fetchAndEmit());
+      },
+      onCancel: () async {
+        await subscription?.cancel();
+      },
+    );
+
+    return controller.stream;
   }
 
   UnifiedGamePayload _rowToPayload(Map<String, dynamic> row) {

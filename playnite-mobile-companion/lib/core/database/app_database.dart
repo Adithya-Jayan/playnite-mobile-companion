@@ -17,7 +17,9 @@ class AppDatabase {
   static AppDatabase get instance => _instance ??= AppDatabase._();
 
   /// Indicates whether the active SQLite engine supports FTS (FTS5 or FTS4).
-  bool isFtsSupported = false;
+  /// Deprecated: FTS virtual table replaced with indexed SQL search candidate pruning.
+  @Deprecated('FTS virtual table replaced with indexed SQL search candidate pruning.')
+  bool get isFtsSupported => false;
 
   Database get db {
     if (_db == null) {
@@ -83,9 +85,9 @@ class AppDatabase {
       },
     );
 
-    // Ensure columns and FTS table are verified or created even on pre-existing databases
+    // Ensure columns are verified or created even on pre-existing databases
     await _ensureColumnsExist(_db!);
-    await _ensureFtsTable(_db!);
+    await _db!.execute('DROP TABLE IF EXISTS games_fts;');
 
 
     // Sanitize any legacy oversized addons_json rows (e.g. games with >1,000 achievements)
@@ -177,6 +179,7 @@ class AppDatabase {
     ''');
 
     // Indexes for high-performance library filtering & sorting
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_games_name ON games(name);');
     await db.execute('CREATE INDEX IF NOT EXISTS idx_games_sorting_name ON games(sorting_name);');
     await db.execute('CREATE INDEX IF NOT EXISTS idx_games_playtime ON games(playtime_seconds DESC);');
     await db.execute('CREATE INDEX IF NOT EXISTS idx_games_last_activity ON games(last_activity_utc DESC);');
@@ -185,8 +188,8 @@ class AppDatabase {
     await db.execute('CREATE INDEX IF NOT EXISTS idx_games_is_installed ON games(is_installed);');
     await db.execute('CREATE INDEX IF NOT EXISTS idx_games_favorite ON games(favorite);');
 
-    // 2. Full-Text Search (FTS5 / FTS4) Virtual Table
-    await _ensureFtsTable(db);
+    // 2. Clean up any legacy FTS virtual table (replaced by indexed SQL candidate pruning)
+    await db.execute('DROP TABLE IF EXISTS games_fts;');
 
     // 3. Sync Entries Table (authoritative local representation of sync_index.json)
     await db.execute('''
@@ -307,60 +310,7 @@ class AppDatabase {
     }
   }
 
-  /// Verifies or creates the FTS table with FTS5 or FTS4 fallback, updating [isFtsSupported].
-  Future<void> _ensureFtsTable(DatabaseExecutor db) async {
-    // Check if games_fts already exists
-    try {
-      final res = await db.rawQuery(
-        "SELECT name FROM sqlite_master WHERE type IN ('table', 'view') AND name = 'games_fts';",
-      );
-      if (res.isNotEmpty) {
-        isFtsSupported = true;
-        return;
-      }
-    } catch (_) {}
 
-    // 1. Try creating with FTS5
-    try {
-      await db.execute('''
-        CREATE VIRTUAL TABLE IF NOT EXISTS games_fts USING fts5(
-          id UNINDEXED,
-          name,
-          sorting_name,
-          description,
-          developers,
-          publishers,
-          genres,
-          tags
-        );
-      ''');
-      isFtsSupported = true;
-      return;
-    } catch (e) {
-      debugPrint('FTS5 table initialization not available, trying FTS4: $e');
-    }
-
-    // 2. Try fallback to FTS4 (supported across older/OEM Android SQLite builds)
-    try {
-      await db.execute('''
-        CREATE VIRTUAL TABLE IF NOT EXISTS games_fts USING fts4(
-          id,
-          name,
-          sorting_name,
-          description,
-          developers,
-          publishers,
-          genres,
-          tags
-        );
-      ''');
-      isFtsSupported = true;
-      return;
-    } catch (e2) {
-      debugPrint('Neither FTS5 nor FTS4 supported on this SQLite engine: $e2');
-      isFtsSupported = false;
-    }
-  }
 
   /// Public migration entrypoint for legacy category normalization.
   Future<void> migrateLegacyCategories({DatabaseExecutor? executor}) async {

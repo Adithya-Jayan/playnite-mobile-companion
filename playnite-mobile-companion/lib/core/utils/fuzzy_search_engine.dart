@@ -101,6 +101,18 @@ class FuzzySearchEngine {
       }
     }
 
+    // Multi-word token matching in title (e.g. "witcher wild hunt" in "The Witcher 3: Wild Hunt")
+    final queryWords = q
+        .split(RegExp(r'[^a-z0-9]+'))
+        .where((w) => w.isNotEmpty)
+        .toList();
+    if (queryWords.length > 1) {
+      final allWordsMatch = queryWords.every((qw) => titleWords.any((tw) => tw.startsWith(qw)));
+      if (allWordsMatch) {
+        return const SearchMatchResult(SearchTier.tier1WordPrefix, 1.28);
+      }
+    }
+
     if (nameLower.contains(q) || (sortLower.isNotEmpty && sortLower.contains(q))) {
       return const SearchMatchResult(SearchTier.tier1Substring, 1.3);
     }

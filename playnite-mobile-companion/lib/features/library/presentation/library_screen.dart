@@ -59,6 +59,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
   SortOption _sortOption = SortOption.titleAsc;
   GameFilterCriteria _filterCriteria = const GameFilterCriteria();
   Timer? _searchDebounceTimer;
+  StreamSubscription<void>? _librarySubscription;
   late final GallerySettingsRepository _galleryRepo;
   late final LibraryPreferencesService _prefsService;
   GallerySettings _gallerySettings = const GallerySettings();
@@ -83,6 +84,11 @@ class _LibraryScreenState extends State<LibraryScreen> {
     _galleryRepo = GallerySettingsRepository(widget.database);
     _prefsService = LibraryPreferencesService();
     _scrollController.addListener(_onScroll);
+    _librarySubscription = GameDao.onLibraryChanged.listen((_) {
+      if (mounted) {
+        _loadLibrary();
+      }
+    });
     _restorePreferencesAndLoad();
     _checkPendingSyncStatus();
   }
@@ -143,6 +149,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
   @override
   void dispose() {
     _searchDebounceTimer?.cancel();
+    _librarySubscription?.cancel();
     _scrollController.removeListener(_onScroll);
     _scrollController.dispose();
     super.dispose();
