@@ -4,6 +4,8 @@
 
 # Playnite Mobile Companion & Delta Sync
 
+[![GitHub Release](https://img.shields.io/github/v/release/Adithya-Jayan/playnite-mobile-companion?color=blue)](https://github.com/Adithya-Jayan/playnite-mobile-companion/releases)
+[![CI](https://github.com/Adithya-Jayan/playnite-mobile-companion/actions/workflows/ci.yml/badge.svg)](https://github.com/Adithya-Jayan/playnite-mobile-companion/actions/workflows/ci.yml)
 [![Playnite](https://img.shields.io/badge/Playnite-Repository-orange.svg)](https://github.com/JosefNemec/Playnite)
 [![Playnite Website](https://img.shields.io/badge/Website-playnite.link-blue.svg)](https://playnite.link/)
 [![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Android-blue.svg)](https://flutter.dev/)
@@ -12,7 +14,7 @@
 [![Cloud Sync](https://img.shields.io/badge/Cloud%20Sync-Google%20Drive%20v3-green.svg)](https://developers.google.com/drive)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-An offline-first mobile companion system for **[Playnite](https://github.com/JosefNemec/Playnite)** ([playnite.link](https://playnite.link/)). Browse and search your PC video game collection, rich metadata, achievements, play session timelines, and video micro-trailers on your Android device via personal Google Drive or local storage synchronization with incremental delta updates.
+An offline-first mobile companion system for **[Playnite](https://github.com/JosefNemec/Playnite)** ([playnite.link](https://playnite.link/)). Browse and search your PC video game collection, rich metadata, achievements, play session timelines, and video micro-trailers on your Android device via personal Google Drive, local storage, or Syncthing synchronization with incremental delta updates.
 
 ---
 
@@ -20,10 +22,10 @@ An offline-first mobile companion system for **[Playnite](https://github.com/Jos
 
 **Playnite Mobile Companion** connects your desktop Playnite library to your mobile device with an offline-first design:
 
-- **Offline-First Browsing:** The companion app downloads your library into a local SQLite database (with FTS5 search) on your Android device. Once synced, you can browse, filter, and inspect your full collection completely offline.
+- **Offline-First Browsing:** The companion app downloads your library into a local SQLite database on your Android device with instant fuzzy search (candidate-pruned title indexing and Levenshtein typo tolerance). Once synced, you can browse, filter, and inspect your full collection completely offline.
 - **Incremental Delta Synchronization:** After the initial export, modifying metadata or completing a play session updates only the changed game payloads and newly added media assets, rather than requiring full library re-exports.
-- **Personal Storage Independence:** Uses your personal Google Drive (with least-privilege `drive.file` scope) or a local shared folder as the synchronization intermediary. No third-party accounts, subscription services, or proprietary relay servers are required.
-- **Rich Addon Integration:** Aggregates metadata from popular Playnite extensions including SuccessStory, HowLongToBeat, GameActivity, and ExtraMetadataLoader.
+- **Personal Storage Independence:** Uses your personal Google Drive (with least-privilege `drive.file` scope), local shared folder, or Syncthing (with Android 11-16 `MANAGE_EXTERNAL_STORAGE` support) as the synchronization intermediary. No third-party accounts, subscription services, or proprietary relay servers are required.
+- **Rich Addon Integration:** Aggregates metadata from popular Playnite extensions including PlayniteAchievements, SuccessStory, HowLongToBeat, GameActivity, ExtraMetadataLoader, CheckDlc, SteamReviews, and SystemChecker.
 
 ---
 
@@ -44,8 +46,8 @@ The project is split into two complementary components:
 |                                    |                                    |
 |  - C# / .NET Framework 4.6.2       |  - Flutter 3.x / Dart 3.x          |
 |  - Hooks: OnGameStopped, Library   |  - Android (APK) & Cross-Platform  |
-|  - Rich Addon Data Extraction      |  - Local SQLite (Drift / sqflite)  |
-|  - Deterministic JSON & SHA-256    |  - Instant FTS5 Offline Search     |
+|  - Rich Addon Data Extraction      |  - Local SQLite (sqflite)          |
+|  - Deterministic JSON & SHA-256    |  - Instant Fuzzy Offline Search    |
 |  - Google Drive REST API v3        |  - Video Micro-Trailer Player      |
 |  - Native Progress Bar with ETA    |  - Global Statistics Dashboard     |
 +------------------------------------+------------------------------------+
@@ -54,7 +56,7 @@ The project is split into two complementary components:
 ### 1. Playnite Desktop Exporter Addon (`playnite-exporter-plugin`)
 - **SDK Lifecycle Hooks:** Automatically triggers single-game delta syncs the moment you exit a game (`OnGameStopped`), capturing playtime, new achievements, and session dates in real time.
 - **Rich Addon Pipeline:** Extracts structured data from popular Playnite extensions:
-  - **SuccessStory:** Unlocked and locked achievements, gamer scores, and icons.
+  - **PlayniteAchievements & SuccessStory:** Unlocked and locked achievements, gamer scores, and icons (PlayniteAchievements prioritized with SuccessStory fallback).
   - **HowLongToBeat:** Main Story, Main + Extra, and Completionist target times.
   - **GameActivity:** Detailed play session history and timeline graphs.
   - **ExtraMetadataLoader:** High-resolution transparent game logos and looping video micro-trailers.
@@ -66,7 +68,7 @@ The project is split into two complementary components:
 ### 2. Flutter Mobile Companion (`playnite-mobile-companion`)
 - **Strict Read-Only Design:** Clean viewer, tracker, and statistics dashboard without bloated game launchers or store API logins.
 - **Smooth High-FPS Browsing:** Virtualized Grid, List, and Detail views with customizable card scaling.
-- **Instant Search & Multi-Criteria Filtering:** Local SQLite/FTS5 filtering across platforms, genres, sources, completion statuses, tags, and review scores.
+- **Instant Search & Multi-Criteria Filtering:** Local SQLite candidate-pruned filtering and fuzzy search across platforms, genres, sources, completion statuses, tags, and review scores.
 - **Game Detail View:** Hero header with transparent logos, auto-looping micro-trailers, achievement showcases, HLTB completion badges, and external links (Steam, IGDB, PCGamingWiki).
 - **Global Statistics Dashboard:** Total games, cumulative playtime, completion rate donut charts, and platform breakdown graphs.
 - **Built-in Demo Library:** Allows testing and exploring the app immediately without configuring cloud credentials.
@@ -119,7 +121,7 @@ flowchart LR
 
     subgraph Mobile["Android Companion Device"]
         MobileApp["Playnite Companion\n(playnite-mobile-companion)"]
-        SQLite[("Local SQLite Database\n(Drift + FTS5 Search)")]
+        SQLite[("Local SQLite Database\n(Indexed Fuzzy Search)")]
         UI["High-FPS Library, Stats,\nTrailers & Achievements"]
         MobileApp --> SQLite
         SQLite --> UI
@@ -155,16 +157,16 @@ The project documentation is organized into focused sub-pages:
 1. Configure a Google Cloud OAuth Client ID with the `drive.file` scope (see [Setup & Auth Guide](docs/setup-and-auth.md)), **OR** use **Local Folder Staging** with Google Drive for Desktop.
 
 ### 2. Install the Desktop Addon
-1. Download or build [`MobileDeltaSyncExporter.pext`](docs/building.md).
-2. Double-click the `.pext` file to install it into Playnite.
+1. Download [`MobileDeltaSyncExporter.pext`](https://github.com/Adithya-Jayan/playnite-mobile-companion/releases) from the latest release, or build it from source (see [Building Guide](docs/building.md)).
+2. Double-click the `.pext` file to install it into Playnite (or drag it into the Playnite window).
 3. Open **Settings > Add-ons > Extension Settings > Mobile Delta Sync**.
 4. Enter your Client ID / Secret (or select Local Folder) and click **Connect**.
 5. Trigger **Main Menu > @Mobile Delta Sync > Force Full Re-Export & Upload** to create the initial cloud snapshot.
 
 ### 3. Install the Mobile App
-1. Download or build [`playnite-mobile-companion.apk`](docs/building.md).
+1. Download [`playnite-mobile-companion.apk`](https://github.com/Adithya-Jayan/playnite-mobile-companion/releases) from the latest release, or build it from source (see [Building Guide](docs/building.md)).
 2. Install the APK on your Android device (via `adb install` or file transfer).
-3. Open the app, go to **Sync Settings**, connect to your Google Drive folder (or tap **Load Demo Library**), and tap **Run Delta Sync Now**.
+3. Open the app, go to **Sync Settings**, connect to your Google Drive folder (or select Local Folder / tap **Load Demo Library**), and tap **Run Delta Sync Now**.
 
 ---
 
@@ -180,32 +182,32 @@ Playnite_Addon/
 |   |-- building.md                        # Prerequisites & compilation commands (.pext / .apk)
 |   |-- installation-and-usage.md          # Installation, first export & usage walkthrough
 |   +-- architecture-and-specs.md          # Delta-sync protocol, data schema & architecture
-|-- dist/                                  # Packaged distribution artifacts (.pext & .apk)
+|-- dist/                                  # Packaged distribution artifacts (.pext in repo/releases; .apk in GitHub Releases)
 |   |-- MobileDeltaSyncExporter.pext       # Ready-to-install Playnite extension
-|   +-- playnite-mobile-companion.apk      # Ready-to-install Android companion app
+|   +-- playnite-mobile-companion.apk      # Generated release APK (builds locally or via GitHub Releases)
 |-- playnite-exporter-plugin/              # Playnite C# .NET Desktop Addon
 |   |-- PlayniteExporterPlugin.csproj      # .NET Framework 4.6.2 project file
 |   |-- extension.yaml                     # Playnite plugin manifest
-|   |-- Addons/                            # Whitelisted addon extractors (SuccessStory, HLTB, etc.)
+|   |-- Addons/                            # Whitelisted addon extractors (PlayniteAchievements, SuccessStory, HLTB, etc.)
 |   |-- Common/                            # Deterministic serializer, hasher, progress estimator
 |   |-- Configuration/                     # Settings, DPAPI token storage & WPF ViewModels
 |   |-- Models/                            # Unified JSON data models & manifest contracts
 |   |-- Services/                          # Metadata aggregator & ExportCoordinator sync engine
 |   |-- Storage/                           # Google Drive REST client & Local Folder provider
 |   +-- Views/                             # WPF / XAML SettingsView interface
-|-- playnite-exporter-plugin.Tests/        # Automated test suite (30 unit & integration tests)
+|-- playnite-exporter-plugin.Tests/        # Automated test suite (83 unit & integration tests)
 |   |-- PlayniteExporterPlugin.Tests.csproj
-|   +-- ...                                # Unit tests verifying delta diff, CAS, and hashing
+|   +-- ...                                # Unit tests verifying delta diff, CAS, state hashing, and extractors
 +-- playnite-mobile-companion/             # Flutter Mobile Companion App
-    |-- pubspec.yaml                       # Flutter dependencies (Drift, SQLite, video_player)
+    |-- pubspec.yaml                       # Flutter dependencies (sqflite, video_player, shared_preferences)
     |-- lib/
-    |   |-- core/                          # App theme, database helpers, and network clients
+    |   |-- core/                          # App theme, database helpers, storage seam, and catalog service
     |   +-- features/
-    |       |-- library/                   # Virtualized Grid/List views, search & filter drawer
+    |       |-- library/                   # Virtualized Grid/List views, candidate-pruned search & filter drawer
     |       |-- game_detail/               # Game detail hero header, micro-trailer & addon cards
-    |       |-- stats/                     # Global statistics dashboard & charts
-    |       +-- sync/                      # DeltaPullManager, settings & OAuth browser flow
-    +-- test/                              # Automated Flutter test suites
+    |       |-- stats/                     # Global statistics dashboard, activity charts & global achievements
+    |       +-- sync/                      # DeltaPullManager, settings, Google Drive OAuth & Local Folder sync UI
+    +-- test/                              # Automated Flutter test suites (225 widget, unit & integration tests)
 ```
 
 ---
@@ -225,8 +227,10 @@ Contributions, bug reports, and feature suggestions are welcome!
 1. Fork the repository.
 2. Create a feature branch (`git checkout -b feature/amazing-feature`).
 3. Ensure automated tests pass:
-   - Desktop: `dotnet test playnite-exporter-plugin.Tests\PlayniteExporterPlugin.Tests.csproj`
-   - Mobile: `flutter test` (in `playnite-mobile-companion`)
+   - Run the unified test runner: `powershell -File scripts/test_all.ps1`
+   - Or run separately:
+     - Desktop: `dotnet test playnite-exporter-plugin.Tests\PlayniteExporterPlugin.Tests.csproj`
+     - Mobile: `cd playnite-mobile-companion; flutter analyze; flutter test`
 4. Commit your changes (`git commit -m 'Add amazing feature'`).
 5. Push to the branch (`git push origin feature/amazing-feature`).
 6. Open a Pull Request.

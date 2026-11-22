@@ -125,37 +125,21 @@ Copy-Item build\app\outputs\flutter-apk\app-release.apk ..\dist\playnite-mobile-
 
 ---
 
-## 4. One-Click Automated Build Script
+## 4. One-Click Automated Packaging & Verification Scripts
 
-To build and package **both** the Playnite desktop extension and the Android mobile app in a single command, run the following PowerShell snippet from the repository root:
+The repository includes dedicated automation scripts for building, testing, and packaging:
 
+### Unified Test & Guardrail Runner
+To run all version parity checks, C# tests, Flutter static analysis, and Flutter tests in one command:
 ```powershell
-Write-Host "=== 1/4 Testing Desktop Plugin ===" -ForegroundColor Cyan
-dotnet test playnite-exporter-plugin.Tests\PlayniteExporterPlugin.Tests.csproj
-if ($LASTEXITCODE -ne 0) { throw "Desktop tests failed!" }
-
-Write-Host "=== 2/4 Compiling Desktop Plugin (Release) ===" -ForegroundColor Cyan
-dotnet build -c Release playnite-exporter-plugin\PlayniteExporterPlugin.csproj
-if ($LASTEXITCODE -ne 0) { throw "Desktop build failed!" }
-
-Write-Host "=== Packaging .pext Archive ===" -ForegroundColor Cyan
-if (!(Test-Path 'dist')) { New-Item -ItemType Directory -Path 'dist' }
-if (Test-Path 'dist\MobileDeltaSyncExporter.pext') { Remove-Item 'dist\MobileDeltaSyncExporter.pext' -Force }
-Compress-Archive -Path 'playnite-exporter-plugin\bin\Release\net462\*' -DestinationPath 'dist\temp.zip' -Force
-Rename-Item -Path 'dist\temp.zip' -NewName 'MobileDeltaSyncExporter.pext' -Force
-
-Write-Host "=== 3/4 Testing Flutter Companion ===" -ForegroundColor Cyan
-Push-Location playnite-mobile-companion
-flutter pub get
-flutter test
-if ($LASTEXITCODE -ne 0) { Pop-Location; throw "Mobile tests failed!" }
-
-Write-Host "=== 4/4 Compiling Android Release APK ===" -ForegroundColor Cyan
-flutter build apk --release
-if ($LASTEXITCODE -ne 0) { Pop-Location; throw "Mobile APK build failed!" }
-Copy-Item build\app\outputs\flutter-apk\app-release.apk ..\dist\playnite-mobile-companion.apk -Force
-Pop-Location
-
-Write-Host "Build complete! Artifacts created in dist/:" -ForegroundColor Green
-Get-ChildItem dist
+powershell -File scripts/test_all.ps1
 ```
+
+### Unified Packaging Script
+To build the `.pext` Playnite desktop extension (with all dependencies bundled and local installation hot-updated) and the release Flutter `.apk`:
+```powershell
+powershell -File scripts/package_dist.ps1 [-SkipApk] [-SkipPext]
+```
+The packaged artifacts will be output to the `dist/` directory:
+- `dist/MobileDeltaSyncExporter.pext`
+- `dist/playnite-mobile-companion.apk`
