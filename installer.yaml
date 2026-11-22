@@ -1,5 +1,15 @@
 AddonId: "MobileDeltaSyncExporter_d3b07384-d113-4c90-951b-10f88a91a92a"
 Packages:
+  - Version: 1.8.0
+    RequiredApiVersion: 6.0.0
+    ReleaseDate: 2026-11-22
+    PackageUrl: https://github.com/Adithya-Jayan/playnite-mobile-companion/releases/download/v1.8.0/MobileDeltaSyncExporter.pext
+    Changelog:
+      - Deepened DriveApiService storage seam with unified connection verification, permission requests, and media header resolution
+      - Consolidated addon ingestion pipeline into full Addon Descriptors with relational child table decoupling
+      - Resolved SQLite 2MB CursorWindow crashes by eliminating dual storage of large relational payloads in games table
+      - Deepened Library Catalog with indexed candidate pruning, direct SQLite count, and live reactive streams
+      - Encapsulated achievement icon media staging and state hash generation directly within desktop addon extractors
   - Version: 1.7.0
     RequiredApiVersion: 6.0.0
     ReleaseDate: 2026-11-22
