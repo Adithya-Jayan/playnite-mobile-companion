@@ -14,6 +14,7 @@ using PlayniteExporterPlugin.Addons.Extractors;
 using PlayniteExporterPlugin.Configuration;
 using PlayniteExporterPlugin.Models;
 using PlayniteExporterPlugin.Services;
+using PlayniteExporterPlugin.Tests.Helpers;
 using PlayniteExporterPlugin.Tests.Mocks;
 using Xunit;
 
@@ -121,23 +122,16 @@ namespace PlayniteExporterPlugin.Tests
             File.WriteAllBytes(fakeIconPath, Encoding.UTF8.GetBytes("fake_jpg_content"));
 
             var dbPath = Path.Combine(pluginDir, "achievement_cache.db");
-            SQLiteConnection.CreateFile(dbPath);
+            AchievementDbTestHelper.CreateAndInitializeDatabase(dbPath);
 
-            var cs = new SQLiteConnectionStringBuilder { DataSource = dbPath, ReadOnly = false }.ToString();
-            using (var conn = new SQLiteConnection(cs))
+            using (var conn = new SQLiteConnection($"Data Source={dbPath};"))
             {
                 conn.Open();
                 using var cmd = conn.CreateCommand();
                 cmd.CommandText = @"
-                    CREATE TABLE Users (Id INTEGER PRIMARY KEY, ProviderKey TEXT, ExternalUserId TEXT, DisplayName TEXT, IsCurrentUser INTEGER);
-                    CREATE TABLE Games (Id INTEGER PRIMARY KEY, ProviderKey TEXT, PlayniteGameId TEXT, GameName TEXT);
-                    CREATE TABLE UserGameProgress (Id INTEGER PRIMARY KEY, UserId INTEGER, GameId INTEGER, AchievementsUnlocked INTEGER, TotalAchievements INTEGER, LastUpdatedUtc TEXT);
-                    CREATE TABLE AchievementDefinitions (Id INTEGER PRIMARY KEY, GameId INTEGER, ApiName TEXT, DisplayName TEXT, Description TEXT, UnlockedIconPath TEXT, LockedIconPath TEXT, Points REAL, Category TEXT, Hidden INTEGER, GlobalPercentUnlocked REAL, ProgressMax REAL);
-                    CREATE TABLE UserAchievements (Id INTEGER PRIMARY KEY, UserGameProgressId INTEGER, AchievementDefinitionId INTEGER, Unlocked INTEGER, UnlockTimeUtc TEXT, ProgressNum REAL, ProgressDenom REAL);
-
                     INSERT INTO Users VALUES (1, 'Custom', 'User1', 'TestUser', 1);
                     INSERT INTO Games VALUES (1, 'Custom', '" + game.Id.ToString() + @"', 'Achievement Test Game');
-                    INSERT INTO UserGameProgress VALUES (1, 1, 1, 1, 1, '2026-01-01T00:00:00Z');
+                    INSERT INTO UserGameProgress VALUES (1, 1, 1, 'key', 1, 1, 1, '2026-01-01T00:00:00Z');
                     INSERT INTO AchievementDefinitions VALUES (1, 1, 'ACH_WIN', 'Winner', 'Win the match', 'icon_cache/test_icon.jpg', 'icon_cache/test_icon.jpg', 10.0, 'Default', 0, 85.5, 1.0);
                     INSERT INTO UserAchievements VALUES (1, 1, 1, 1, '2026-01-01T01:00:00Z', 1.0, 1.0);";
                 cmd.ExecuteNonQuery();
@@ -239,22 +233,16 @@ namespace PlayniteExporterPlugin.Tests
             File.WriteAllBytes(fakeIconPath, Encoding.UTF8.GetBytes("reg_icon_bytes"));
 
             var dbPath = Path.Combine(pluginDir, "achievement_cache.db");
-            SQLiteConnection.CreateFile(dbPath);
-            var cs = new SQLiteConnectionStringBuilder { DataSource = dbPath, ReadOnly = false }.ToString();
-            using (var conn = new SQLiteConnection(cs))
+            AchievementDbTestHelper.CreateAndInitializeDatabase(dbPath);
+
+            using (var conn = new SQLiteConnection($"Data Source={dbPath};"))
             {
                 conn.Open();
                 using var cmd = conn.CreateCommand();
                 cmd.CommandText = @"
-                    CREATE TABLE Users (Id INTEGER PRIMARY KEY, ProviderKey TEXT, ExternalUserId TEXT, DisplayName TEXT, IsCurrentUser INTEGER);
-                    CREATE TABLE Games (Id INTEGER PRIMARY KEY, ProviderKey TEXT, PlayniteGameId TEXT, GameName TEXT);
-                    CREATE TABLE UserGameProgress (Id INTEGER PRIMARY KEY, UserId INTEGER, GameId INTEGER, AchievementsUnlocked INTEGER, TotalAchievements INTEGER, LastUpdatedUtc TEXT);
-                    CREATE TABLE AchievementDefinitions (Id INTEGER PRIMARY KEY, GameId INTEGER, ApiName TEXT, DisplayName TEXT, Description TEXT, UnlockedIconPath TEXT, LockedIconPath TEXT, Points REAL, Category TEXT, Hidden INTEGER, GlobalPercentUnlocked REAL, ProgressMax REAL);
-                    CREATE TABLE UserAchievements (Id INTEGER PRIMARY KEY, UserGameProgressId INTEGER, AchievementDefinitionId INTEGER, Unlocked INTEGER, UnlockTimeUtc TEXT, ProgressNum REAL, ProgressDenom REAL);
-
                     INSERT INTO Users VALUES (1, 'Custom', 'User1', 'TestUser', 1);
                     INSERT INTO Games VALUES (1, 'Custom', '" + game.Id.ToString() + @"', 'Registry Test Game');
-                    INSERT INTO UserGameProgress VALUES (1, 1, 1, 1, 1, '2026-01-01T00:00:00Z');
+                    INSERT INTO UserGameProgress VALUES (1, 1, 1, 'key', 1, 1, 1, '2026-01-01T00:00:00Z');
                     INSERT INTO AchievementDefinitions VALUES (1, 1, 'ACH_REG', 'Reg Ach', 'Desc', 'icon_cache/reg_icon.jpg', 'icon_cache/reg_icon.jpg', 10.0, 'Default', 0, 50.0, 1.0);
                     INSERT INTO UserAchievements VALUES (1, 1, 1, 1, '2026-01-01T01:00:00Z', 1.0, 1.0);";
                 cmd.ExecuteNonQuery();
@@ -287,22 +275,16 @@ namespace PlayniteExporterPlugin.Tests
             File.WriteAllBytes(fakeIconPath, Encoding.UTF8.GetBytes("agg_icon_bytes"));
 
             var dbPath = Path.Combine(pluginDir, "achievement_cache.db");
-            SQLiteConnection.CreateFile(dbPath);
-            var cs = new SQLiteConnectionStringBuilder { DataSource = dbPath, ReadOnly = false }.ToString();
-            using (var conn = new SQLiteConnection(cs))
+            AchievementDbTestHelper.CreateAndInitializeDatabase(dbPath);
+
+            using (var conn = new SQLiteConnection($"Data Source={dbPath};"))
             {
                 conn.Open();
                 using var cmd = conn.CreateCommand();
                 cmd.CommandText = @"
-                    CREATE TABLE Users (Id INTEGER PRIMARY KEY, ProviderKey TEXT, ExternalUserId TEXT, DisplayName TEXT, IsCurrentUser INTEGER);
-                    CREATE TABLE Games (Id INTEGER PRIMARY KEY, ProviderKey TEXT, PlayniteGameId TEXT, GameName TEXT);
-                    CREATE TABLE UserGameProgress (Id INTEGER PRIMARY KEY, UserId INTEGER, GameId INTEGER, AchievementsUnlocked INTEGER, TotalAchievements INTEGER, LastUpdatedUtc TEXT);
-                    CREATE TABLE AchievementDefinitions (Id INTEGER PRIMARY KEY, GameId INTEGER, ApiName TEXT, DisplayName TEXT, Description TEXT, UnlockedIconPath TEXT, LockedIconPath TEXT, Points REAL, Category TEXT, Hidden INTEGER, GlobalPercentUnlocked REAL, ProgressMax REAL);
-                    CREATE TABLE UserAchievements (Id INTEGER PRIMARY KEY, UserGameProgressId INTEGER, AchievementDefinitionId INTEGER, Unlocked INTEGER, UnlockTimeUtc TEXT, ProgressNum REAL, ProgressDenom REAL);
-
                     INSERT INTO Users VALUES (1, 'Custom', 'User1', 'TestUser', 1);
                     INSERT INTO Games VALUES (1, 'Custom', '" + game.Id.ToString() + @"', 'Aggregator Passthrough Game');
-                    INSERT INTO UserGameProgress VALUES (1, 1, 1, 1, 1, '2026-01-01T00:00:00Z');
+                    INSERT INTO UserGameProgress VALUES (1, 1, 1, 'key', 1, 1, 1, '2026-01-01T00:00:00Z');
                     INSERT INTO AchievementDefinitions VALUES (1, 1, 'ACH_AGG', 'Agg Ach', 'Desc', 'icon_cache/agg_icon.jpg', 'icon_cache/agg_icon.jpg', 10.0, 'Default', 0, 50.0, 1.0);
                     INSERT INTO UserAchievements VALUES (1, 1, 1, 1, '2026-01-01T01:00:00Z', 1.0, 1.0);";
                 cmd.ExecuteNonQuery();

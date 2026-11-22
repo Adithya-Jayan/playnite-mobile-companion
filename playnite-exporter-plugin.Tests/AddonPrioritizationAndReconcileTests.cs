@@ -12,6 +12,7 @@ using PlayniteExporterPlugin.Configuration;
 using PlayniteExporterPlugin.Models;
 using PlayniteExporterPlugin.Services;
 using PlayniteExporterPlugin.Storage;
+using PlayniteExporterPlugin.Tests.Helpers;
 using PlayniteExporterPlugin.Tests.Mocks;
 using Xunit;
 
@@ -99,56 +100,7 @@ namespace PlayniteExporterPlugin.Tests
             using (var conn = new System.Data.SQLite.SQLiteConnection($"Data Source={dbPath};"))
             {
                 conn.Open();
-                using var cmd = conn.CreateCommand();
-                cmd.CommandText = @"
-                    CREATE TABLE IF NOT EXISTS Users (
-                        Id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        ProviderKey TEXT NULL,
-                        ExternalUserId TEXT NULL,
-                        DisplayName TEXT NULL,
-                        IsCurrentUser INTEGER NOT NULL DEFAULT 0
-                    );
-                    CREATE TABLE IF NOT EXISTS Games (
-                        Id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        ProviderKey TEXT NULL,
-                        PlayniteGameId TEXT NULL,
-                        GameName TEXT NULL
-                    );
-                    CREATE TABLE IF NOT EXISTS UserGameProgress (
-                        Id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        UserId INTEGER NOT NULL,
-                        GameId INTEGER NOT NULL,
-                        CacheKey TEXT NULL,
-                        HasAchievements INTEGER NOT NULL DEFAULT 1,
-                        AchievementsUnlocked INTEGER NOT NULL DEFAULT 0,
-                        TotalAchievements INTEGER NOT NULL DEFAULT 0,
-                        LastUpdatedUtc TEXT NOT NULL
-                    );
-                    CREATE TABLE IF NOT EXISTS AchievementDefinitions (
-                        Id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        GameId INTEGER NOT NULL,
-                        ApiName TEXT NOT NULL,
-                        DisplayName TEXT NULL,
-                        Description TEXT NULL,
-                        UnlockedIconPath TEXT NULL,
-                        LockedIconPath TEXT NULL,
-                        Points INTEGER NULL,
-                        Category TEXT NOT NULL DEFAULT 'Default',
-                        Hidden INTEGER NOT NULL DEFAULT 0,
-                        GlobalPercentUnlocked REAL NULL,
-                        ProgressMax INTEGER NULL
-                    );
-                    CREATE TABLE IF NOT EXISTS UserAchievements (
-                        Id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        UserGameProgressId INTEGER NOT NULL,
-                        AchievementDefinitionId INTEGER NOT NULL,
-                        Unlocked INTEGER NOT NULL DEFAULT 0,
-                        UnlockTimeUtc TEXT NULL,
-                        ProgressNum INTEGER NULL,
-                        ProgressDenom INTEGER NULL
-                    );
-                ";
-                cmd.ExecuteNonQuery();
+                AchievementDbTestHelper.InitializeSchema(conn);
 
                 long nextGameId;
                 using (var insertGame = conn.CreateCommand())

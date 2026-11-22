@@ -5,7 +5,6 @@
 # Build outputs and distributions
 dist/*
 !dist/MobileDeltaSyncExporter.pext
-!dist/playnite-mobile-companion.apk
 build/
 bin/
 obj/

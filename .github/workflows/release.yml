@@ -41,6 +41,30 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Setup Java
+        if: "!hashFiles('dist/playnite-mobile-companion.apk')"
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Flutter
+        if: "!hashFiles('dist/playnite-mobile-companion.apk')"
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.38.4'
+          channel: 'stable'
+          cache: true
+
+      - name: Build Flutter Companion APK
+        if: "!hashFiles('dist/playnite-mobile-companion.apk')"
+        working-directory: playnite-mobile-companion
+        run: |
+          flutter pub get
+          flutter build apk --release
+          mkdir -p ../dist
+          cp build/app/outputs/flutter-apk/app-release.apk ../dist/playnite-mobile-companion.apk
+
       - name: Verify Distribution Artifacts
         run: |
           echo "Checking for required release binaries in dist/..."

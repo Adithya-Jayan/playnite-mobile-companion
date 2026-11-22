@@ -6,6 +6,7 @@ using Newtonsoft.Json.Linq;
 using Playnite.SDK.Models;
 using PlayniteExporterPlugin.Addons;
 using PlayniteExporterPlugin.Addons.Extractors;
+using PlayniteExporterPlugin.Tests.Helpers;
 using Xunit;
 
 namespace PlayniteExporterPlugin.Tests
@@ -47,73 +48,20 @@ namespace PlayniteExporterPlugin.Tests
 
         private void InitializeDatabase(Action<SQLiteConnection>? seedAction = null)
         {
-            SQLiteConnection.CreateFile(dbPath);
+            AchievementDbTestHelper.CreateAndInitializeDatabase(dbPath);
 
-            var cs = new SQLiteConnectionStringBuilder
+            if (seedAction != null)
             {
-                DataSource = dbPath,
-                ReadOnly = false
-            }.ToString();
+                var cs = new SQLiteConnectionStringBuilder
+                {
+                    DataSource = dbPath,
+                    ReadOnly = false
+                }.ToString();
 
-            using var conn = new SQLiteConnection(cs);
-            conn.Open();
-
-            using var cmd = conn.CreateCommand();
-            cmd.CommandText = @"
-                CREATE TABLE Users (
-                    Id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    ProviderKey TEXT NOT NULL COLLATE NOCASE,
-                    ExternalUserId TEXT NOT NULL COLLATE NOCASE,
-                    DisplayName TEXT NULL,
-                    IsCurrentUser INTEGER NOT NULL DEFAULT 0
-                );
-
-                CREATE TABLE Games (
-                    Id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    ProviderKey TEXT NOT NULL COLLATE NOCASE,
-                    PlayniteGameId TEXT NULL,
-                    GameName TEXT NULL
-                );
-
-                CREATE TABLE UserGameProgress (
-                    Id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    UserId INTEGER NOT NULL,
-                    GameId INTEGER NOT NULL,
-                    CacheKey TEXT NOT NULL COLLATE NOCASE,
-                    HasAchievements INTEGER NOT NULL DEFAULT 0,
-                    AchievementsUnlocked INTEGER NOT NULL DEFAULT 0,
-                    TotalAchievements INTEGER NOT NULL DEFAULT 0,
-                    LastUpdatedUtc TEXT NOT NULL
-                );
-
-                CREATE TABLE AchievementDefinitions (
-                    Id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    GameId INTEGER NOT NULL,
-                    ApiName TEXT NOT NULL COLLATE NOCASE,
-                    DisplayName TEXT NULL,
-                    Description TEXT NULL,
-                    UnlockedIconPath TEXT NULL,
-                    LockedIconPath TEXT NULL,
-                    Points INTEGER NULL,
-                    Category TEXT NOT NULL DEFAULT 'Default',
-                    Hidden INTEGER NOT NULL DEFAULT 0,
-                    GlobalPercentUnlocked REAL NULL,
-                    ProgressMax INTEGER NULL
-                );
-
-                CREATE TABLE UserAchievements (
-                    Id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    UserGameProgressId INTEGER NOT NULL,
-                    AchievementDefinitionId INTEGER NOT NULL,
-                    Unlocked INTEGER NOT NULL DEFAULT 0,
-                    UnlockTimeUtc TEXT NULL,
-                    ProgressNum INTEGER NULL,
-                    ProgressDenom INTEGER NULL
-                );
-            ";
-            cmd.ExecuteNonQuery();
-
-            seedAction?.Invoke(conn);
+                using var conn = new SQLiteConnection(cs);
+                conn.Open();
+                seedAction(conn);
+            }
         }
 
         [Fact]
