@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:playnite_mobile_companion/core/config/app_theme.dart';
 import 'package:playnite_mobile_companion/core/database/app_database.dart';
 import 'package:playnite_mobile_companion/core/network/drive_api_service.dart';
-import 'package:playnite_mobile_companion/core/network/local_folder_drive_service.dart';
 import 'package:playnite_mobile_companion/core/network/mock_drive_service.dart';
 import 'package:playnite_mobile_companion/core/services/storage_permission_service.dart';
 import 'package:playnite_mobile_companion/core/utils/duration_formatter.dart';
@@ -34,6 +33,7 @@ class _SyncDialogState extends State<SyncDialog> {
   DeltaPullManager? _pullManager;
 
   bool _notified = false;
+  DriveApiService? _activeService;
 
   void _notifySyncCompleted() {
     if (!_notified) {
@@ -93,27 +93,44 @@ class _SyncDialogState extends State<SyncDialog> {
       debugPrint('Failed to load active drive service: $e');
     }
 
-    if (service is LocalFolderDriveService && StoragePermissionService.isAndroid) {
-      final hasPerm = await StoragePermissionService.isStoragePermissionGranted();
-      if (!hasPerm) {
-        await StoragePermissionService.requestStoragePermission();
-        final granted = await StoragePermissionService.isStoragePermissionGranted();
-        if (!granted) {
+    _activeService = service;
+
+    final validation = await service.verifyConnection();
+    if (!validation.isValid) {
+      if (validation.permissionDenied) {
+        final granted = await service.requestPermissions();
+        final recheck = granted ? await service.verifyConnection() : validation;
+        if (!recheck.isValid) {
           if (mounted) {
             setState(() {
               _isSyncing = false;
-              _report = const SyncReport(
+              _report = SyncReport(
                 isSuccess: false,
                 downloadedCount: 0,
                 deletedCount: 0,
                 bytesTransferred: 0,
                 durationMs: 0,
-                errorMessage: 'Storage permission denied: Android requires "All Files Access" to sync from local folders. Please grant permission in Settings.',
+                errorMessage: recheck.message,
               );
             });
           }
           return;
         }
+      } else {
+        if (mounted) {
+          setState(() {
+            _isSyncing = false;
+            _report = SyncReport(
+              isSuccess: false,
+              downloadedCount: 0,
+              deletedCount: 0,
+              bytesTransferred: 0,
+              durationMs: 0,
+              errorMessage: validation.message,
+            );
+          });
+        }
+        return;
       }
     }
 
@@ -375,7 +392,11 @@ class _SyncDialogState extends State<SyncDialog> {
                             icon: const Icon(Icons.security, size: 16),
                             label: const Text('Grant Storage Permission', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
                             onPressed: () async {
-                              await StoragePermissionService.requestStoragePermission();
+                              if (_activeService != null) {
+                                await _activeService!.requestPermissions();
+                              } else {
+                                await StoragePermissionService.requestStoragePermission();
+                              }
                             },
                           ),
                         ),

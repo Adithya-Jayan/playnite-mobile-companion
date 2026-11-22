@@ -13,10 +13,12 @@ class GoogleDriveApiService implements DriveApiService {
   final String? clientSecret;
   final String? refreshToken;
   final Future<void> Function(String newAccessToken)? onTokenRefreshed;
+  String? _currentAccessToken;
   String? _cachedSyncFolderId;
 
   GoogleDriveApiService({
     http.Client? client,
+    String? accessToken,
     this.syncFolderName = 'PlayniteSync',
     String? explicitFolderId,
     this.clientId,
@@ -24,11 +26,18 @@ class GoogleDriveApiService implements DriveApiService {
     this.refreshToken,
     this.onTokenRefreshed,
   })  : client = client ?? http.Client(),
+        _currentAccessToken = accessToken,
         _cachedSyncFolderId = (explicitFolderId != null && explicitFolderId.trim().isNotEmpty)
             ? explicitFolderId.trim()
             : null;
 
-  Map<String, String> get _authHeaders => MediaUrlResolver.getAuthHeaders();
+  Map<String, String> get _authHeaders {
+    final token = _currentAccessToken ?? MediaUrlResolver.authToken;
+    if (token != null && token.isNotEmpty) {
+      return {'Authorization': 'Bearer $token'};
+    }
+    return const {};
+  }
 
   /// Automatically requests a fresh OAuth access token using stored refresh token credentials
   Future<bool> refreshAccessToken() async {
@@ -55,6 +64,7 @@ class GoogleDriveApiService implements DriveApiService {
         final data = jsonDecode(res.body) as Map<String, dynamic>;
         final newAccessToken = data['access_token'] as String?;
         if (newAccessToken != null && newAccessToken.isNotEmpty) {
+          _currentAccessToken = newAccessToken;
           MediaUrlResolver.setAuthToken(newAccessToken);
           if (onTokenRefreshed != null) {
             await onTokenRefreshed!(newAccessToken);
@@ -66,6 +76,42 @@ class GoogleDriveApiService implements DriveApiService {
       // Refresh request failed
     }
     return false;
+  }
+
+  @override
+  Future<bool> refreshAuth() => refreshAccessToken();
+
+  @override
+  Future<bool> requestPermissions() async => true;
+
+  @override
+  String resolveMediaUri(String mediaIdOrPath) {
+    if (mediaIdOrPath.isEmpty) return '';
+    if (mediaIdOrPath.startsWith('http://') ||
+        mediaIdOrPath.startsWith('https://') ||
+        mediaIdOrPath.startsWith('file://')) {
+      return mediaIdOrPath;
+    }
+    if (mediaIdOrPath.startsWith('/') ||
+        mediaIdOrPath.contains(':\\') ||
+        mediaIdOrPath.contains(':/')) {
+      return 'file://$mediaIdOrPath';
+    }
+    // Prevent invalid Drive API queries on un-resolved relative or legacy cache paths
+    if (mediaIdOrPath.contains('\\') ||
+        mediaIdOrPath.startsWith('icon_cache') ||
+        mediaIdOrPath.startsWith('media/')) {
+      return '';
+    }
+    return 'https://www.googleapis.com/drive/v3/files/$mediaIdOrPath?alt=media';
+  }
+
+  @override
+  Map<String, String> getMediaHeaders({String? mediaUri}) {
+    if (mediaUri != null && !mediaUri.contains('googleapis.com')) {
+      return const {};
+    }
+    return _authHeaders;
   }
 
   @override
@@ -84,19 +130,22 @@ class GoogleDriveApiService implements DriveApiService {
 
   @override
   Future<List<int>> downloadFileBytes(String fileIdOrPath) async {
-    final url = MediaUrlResolver.getDriveMediaStreamUrl(fileIdOrPath);
+    final url = resolveMediaUri(fileIdOrPath);
+    if (url.isEmpty) {
+      throw StateError('Cannot download invalid media identifier "$fileIdOrPath"');
+    }
     final uri = Uri.parse(url);
 
     const maxRetries = 3;
     for (int attempt = 1; attempt <= maxRetries; attempt++) {
       try {
         var response = await client
-            .get(uri, headers: _authHeaders)
+            .get(uri, headers: getMediaHeaders(mediaUri: url))
             .timeout(const Duration(seconds: 45));
 
         if (response.statusCode == 401 && await refreshAccessToken()) {
           response = await client
-              .get(uri, headers: _authHeaders)
+              .get(uri, headers: getMediaHeaders(mediaUri: url))
               .timeout(const Duration(seconds: 45));
         }
 
@@ -138,18 +187,19 @@ class GoogleDriveApiService implements DriveApiService {
     return jsonDecode(content) as Map<String, dynamic>;
   }
 
-  /// Verifies OAuth token validity and Google Drive folder availability
-  Future<Map<String, dynamic>> testConnection() async {
+  /// Deep interface method verifying OAuth token validity and Google Drive folder availability
+  @override
+  Future<StorageValidationResult> verifyConnection() async {
     var headers = _authHeaders;
     if (!headers.containsKey('Authorization')) {
       final refreshed = await refreshAccessToken();
       if (refreshed) {
         headers = _authHeaders;
       } else {
-        return {
-          'success': false,
-          'error': 'No active Google Drive access token configured. Please link via Playnite Desktop Pairing Code or sign in.',
-        };
+        return const StorageValidationResult.failure(
+          message: 'No active Google Drive access token configured. Please link via Playnite Desktop Pairing Code or sign in.',
+          requiresAuth: true,
+        );
       }
     }
 
@@ -164,16 +214,16 @@ class GoogleDriveApiService implements DriveApiService {
       }
 
       if (userRes.statusCode == 401) {
-        return {
-          'success': false,
-          'error': '401 Unauthorized: Access token is expired or invalid. Note: A Google Client ID is an application identifier, not an access token. Tap "Link via Playnite Desktop Pairing" to connect permanently!',
-        };
+        return const StorageValidationResult.failure(
+          message: '401 Unauthorized: Access token is expired or invalid. Note: A Google Client ID is an application identifier, not an access token. Tap "Link via Playnite Desktop Pairing" to connect permanently!',
+          requiresAuth: true,
+        );
       }
       if (userRes.statusCode != 200) {
-        return {
-          'success': false,
-          'error': 'Google Drive API error: HTTP ${userRes.statusCode}',
-        };
+        return StorageValidationResult.failure(
+          message: 'Google Drive API error: HTTP ${userRes.statusCode}',
+          details: {'statusCode': userRes.statusCode},
+        );
       }
       final userData = jsonDecode(userRes.body) as Map<String, dynamic>;
       final user = userData['user'] as Map<String, dynamic>?;
@@ -182,11 +232,10 @@ class GoogleDriveApiService implements DriveApiService {
       // 2. Locate sync folder
       final folderId = await _getFolderId();
       if (folderId == null) {
-        return {
-          'success': false,
-          'user': email,
-          'error': 'Folder "$syncFolderName" not found in Drive. Run sync from Playnite desktop first.',
-        };
+        return StorageValidationResult.failure(
+          message: 'Folder "$syncFolderName" not found in Drive. Run sync from Playnite desktop first.',
+          details: {'user': email},
+        );
       }
 
       // 3. Inspect items in folder
@@ -208,16 +257,34 @@ class GoogleDriveApiService implements DriveApiService {
         hasIndex = list?.any((f) => f['name'] == 'sync_index.json') ?? false;
       }
 
-      return {
-        'success': true,
-        'user': email,
-        'folderId': folderId,
-        'fileCount': fileCount,
-        'hasIndex': hasIndex,
-      };
+      final hasIdxStr = hasIndex ? 'with sync_index.json' : '(sync_index.json missing)';
+      return StorageValidationResult.success(
+        message: 'Connected to Drive as $email!\nFound folder "$syncFolderName" ($fileCount items $hasIdxStr).',
+        details: {
+          'user': email,
+          'folderId': folderId,
+          'fileCount': fileCount,
+          'hasIndex': hasIndex,
+        },
+      );
     } catch (e) {
-      return {'success': false, 'error': 'Connection test failed: $e'};
+      return StorageValidationResult.failure(
+        message: 'Connection test failed: $e',
+      );
     }
+  }
+
+  /// Legacy helper method preserved for backwards compatibility; delegates to [verifyConnection].
+  Future<Map<String, dynamic>> testConnection() async {
+    final res = await verifyConnection();
+    return {
+      'success': res.isValid,
+      'error': res.isValid ? null : res.message,
+      'user': res.details['user'],
+      'folderId': res.details['folderId'],
+      'fileCount': res.details['fileCount'],
+      'hasIndex': res.details['hasIndex'] ?? false,
+    };
   }
 
   Future<String?> _findFileIdInFolder(String fileName) async {

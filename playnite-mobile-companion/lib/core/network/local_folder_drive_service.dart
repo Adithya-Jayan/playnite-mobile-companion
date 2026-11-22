@@ -5,20 +5,8 @@ import '../../features/sync/domain/sync_models.dart';
 import '../services/storage_permission_service.dart';
 import 'drive_api_service.dart';
 
-/// Structured validation result when checking local directory staging.
-class LocalFolderValidationResult {
-  final bool isValid;
-  final bool permissionDenied;
-  final String message;
-  final int? totalGames;
-
-  const LocalFolderValidationResult({
-    required this.isValid,
-    this.permissionDenied = false,
-    required this.message,
-    this.totalGames,
-  });
-}
+/// Backwards compatibility typedef for LocalFolderValidationResult
+typedef LocalFolderValidationResult = StorageValidationResult;
 
 /// Service that reads Playnite export artifacts directly from a local device directory.
 /// Ideal for testing, offline transfers (ADB / Syncthing), and users without GCP credentials.
@@ -43,11 +31,12 @@ class LocalFolderDriveService implements DriveApiService {
         'On Android, please grant "All Files Access" / Storage permission in Settings -> Apps -> Playnite Mobile Companion -> Permissions.';
   }
 
-  /// Verifies directory existence, storage permissions, and checks for valid sync_index.json.
-  Future<LocalFolderValidationResult> validateFolder() async {
+  /// Deep interface method verifying directory existence, storage permissions, and valid sync_index.json.
+  @override
+  Future<StorageValidationResult> verifyConnection() async {
     final trimmed = basePath.trim();
     if (trimmed.isEmpty) {
-      return const LocalFolderValidationResult(
+      return const StorageValidationResult(
         isValid: false,
         message: 'Please enter a directory path.',
       );
@@ -56,7 +45,7 @@ class LocalFolderDriveService implements DriveApiService {
     if (StoragePermissionService.isAndroid) {
       final hasPerm = await StoragePermissionService.isStoragePermissionGranted();
       if (!hasPerm) {
-        return LocalFolderValidationResult(
+        return StorageValidationResult(
           isValid: false,
           permissionDenied: true,
           message: _permissionDeniedMessage(trimmed),
@@ -67,20 +56,20 @@ class LocalFolderDriveService implements DriveApiService {
     final dir = Directory(trimmed);
     try {
       if (!await dir.exists()) {
-        return LocalFolderValidationResult(
+        return StorageValidationResult(
           isValid: false,
           message: 'Directory does not exist: "$trimmed"',
         );
       }
     } on FileSystemException catch (e) {
       if (_isPermissionDeniedException(e)) {
-        return LocalFolderValidationResult(
+        return StorageValidationResult(
           isValid: false,
           permissionDenied: true,
           message: _permissionDeniedMessage(trimmed),
         );
       }
-      return LocalFolderValidationResult(
+      return StorageValidationResult(
         isValid: false,
         message: 'Cannot access directory: ${e.message}',
       );
@@ -89,7 +78,7 @@ class LocalFolderDriveService implements DriveApiService {
     final file = File('$trimmed/sync_index.json');
     try {
       if (!await file.exists()) {
-        return LocalFolderValidationResult(
+        return StorageValidationResult(
           isValid: false,
           message: 'sync_index.json not found in "$trimmed". Make sure your Playnite export folder is copied here.',
         );
@@ -98,30 +87,68 @@ class LocalFolderDriveService implements DriveApiService {
       final content = await file.readAsString();
       final json = jsonDecode(content) as Map<String, dynamic>;
       final index = SyncIndex.fromJson(json);
-      return LocalFolderValidationResult(
+      return StorageValidationResult(
         isValid: true,
         message: 'Valid export found (${index.totalGames} games, generated ${index.generatedAtUtc})',
         totalGames: index.totalGames,
+        details: {
+          'libraryId': index.libraryId,
+          'totalGames': index.totalGames,
+          'totalEntries': index.totalEntries,
+        },
       );
     } on FileSystemException catch (e) {
       if (_isPermissionDeniedException(e)) {
-        return LocalFolderValidationResult(
+        return StorageValidationResult(
           isValid: false,
           permissionDenied: true,
           message: _permissionDeniedMessage(file.path),
         );
       }
-      return LocalFolderValidationResult(
+      return StorageValidationResult(
         isValid: false,
         message: 'Error reading sync_index.json: ${e.message}',
       );
     } catch (e) {
-      return LocalFolderValidationResult(
+      return StorageValidationResult(
         isValid: false,
         message: 'Invalid sync_index.json format: $e',
       );
     }
   }
+
+  /// Preserved for backwards compatibility with legacy callers; delegates to [verifyConnection].
+  Future<StorageValidationResult> validateFolder() => verifyConnection();
+
+  @override
+  Future<bool> requestPermissions() async {
+    if (StoragePermissionService.isAndroid) {
+      return await StoragePermissionService.requestStoragePermission();
+    }
+    return true;
+  }
+
+  @override
+  Future<bool> refreshAuth() async => true;
+
+  @override
+  String resolveMediaUri(String mediaIdOrPath) {
+    if (mediaIdOrPath.isEmpty) return '';
+    if (mediaIdOrPath.startsWith('http://') ||
+        mediaIdOrPath.startsWith('https://') ||
+        mediaIdOrPath.startsWith('file://')) {
+      return mediaIdOrPath;
+    }
+    final normalized = mediaIdOrPath.replaceAll('\\', '/');
+    if (normalized.startsWith('/') || normalized.contains(':/')) {
+      return 'file://$normalized';
+    }
+    final cleanBase = basePath.replaceAll('\\', '/');
+    return 'file://$cleanBase/$normalized';
+  }
+
+  @override
+  Map<String, String> getMediaHeaders({String? mediaUri}) => const {};
 
   @override
   Future<SyncIndex> fetchSyncIndex() async {

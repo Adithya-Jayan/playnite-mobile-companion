@@ -7,7 +7,6 @@ import 'package:playnite_mobile_companion/core/config/app_theme.dart';
 import 'package:playnite_mobile_companion/core/database/app_database.dart';
 import 'package:playnite_mobile_companion/core/database/daos/game_dao.dart';
 import 'package:playnite_mobile_companion/core/database/daos/sync_meta_dao.dart';
-import 'package:playnite_mobile_companion/core/network/google_drive_api_service.dart';
 import 'package:playnite_mobile_companion/core/services/playnite_image_loader.dart';
 import 'package:playnite_mobile_companion/features/library/presentation/library_screen.dart';
 import 'package:playnite_mobile_companion/features/sync/data/demo_library_data.dart';
@@ -103,17 +102,11 @@ void main() {
           PlayniteImageLoader.instance.setTokenRefresher(() async {
             try {
               final latest = await repo.loadConfig();
-              if (latest.storageType == SyncStorageType.googleDrive &&
-                  latest.googleRefreshToken.isNotEmpty &&
-                  latest.googleClientId.isNotEmpty) {
-                final driveService = repo.createDriveService(latest);
-                if (driveService is GoogleDriveApiService) {
-                  final refreshed = await driveService.refreshAccessToken();
-                  if (refreshed) {
-                    final updatedConfig = await repo.loadConfig();
-                    return updatedConfig.googleAccessToken;
-                  }
-                }
+              final driveService = repo.createDriveService(latest);
+              final refreshed = await driveService.refreshAuth();
+              if (refreshed) {
+                final updatedConfig = await repo.loadConfig();
+                return updatedConfig.googleAccessToken;
               }
             } catch (err) {
               debugPrint('Automatic image loader token refresh encountered error: $err');

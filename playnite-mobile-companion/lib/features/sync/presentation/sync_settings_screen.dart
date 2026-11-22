@@ -164,7 +164,7 @@ class _SyncSettingsScreenState extends State<SyncSettingsScreen> with WidgetsBin
     });
     await _saveSettings(showToast: false);
     final service = LocalFolderDriveService(_localPathController.text.trim());
-    final result = await service.validateFolder();
+    final result = await service.verifyConnection();
     if (mounted) {
       setState(() {
         _isValidatingLocalFolder = false;
@@ -400,21 +400,18 @@ class _SyncSettingsScreenState extends State<SyncSettingsScreen> with WidgetsBin
       },
     );
 
-    final res = await service.testConnection();
+    final res = await service.verifyConnection();
 
     if (mounted) {
       setState(() {
         _isTesting = false;
-        final success = res['success'] == true;
-        _testResultSuccess = success;
-        if (success) {
-          final user = res['user'] ?? 'Google Account';
+        _testResultSuccess = res.isValid;
+        if (res.isValid) {
+          final user = res.details['user'] as String? ?? 'Google Account';
           _connectedAccountName = user;
-          final count = res['fileCount'] ?? 0;
-          final hasIdx = res['hasIndex'] == true ? 'with sync_index.json' : '(sync_index.json missing)';
-          _testResultText = 'Connected to Drive as $user!\nFound folder "$_folderName" ($count items $hasIdx).';
+          _testResultText = res.message;
         } else {
-          _testResultText = res['error'] ?? 'Connection test failed.';
+          _testResultText = res.message;
         }
       });
     }

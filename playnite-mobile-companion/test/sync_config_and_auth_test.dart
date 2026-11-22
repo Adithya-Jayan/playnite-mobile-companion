@@ -28,6 +28,7 @@ void main() {
 
   tearDown(() async {
     await database.close();
+    MediaUrlResolver.setActiveStorage(null);
     MediaUrlResolver.setAuthToken(null);
   });
 

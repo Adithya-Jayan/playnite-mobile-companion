@@ -31,12 +31,13 @@ class SyncConfigRepository {
         final json = jsonDecode(jsonText) as Map<String, dynamic>;
         final config = SyncConfiguration.fromJson(json);
 
-        // Synchronize active auth token with MediaUrlResolver
+        // Synchronize active auth token and active storage adapter with MediaUrlResolver
         if (config.googleAccessToken.isNotEmpty) {
           MediaUrlResolver.setAuthToken(config.googleAccessToken);
         } else {
           MediaUrlResolver.setAuthToken(null);
         }
+        createDriveService(config);
         return config;
       }
     } catch (e) {
@@ -73,9 +74,11 @@ class SyncConfigRepository {
 
   /// Instantiates the appropriate DriveApiService based on active configuration
   DriveApiService createDriveService(SyncConfiguration config) {
+    final DriveApiService service;
     switch (config.storageType) {
       case SyncStorageType.googleDrive:
-        return GoogleDriveApiService(
+        service = GoogleDriveApiService(
+          accessToken: config.googleAccessToken.isNotEmpty ? config.googleAccessToken : null,
           syncFolderName: config.googleDriveFolderName.isNotEmpty ? config.googleDriveFolderName : 'PlayniteSync',
           explicitFolderId: config.googleDriveFolderId.isNotEmpty ? config.googleDriveFolderId : null,
           clientId: config.googleClientId,
@@ -86,12 +89,18 @@ class SyncConfigRepository {
             await saveConfig(latest);
           },
         );
+        break;
 
       case SyncStorageType.localFolder:
-        return LocalFolderDriveService(config.localFolderPath);
+        service = LocalFolderDriveService(config.localFolderPath);
+        break;
 
       case SyncStorageType.demo:
-        return DemoLibraryData.createDemoDriveService();
+        service = DemoLibraryData.createDemoDriveService();
+        break;
     }
+
+    MediaUrlResolver.setActiveStorage(service);
+    return service;
   }
 }

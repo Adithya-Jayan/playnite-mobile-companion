@@ -30,6 +30,36 @@ class MockDriveService implements DriveApiService {
   }
 
   @override
+  Future<StorageValidationResult> verifyConnection() async {
+    return StorageValidationResult.success(
+      message: 'Mock storage is ready (${mockIndex?.totalGames ?? 0} games)',
+      totalGames: mockIndex?.totalGames ?? 0,
+      details: {'totalGames': mockIndex?.totalGames ?? 0},
+    );
+  }
+
+  @override
+  Future<bool> requestPermissions() async => true;
+
+  @override
+  Future<bool> refreshAuth() async => true;
+
+  @override
+  String resolveMediaUri(String mediaIdOrPath) {
+    if (mediaIdOrPath.isEmpty) return '';
+    if (mediaIdOrPath.startsWith('http://') ||
+        mediaIdOrPath.startsWith('https://') ||
+        mediaIdOrPath.startsWith('file://') ||
+        mediaIdOrPath.startsWith('mock://')) {
+      return mediaIdOrPath;
+    }
+    return 'mock://$mediaIdOrPath';
+  }
+
+  @override
+  Map<String, String> getMediaHeaders({String? mediaUri}) => const {};
+
+  @override
   Future<SyncIndex> fetchSyncIndex() async {
     totalGetRequests++;
     if (mockIndex != null) return mockIndex!;

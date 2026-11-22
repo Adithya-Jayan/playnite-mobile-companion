@@ -29,6 +29,29 @@ class TestConfigurableDriveService implements DriveApiService {
   });
 
   @override
+  Future<StorageValidationResult> verifyConnection() async {
+    if (simulateNetworkFailure) {
+      return const StorageValidationResult.failure(message: 'Simulated network failure');
+    }
+    return StorageValidationResult.success(
+      message: 'Test service ready',
+      totalGames: remoteIndex.totalGames,
+    );
+  }
+
+  @override
+  Future<bool> requestPermissions() async => true;
+
+  @override
+  Future<bool> refreshAuth() async => true;
+
+  @override
+  String resolveMediaUri(String mediaIdOrPath) => 'test://$mediaIdOrPath';
+
+  @override
+  Map<String, String> getMediaHeaders({String? mediaUri}) => const {};
+
+  @override
   Future<SyncIndex> fetchSyncIndex() async {
     if (simulateNetworkFailure) {
       throw const SocketException('Simulated network failure: connection refused');
