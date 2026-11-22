@@ -70,5 +70,12 @@ namespace PlayniteExporterPlugin.Addons.Extractors
                 return null;
             }
         }
+
+        public async Task<AddonExtractionResult> ExtractAsync(Game game, string playniteUserDataDir)
+        {
+            var data = await ExtractDataAsync(game, playniteUserDataDir);
+            var stateHash = GetStateHash(game, playniteUserDataDir);
+            return new AddonExtractionResult(AddonKey, data, stateHash);
+        }
     }
 }

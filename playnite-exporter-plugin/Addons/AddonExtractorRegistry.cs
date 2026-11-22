@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Playnite.SDK;
 using Playnite.SDK.Models;
 using PlayniteExporterPlugin.Addons.Extractors;
+using PlayniteExporterPlugin.Models;
 
 namespace PlayniteExporterPlugin.Addons
 {
@@ -92,9 +93,10 @@ namespace PlayniteExporterPlugin.Addons
             return active.AsReadOnly();
         }
 
-        public async Task<Dictionary<string, object?>> ExtractAllAsync(Game game, string userDataDir)
+        public async Task<(Dictionary<string, object?> Addons, List<PlannedUpload> MediaUploads)> ExtractAllWithMediaAsync(Game game, string userDataDir)
         {
             var results = new Dictionary<string, object?>();
+            var mediaUploads = new List<PlannedUpload>();
 
             // Prioritize PlayniteAchievements over SuccessStory:
             // Check if PlayniteAchievements extractor exists and has valid data for this game first.
@@ -110,10 +112,14 @@ namespace PlayniteExporterPlugin.Addons
                 {
                     if (playniteAchievementsExtractor.IsDataAvailable(userDataDir))
                     {
-                        var data = await playniteAchievementsExtractor.ExtractDataAsync(game, userDataDir);
-                        if (data != null)
+                        var result = await playniteAchievementsExtractor.ExtractAsync(game, userDataDir);
+                        if (result?.Data != null)
                         {
-                            results[playniteAchievementsExtractor.AddonKey] = data;
+                            results[result.AddonKey] = result.Data;
+                            if (result.MediaUploads != null && result.MediaUploads.Count > 0)
+                            {
+                                mediaUploads.AddRange(result.MediaUploads);
+                            }
                             playniteAchievementsHasValidData = true;
                         }
                     }
@@ -144,10 +150,14 @@ namespace PlayniteExporterPlugin.Addons
                         continue;
                     }
 
-                    var data = await extractor.ExtractDataAsync(game, userDataDir);
-                    if (data != null)
+                    var result = await extractor.ExtractAsync(game, userDataDir);
+                    if (result?.Data != null)
                     {
-                        results[extractor.AddonKey] = data;
+                        results[result.AddonKey] = result.Data;
+                        if (result.MediaUploads != null && result.MediaUploads.Count > 0)
+                        {
+                            mediaUploads.AddRange(result.MediaUploads);
+                        }
                     }
                 }
                 catch (Exception ex)
@@ -162,7 +172,13 @@ namespace PlayniteExporterPlugin.Addons
                 results.Remove("success_story");
             }
 
-            return results;
+            return (results, mediaUploads);
+        }
+
+        public async Task<Dictionary<string, object?>> ExtractAllAsync(Game game, string userDataDir)
+        {
+            var (addons, _) = await ExtractAllWithMediaAsync(game, userDataDir);
+            return addons;
         }
 
         public Task<Dictionary<string, object?>> ExtractAllAddonDataAsync(Game game, string userDataDir)

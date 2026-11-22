@@ -3,8 +3,11 @@ using System.Collections.Generic;
 using System.Data.SQLite;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 using Playnite.SDK.Models;
+using PlayniteExporterPlugin.Common;
+using PlayniteExporterPlugin.Models;
 
 namespace PlayniteExporterPlugin.Addons.Extractors
 {
@@ -22,10 +25,16 @@ namespace PlayniteExporterPlugin.Addons.Extractors
 
         public async Task<object?> ExtractDataAsync(Game game, string playniteUserDataDir)
         {
-            if (game == null) return null;
+            var result = await ExtractAsync(game, playniteUserDataDir);
+            return result.Data;
+        }
+
+        public async Task<AddonExtractionResult> ExtractAsync(Game game, string playniteUserDataDir)
+        {
+            if (game == null) return new AddonExtractionResult(AddonKey, null);
 
             var dbPath = Path.Combine(playniteUserDataDir, "ExtensionsData", PluginId.ToString(), "achievement_cache.db");
-            if (!File.Exists(dbPath)) return null;
+            if (!File.Exists(dbPath)) return new AddonExtractionResult(AddonKey, null);
 
             var csb = new SQLiteConnectionStringBuilder
             {
@@ -48,7 +57,7 @@ namespace PlayniteExporterPlugin.Addons.Extractors
                 }
             }
 
-            if (!internalGameId.HasValue) return null;
+            if (!internalGameId.HasValue) return new AddonExtractionResult(AddonKey, null);
 
             long? userGameProgressId = null;
             int totalAchievementsFromProgress = 0;
@@ -81,10 +90,13 @@ namespace PlayniteExporterPlugin.Addons.Extractors
 
             if (!userGameProgressId.HasValue || totalAchievementsFromProgress == 0)
             {
-                return null;
+                return new AddonExtractionResult(AddonKey, null);
             }
 
             var itemsList = new List<object>();
+            var mediaUploads = new List<PlannedUpload>();
+            bool isGamePlayed = game.Playtime > 0 || game.LastActivity != null || game.IsInstalled;
+            int iconCount = 0;
             int unlockedCount = 0;
             double gamerscoreCurrent = 0;
             double gamerscoreTotal = 0;
@@ -183,6 +195,43 @@ namespace PlayniteExporterPlugin.Addons.Extractors
                             localUnlockedPath = null;
                         }
 
+                        // Self-contained achievement icon staging
+                        bool isHttp = !string.IsNullOrEmpty(unlockedRel) &&
+                            (unlockedRel.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+                             unlockedRel.StartsWith("https://", StringComparison.OrdinalIgnoreCase));
+
+                        if (!isHttp && localUnlockedPath != null && File.Exists(localUnlockedPath) && (isUnlocked || (isGamePlayed && iconCount < 100)))
+                        {
+                            var iconRelPath = $"media/{game.Id}/achievements/{safeApiName}.jpg";
+                            try
+                            {
+                                var fileInfo = new FileInfo(localUnlockedPath);
+                                var sha = Sha256Hasher.ComputeFileHash(localUnlockedPath);
+
+                                if (!mediaUploads.Any(u => string.Equals(u.RelativePath, iconRelPath, StringComparison.OrdinalIgnoreCase)))
+                                {
+                                    mediaUploads.Add(new PlannedUpload(
+                                        iconRelPath,
+                                        content: string.Empty,
+                                        sha256: sha,
+                                        sizeBytes: fileInfo.Length,
+                                        category: "achievement_icon",
+                                        gameId: game.Id,
+                                        existingDriveFileId: null,
+                                        mimeType: "image/jpeg",
+                                        sourceFilePath: localUnlockedPath
+                                    ));
+                                }
+
+                                unlockedRel = iconRelPath;
+                                iconCount++;
+                            }
+                            catch
+                            {
+                                // Ignore icon staging failure
+                            }
+                        }
+
                         var lockedRel = !string.IsNullOrEmpty(lockedIcon)
                             ? lockedIcon!
                             : unlockedRel;
@@ -224,7 +273,7 @@ namespace PlayniteExporterPlugin.Addons.Extractors
             }
 
             int totalCount = itemsList.Count;
-            if (totalCount == 0) return null;
+            if (totalCount == 0) return new AddonExtractionResult(AddonKey, null);
 
             int lockedCount = Math.Max(0, totalCount - unlockedCount);
             double unlockedPercentage = totalCount > 0
@@ -237,7 +286,7 @@ namespace PlayniteExporterPlugin.Addons.Extractors
                 formattedLastRefreshUtc = parsedRefresh.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ");
             }
 
-            return new
+            var data = new
             {
                 has_achievements = totalCount > 0,
                 total_count = totalCount,
@@ -250,6 +299,9 @@ namespace PlayniteExporterPlugin.Addons.Extractors
                 items = itemsList,
                 achievements = itemsList
             };
+
+            var stateHash = GetStateHash(game, playniteUserDataDir);
+            return new AddonExtractionResult(AddonKey, data, stateHash, mediaUploads);
         }
 
         private static readonly object CacheLock = new();

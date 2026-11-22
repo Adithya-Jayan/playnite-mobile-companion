@@ -2,11 +2,14 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading.Tasks;
 using Newtonsoft.Json.Linq;
 using Playnite.SDK.Models;
+using PlayniteExporterPlugin.Common;
+using PlayniteExporterPlugin.Models;
 
 namespace PlayniteExporterPlugin.Addons.Extractors
 {
@@ -24,6 +27,14 @@ namespace PlayniteExporterPlugin.Addons.Extractors
 
         public async Task<object?> ExtractDataAsync(Game game, string playniteUserDataDir)
         {
+            var result = await ExtractAsync(game, playniteUserDataDir);
+            return result.Data;
+        }
+
+        public async Task<AddonExtractionResult> ExtractAsync(Game game, string playniteUserDataDir)
+        {
+            if (game == null) return new AddonExtractionResult(AddonKey, null);
+
             var filePath = Path.Combine(
                 playniteUserDataDir,
                 "ExtensionsData",
@@ -32,7 +43,7 @@ namespace PlayniteExporterPlugin.Addons.Extractors
                 $"{game.Id}.json"
             );
 
-            if (!File.Exists(filePath)) return null;
+            if (!File.Exists(filePath)) return new AddonExtractionResult(AddonKey, null);
 
             string jsonContent;
             using (var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
@@ -41,7 +52,7 @@ namespace PlayniteExporterPlugin.Addons.Extractors
                 jsonContent = await reader.ReadToEndAsync();
             }
 
-            if (string.IsNullOrWhiteSpace(jsonContent)) return null;
+            if (string.IsNullOrWhiteSpace(jsonContent)) return new AddonExtractionResult(AddonKey, null);
 
             var root = JObject.Parse(jsonContent);
             var itemsArray = root["Items"] as JArray;
@@ -53,6 +64,9 @@ namespace PlayniteExporterPlugin.Addons.Extractors
             }
 
             var itemsList = new List<object>();
+            var mediaUploads = new List<PlannedUpload>();
+            bool isGamePlayed = game.Playtime > 0 || game.LastActivity != null || game.IsInstalled;
+            int iconCount = 0;
             int unlockedCount = 0;
             int totalCount = 0;
             double gamerscoreCurrent = 0;
@@ -104,6 +118,47 @@ namespace PlayniteExporterPlugin.Addons.Extractors
                         if (File.Exists(localPath)) localIconUnlocked = localPath;
                     }
 
+                    var apiName = item.Value<string>("ApiName") ?? string.Empty;
+                    var safeApiName = string.Concat(apiName.Split(Path.GetInvalidFileNameChars()));
+                    if (string.IsNullOrEmpty(safeApiName)) safeApiName = Guid.NewGuid().ToString("N");
+
+                    // Self-contained achievement icon staging
+                    bool isHttp = !string.IsNullOrEmpty(urlUnlocked) &&
+                        (urlUnlocked.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+                         urlUnlocked.StartsWith("https://", StringComparison.OrdinalIgnoreCase));
+
+                    if (!isHttp && localIconUnlocked != null && File.Exists(localIconUnlocked) && (isUnlocked || (isGamePlayed && iconCount < 100)))
+                    {
+                        var iconRelPath = $"media/{game.Id}/achievements/{safeApiName}.jpg";
+                        try
+                        {
+                            var fileInfo = new FileInfo(localIconUnlocked);
+                            var sha = Sha256Hasher.ComputeFileHash(localIconUnlocked);
+
+                            if (!mediaUploads.Any(u => string.Equals(u.RelativePath, iconRelPath, StringComparison.OrdinalIgnoreCase)))
+                            {
+                                mediaUploads.Add(new PlannedUpload(
+                                    iconRelPath,
+                                    content: string.Empty,
+                                    sha256: sha,
+                                    sizeBytes: fileInfo.Length,
+                                    category: "achievement_icon",
+                                    gameId: game.Id,
+                                    existingDriveFileId: null,
+                                    mimeType: "image/jpeg",
+                                    sourceFilePath: localIconUnlocked
+                                ));
+                            }
+
+                            urlUnlocked = iconRelPath;
+                            iconCount++;
+                        }
+                        catch
+                        {
+                            // Ignore icon staging failure
+                        }
+                    }
+
                     object? progression = null;
                     if (item["Progression"] is JObject progObj)
                     {
@@ -116,7 +171,7 @@ namespace PlayniteExporterPlugin.Addons.Extractors
                     itemsList.Add(new
                     {
                         name = item.Value<string>("Name") ?? string.Empty,
-                        api_name = item.Value<string>("ApiName") ?? string.Empty,
+                        api_name = apiName,
                         description = item.Value<string>("Description") ?? string.Empty,
                         url_unlocked = urlUnlocked,
                         url_locked = urlLocked,
@@ -136,7 +191,7 @@ namespace PlayniteExporterPlugin.Addons.Extractors
                 }
             }
 
-            if (totalCount == 0) return null;
+            if (totalCount == 0) return new AddonExtractionResult(AddonKey, null);
 
             int lockedCount = Math.Max(0, totalCount - unlockedCount);
             double unlockedPercentage = totalCount > 0
@@ -158,7 +213,7 @@ namespace PlayniteExporterPlugin.Addons.Extractors
                 estimateTimeMax = estObj.Value<int?>("EstimateTimeMax");
             }
 
-            return new
+            var data = new
             {
                 has_achievements = totalCount > 0,
                 store_url = storeUrl,
@@ -175,6 +230,9 @@ namespace PlayniteExporterPlugin.Addons.Extractors
                 items = itemsList,
                 achievements = itemsList
             };
+
+            var stateHash = GetStateHash(game, playniteUserDataDir);
+            return new AddonExtractionResult(AddonKey, data, stateHash, mediaUploads);
         }
 
         public string? GetStateHash(Game game, string playniteUserDataDir)

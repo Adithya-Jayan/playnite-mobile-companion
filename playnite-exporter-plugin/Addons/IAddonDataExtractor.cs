@@ -12,5 +12,10 @@ namespace PlayniteExporterPlugin.Addons
         bool IsDataAvailable(string playniteUserDataDir);
         Task<object?> ExtractDataAsync(Game game, string playniteUserDataDir);
         string? GetStateHash(Game game, string playniteUserDataDir);
+
+        /// <summary>
+        /// Deepened self-contained extraction yielding structured metadata, state hash, and CAS media uploads.
+        /// </summary>
+        Task<AddonExtractionResult> ExtractAsync(Game game, string playniteUserDataDir);
     }
 }
